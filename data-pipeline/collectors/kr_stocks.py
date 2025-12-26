@@ -36,10 +36,11 @@ def get_supabase_client() -> Client:
     return create_client(url, key)
 
 
-def get_dart_reader() -> "OpenDartReaderType":
-    """Get OpenDartReader instance."""
+def get_dart_reader() -> "OpenDartReaderType | None":
+    """Get OpenDartReader instance. Returns None if API key not set."""
     if not DART_API_KEY:
-        raise ValueError("DART_API_KEY not set in environment variables")
+        print("Warning: DART_API_KEY not set. Financial statements will be skipped.")
+        return None
     return OpenDartReader(DART_API_KEY)  # type: ignore[call-non-callable]
 
 
@@ -403,8 +404,8 @@ def collect_and_save(
             # Get stock info
             stock_info = get_stock_info(ticker, name, mkt)
 
-            # Get corp_code for DART
-            corp_code = get_corp_code(dart, ticker)
+            # Get corp_code for DART (only if dart is available)
+            corp_code = get_corp_code(dart, ticker) if dart else None
 
             # Upsert company
             company_id = upsert_company(client, stock_info, corp_code)
@@ -417,8 +418,8 @@ def collect_and_save(
             if price:
                 upsert_price(client, company_id, price, stock_info.get("market_cap"))
 
-            # Get financial statements if corp_code exists
-            if corp_code:
+            # Get financial statements if corp_code exists and dart is available
+            if dart and corp_code:
                 financials = get_financial_statements(dart, corp_code, fiscal_year)
 
                 if financials:

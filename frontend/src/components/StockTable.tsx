@@ -27,76 +27,76 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
       <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
+        <thead className="bg-slate-800">
           <tr>
-            <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-white">
               Ticker
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-white">
               Name
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-white">
               Market
             </th>
-            <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
               Market Cap
             </th>
-            <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
               P/E
             </th>
-            <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
               P/B
             </th>
-            <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
               ROE
             </th>
-            <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
               Div Yield
             </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 bg-white">
           {stocks.map((stock) => (
-            <tr key={stock.id} className="hover:bg-gray-50">
+            <tr key={stock.id} className="hover:bg-blue-50 transition-colors">
               <td className="whitespace-nowrap px-4 py-4">
                 <Link
                   href={`/stocks/${stock.ticker}?market=${stock.market}`}
-                  className="font-medium text-blue-600 hover:underline"
+                  className="font-bold text-blue-600 hover:text-blue-800 hover:underline"
                 >
                   {stock.ticker}
                 </Link>
               </td>
-              <td className="px-4 py-4">
+              <td className="px-4 py-4 text-gray-900 font-medium">
                 <div className="max-w-xs truncate">{stock.name}</div>
               </td>
               <td className="whitespace-nowrap px-4 py-4">
                 <span
-                  className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
+                  className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
                     stock.market === "US"
                       ? "bg-blue-100 text-blue-800"
                       : stock.market === "KOSPI"
-                        ? "bg-green-100 text-green-800"
+                        ? "bg-emerald-100 text-emerald-800"
                         : "bg-purple-100 text-purple-800"
                   }`}
                 >
                   {stock.market}
                 </span>
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900 font-medium">
                 {formatMarketCap(stock.market_cap)}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900">
                 {formatRatio(stock.pe_ratio)}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900">
                 {formatRatio(stock.pb_ratio)}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-emerald-600 font-medium">
                 {formatPercent(stock.roe)}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-orange-600 font-medium">
                 {formatPercent(stock.dividend_yield)}
               </td>
             </tr>
