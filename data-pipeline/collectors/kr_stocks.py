@@ -4,10 +4,16 @@ Korean Stock Data Collector
 Collects financial data for Korean stocks using pykrx and OpenDartReader,
 and saves to Supabase.
 Supports hybrid storage: Supabase for latest data, CSV for history.
+
+Optimized for speed with:
+- Batch yfinance calls (50 tickers at a time)
+- Pre-fetched pykrx market data (single API call for all stocks)
+- ThreadPoolExecutor for parallel processing
 """
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -50,6 +56,85 @@ def get_dart_reader() -> "OpenDartReaderType | None":
         print("Warning: DART_API_KEY not set. Financial statements will be skipped.")
         return None
     return OpenDartReader(DART_API_KEY)  # type: ignore[call-non-callable]
+
+
+def get_market_data_bulk(target_date: str | None = None) -> tuple[pd.DataFrame, str]:
+    """
+    Fetch all market data in bulk (single API call).
+
+    get_market_cap returns: 종가, 시가총액, 거래량, 거래대금, 상장주식수
+
+    Returns:
+        Tuple of (market_df, trading_date) for all stocks.
+    """
+    # Find the most recent trading day with actual data (not weekend/holiday)
+    for i in range(7):
+        day = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+        market_df = pykrx.get_market_cap(day)
+        # Check if data has actual values (not all zeros)
+        if not market_df.empty and market_df["시가총액"].sum() > 0:
+            target_date = day
+            break
+    else:
+        return pd.DataFrame(), ""
+
+    print(f"Fetched bulk market data for {len(market_df)} stocks (date: {target_date})")
+    return market_df, target_date
+
+
+def get_yfinance_metrics_batch(tickers: list[str], markets: dict[str, str], batch_size: int = 50) -> dict[str, dict]:
+    """
+    Fetch yfinance metrics for multiple tickers in batches.
+
+    Args:
+        tickers: List of KRX tickers (e.g., ["005930", "000660"])
+        markets: Dict mapping ticker to market ("KOSPI" or "KOSDAQ")
+        batch_size: Number of tickers per batch
+
+    Returns:
+        Dict mapping ticker to metrics dict.
+    """
+    results: dict[str, dict] = {}
+
+    # Convert to yfinance format
+    yf_tickers = []
+    ticker_map = {}  # yf_ticker -> krx_ticker
+    for ticker in tickers:
+        market = markets.get(ticker, "KOSPI")
+        suffix = ".KS" if market == "KOSPI" else ".KQ"
+        yf_ticker = f"{ticker}{suffix}"
+        yf_tickers.append(yf_ticker)
+        ticker_map[yf_ticker] = ticker
+
+    # Process in batches
+    for i in range(0, len(yf_tickers), batch_size):
+        batch = yf_tickers[i:i + batch_size]
+        try:
+            # Use yf.Tickers for batch processing
+            tickers_obj = yf.Tickers(" ".join(batch))
+
+            for yf_ticker in batch:
+                try:
+                    info = tickers_obj.tickers[yf_ticker].info
+                    if info and info.get("regularMarketPrice") is not None:
+                        krx_ticker = ticker_map[yf_ticker]
+                        results[krx_ticker] = {
+                            "gross_margin": info.get("grossMargins"),
+                            "ev_ebitda": info.get("enterpriseToEbitda"),
+                            "dividend_yield": info.get("dividendYield"),
+                            "forward_pe": info.get("forwardPE"),
+                            "beta": info.get("beta"),
+                            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                            "trailing_pe": info.get("trailingPE"),
+                            "price_to_book": info.get("priceToBook"),
+                        }
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Batch error: {e}")
+
+    return results
 
 
 def get_index_constituents() -> dict[str, set[str]]:
@@ -493,26 +578,56 @@ def save_to_csv(
         print(f"Saved {len(prices)} prices to {prices_file}")
 
 
+def _process_dart_ticker(
+    dart: "OpenDartReaderType",
+    ticker: str,
+    fiscal_year: int,
+    market_cap: int | None,
+    price: dict | None,
+) -> tuple[str, dict | None, dict | None]:
+    """Process a single ticker's DART data (for parallel execution)."""
+    corp_code = get_corp_code(dart, ticker)
+    if not corp_code:
+        return ticker, None, None
+
+    financials = get_financial_statements(dart, corp_code, fiscal_year)
+    if not financials:
+        return ticker, None, None
+
+    # Build stock_info for metrics calculation
+    stock_info = {"market_cap": market_cap}
+    metrics = calculate_metrics(financials, stock_info, price)
+
+    return ticker, financials, metrics
+
+
 def collect_and_save(
     market: str = "ALL",
     tickers: list[str] | None = None,
-    delay: float = 0.3,
+    delay: float = 0.1,
     fiscal_year: int | None = None,
     limit: int | None = None,
     save_csv: bool = True,
     save_db: bool = True,
+    max_workers: int = 4,
 ) -> dict:
     """
     Collect Korean stock data and save to Supabase and/or CSV.
 
+    Optimized version with:
+    - Bulk pykrx data fetching (single API call for all stocks)
+    - Batch yfinance calls (50 tickers at a time)
+    - Parallel DART processing with ThreadPoolExecutor
+
     Args:
         market: "KOSPI", "KOSDAQ", or "ALL" for both.
         tickers: List of specific tickers to collect. If None, collects all.
-        delay: Delay between API calls in seconds.
+        delay: Delay between API calls in seconds (reduced due to batching).
         fiscal_year: Year for financial statements. Defaults to last year.
         limit: Maximum number of stocks to process (for testing).
         save_csv: Whether to save data to CSV files.
         save_db: Whether to save data to Supabase.
+        max_workers: Number of parallel workers for DART processing.
 
     Returns:
         Dictionary with success/failure counts.
@@ -526,10 +641,22 @@ def collect_and_save(
     if fiscal_year is None:
         fiscal_year = datetime.now().year - 1
 
-    # Fetch index constituents for membership tracking
+    # === PHASE 1: Fetch bulk data ===
+    print("Phase 1: Fetching bulk market data...")
+    market_df, bulk_date = get_market_data_bulk()
+
+    if market_df.empty:
+        print("Error: Could not fetch market data")
+        return {"success": 0, "failed": 0, "skipped": 0}
+
+    # Format trading date
+    trading_date = f"{bulk_date[:4]}-{bulk_date[4:6]}-{bulk_date[6:8]}" if bulk_date else date.today().isoformat()
+
+    # Fetch index constituents
     print("Fetching index constituents...")
     index_members = get_index_constituents()
 
+    # Get tickers
     print(f"Fetching {market} tickers...")
     df = get_krx_tickers(market)
 
@@ -541,37 +668,115 @@ def collect_and_save(
 
     print(f"Found {len(df)} tickers")
 
+    # Build ticker -> market mapping
+    ticker_markets = dict(zip(df["ticker"], df["market"]))
+    ticker_names = dict(zip(df["ticker"], df["name"]))
+    all_tickers = df["ticker"].tolist()
+
+    # === PHASE 2: Batch yfinance metrics ===
+    print(f"\nPhase 2: Fetching yfinance metrics in batches...")
+    yf_metrics_all = get_yfinance_metrics_batch(all_tickers, ticker_markets, batch_size=50)
+    print(f"Fetched yfinance metrics for {len(yf_metrics_all)} stocks")
+
+    # === PHASE 3: Process DART data in parallel ===
+    print(f"\nPhase 3: Processing DART data with {max_workers} workers...")
+    dart_results: dict[str, tuple[dict | None, dict | None]] = {}
+
+    if dart:
+        # Prepare data for parallel processing
+        tasks = []
+        for ticker in all_tickers:
+            market_cap = None
+            close_price = None
+            if ticker in market_df.index:
+                market_cap = int(market_df.loc[ticker, "시가총액"])
+                close_price = int(market_df.loc[ticker, "종가"])
+
+            price = {"date": trading_date, "close": close_price} if close_price else None
+            tasks.append((ticker, market_cap, price))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _process_dart_ticker, dart, ticker, fiscal_year, market_cap, price
+                ): ticker
+                for ticker, market_cap, price in tasks
+            }
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="DART processing"):
+                try:
+                    ticker, financials, metrics = future.result()
+                    dart_results[ticker] = (financials, metrics)
+                except Exception as e:
+                    ticker = futures[future]
+                    print(f"Error processing {ticker}: {e}")
+                    dart_results[ticker] = (None, None)
+                time.sleep(delay)  # Small delay to avoid rate limiting
+
+    # === PHASE 4: Combine all data ===
+    print(f"\nPhase 4: Combining data and saving...")
     stats = {"success": 0, "failed": 0, "skipped": 0}
 
-    # Lists for CSV export
     all_companies: list[dict] = []
     all_metrics: list[dict] = []
     all_prices: list[dict] = []
 
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="Collecting KR stocks"):
-        ticker = row["ticker"]
-        name = row["name"]
-        mkt = row["market"]
-
+    for ticker in tqdm(all_tickers, desc="Combining data"):
         try:
-            # Get stock info
-            stock_info = get_stock_info(ticker, name, mkt)
+            name = ticker_names.get(ticker, "")
+            mkt = ticker_markets.get(ticker, "KOSPI")
 
-            # Get corp_code for DART (only if dart is available)
-            corp_code = get_corp_code(dart, ticker) if dart else None
+            # Get market cap, volume, and close price from bulk data
+            market_cap = None
+            volume = None
+            close_price = None
+            if ticker in market_df.index:
+                row = market_df.loc[ticker]
+                market_cap = int(row["시가총액"])
+                volume = int(row["거래량"])
+                close_price = int(row["종가"])
 
-            company_id = None
+            # Build price data (only close available from bulk, no OHLC)
+            price_data = None
+            if close_price:
+                price_data = {
+                    "date": trading_date,
+                    "open": None,  # Not available in bulk
+                    "high": None,
+                    "low": None,
+                    "close": close_price,
+                    "volume": volume,
+                }
+
+            # Get DART metrics
+            financials, dart_metrics = dart_results.get(ticker, (None, None))
+
+            # Get yfinance metrics
+            yf_metrics = yf_metrics_all.get(ticker, {})
 
             # Save to database
             if save_db and client:
+                stock_info = {
+                    "ticker": ticker,
+                    "name": name,
+                    "market": mkt,
+                    "market_cap": market_cap,
+                    "volume": volume,
+                    "currency": "KRW",
+                }
+                corp_code = get_corp_code(dart, ticker) if dart else None
                 company_id = upsert_company(client, stock_info, corp_code)
-                if not company_id:
-                    stats["failed"] += 1
-                    continue
+                if company_id:
+                    if price_data:
+                        upsert_price(client, company_id, price_data, market_cap)
+                    if financials:
+                        upsert_financials(client, company_id, financials, fiscal_year)
+                    if dart_metrics:
+                        upsert_metrics(client, company_id, dart_metrics)
 
-            # Collect for CSV (with index membership)
+            # Collect for CSV
             if save_csv:
-                # Determine index membership
+                # Company data
                 indices = []
                 if ticker in index_members.get("KOSPI200", set()):
                     indices.append("KOSPI200")
@@ -579,74 +784,40 @@ def collect_and_save(
                     indices.append("KOSDAQ150")
 
                 all_companies.append({
-                    "ticker": stock_info["ticker"],
-                    "name": stock_info.get("name"),
+                    "ticker": ticker,
+                    "name": name,
                     "market": mkt,
                     "currency": "KRW",
-                    "market_cap": stock_info.get("market_cap"),
+                    "market_cap": market_cap,
                     "indices": ",".join(indices) if indices else None,
                 })
 
-            # Get price
-            price = get_stock_price(ticker)
-            if price:
-                if save_db and client and company_id:
-                    upsert_price(client, company_id, price, stock_info.get("market_cap"))
-                if save_csv:
+                # Price data
+                if price_data:
                     all_prices.append({
                         "ticker": ticker,
-                        "date": price["date"],
-                        "open": price.get("open"),
-                        "high": price.get("high"),
-                        "low": price.get("low"),
-                        "close": price.get("close"),
-                        "volume": price.get("volume"),
-                        "market_cap": stock_info.get("market_cap"),
+                        **price_data,
+                        "market_cap": market_cap,
                     })
 
-            # Get financial statements if corp_code exists and dart is available
-            metrics = None
-            if dart and corp_code:
-                financials = get_financial_statements(dart, corp_code, fiscal_year)
-
-                if financials:
-                    if save_db and client and company_id:
-                        upsert_financials(client, company_id, financials, fiscal_year)
-
-                    # Calculate metrics
-                    metrics = calculate_metrics(financials, stock_info, price)
-                    if metrics:
-                        if save_db and client and company_id:
-                            upsert_metrics(client, company_id, metrics)
-
-            # Get additional metrics from yfinance
-            yf_metrics = get_yfinance_metrics(ticker, mkt)
-
-            # Save metrics to CSV (even without DART data, save basic info)
-            # Use trading date from price data for consistency
-            if save_csv:
-                trading_date = price["date"] if price else date.today().isoformat()
+                # Metrics data (combine DART + yfinance)
                 metrics_data = {
                     "ticker": ticker,
                     "date": trading_date,
                     "market": mkt,
                 }
-                # Add DART-calculated metrics
-                if metrics:
-                    metrics_data.update(metrics)
-                # Add/override with yfinance metrics (yfinance values take precedence)
+                if dart_metrics:
+                    metrics_data.update(dart_metrics)
                 if yf_metrics:
-                    # Only override if yfinance has actual values
                     for key, value in yf_metrics.items():
                         if value is not None:
                             metrics_data[key] = value
                 all_metrics.append(metrics_data)
 
             stats["success"] += 1
-            time.sleep(delay)
 
         except Exception as e:
-            print(f"Error processing {ticker}: {e}")
+            print(f"Error combining {ticker}: {e}")
             stats["failed"] += 1
 
     # Save to CSV

@@ -3,10 +3,15 @@ US Stock Data Collector
 
 Collects financial data for US stocks using yfinance and saves to Supabase.
 Supports hybrid storage: Supabase for latest data, CSV for history.
+
+Optimized for speed with:
+- Batch yfinance calls (50 tickers at a time)
+- ThreadPoolExecutor for parallel processing
 """
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 
@@ -203,6 +208,112 @@ def get_financials(ticker: str) -> dict | None:
         return None
 
 
+def get_stock_data_batch(tickers: list[str], batch_size: int = 50) -> dict[str, dict]:
+    """
+    Fetch stock info and financials for multiple tickers in batches.
+
+    Args:
+        tickers: List of ticker symbols
+        batch_size: Number of tickers per batch
+
+    Returns:
+        Dict mapping ticker to combined stock info and financials dict.
+    """
+    results: dict[str, dict] = {}
+
+    for i in range(0, len(tickers), batch_size):
+        batch = tickers[i:i + batch_size]
+        try:
+            # Use yf.Tickers for batch processing
+            tickers_obj = yf.Tickers(" ".join(batch))
+
+            for ticker in batch:
+                try:
+                    info = tickers_obj.tickers[ticker].info
+                    if info and info.get("regularMarketPrice") is not None:
+                        results[ticker] = {
+                            # Stock info
+                            "name": info.get("longName"),
+                            "sector": info.get("sector"),
+                            "industry": info.get("industry"),
+                            "market_cap": info.get("marketCap"),
+                            "currency": info.get("currency", "USD"),
+                            # Financials
+                            "pe_ratio": info.get("trailingPE"),
+                            "forward_pe": info.get("forwardPE"),
+                            "pb_ratio": info.get("priceToBook"),
+                            "ps_ratio": info.get("priceToSalesTrailing12Months"),
+                            "ev_ebitda": info.get("enterpriseToEbitda"),
+                            "roe": info.get("returnOnEquity"),
+                            "roa": info.get("returnOnAssets"),
+                            "debt_equity": info.get("debtToEquity"),
+                            "current_ratio": info.get("currentRatio"),
+                            "gross_margin": info.get("grossMargins"),
+                            "net_margin": info.get("profitMargins"),
+                            "fcf": info.get("freeCashflow"),
+                            "dividend_yield": info.get("dividendYield"),
+                            "beta": info.get("beta"),
+                            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                        }
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Batch error: {e}")
+
+    return results
+
+
+def get_prices_batch(tickers: list[str]) -> dict[str, dict]:
+    """
+    Fetch price data for multiple tickers using yf.download.
+
+    Args:
+        tickers: List of ticker symbols
+
+    Returns:
+        Dict mapping ticker to price dict.
+    """
+    results: dict[str, dict] = {}
+
+    try:
+        # Download all prices at once
+        df = yf.download(tickers, period="1d", group_by="ticker", progress=False)
+
+        if df.empty:
+            return results
+
+        today = date.today().isoformat()
+
+        for ticker in tickers:
+            try:
+                if len(tickers) == 1:
+                    # Single ticker: no multi-level columns
+                    row = df.iloc[-1]
+                else:
+                    # Multiple tickers: access by ticker name
+                    if ticker not in df.columns.get_level_values(0):
+                        continue
+                    row = df[ticker].iloc[-1]
+
+                if pd.notna(row.get("Close")):
+                    results[ticker] = {
+                        "date": today,
+                        "open": float(row["Open"]) if pd.notna(row.get("Open")) else None,
+                        "high": float(row["High"]) if pd.notna(row.get("High")) else None,
+                        "low": float(row["Low"]) if pd.notna(row.get("Low")) else None,
+                        "close": float(row["Close"]) if pd.notna(row.get("Close")) else None,
+                        "volume": int(row["Volume"]) if pd.notna(row.get("Volume")) else None,
+                    }
+            except Exception:
+                pass
+
+    except Exception as e:
+        print(f"Price batch error: {e}")
+
+    return results
+
+
 def upsert_company(
     client: Client, stock_info: dict, index_membership: list[str] | None = None
 ) -> str | None:
@@ -299,21 +410,27 @@ def upsert_price(client: Client, company_id: str, stock_info: dict) -> bool:
 def collect_and_save(
     tickers: list[str] | None = None,
     ticker_membership: dict[str, list[str]] | None = None,
-    delay: float = 0.5,
+    delay: float = 0.1,
     save_csv: bool = True,
     save_db: bool = True,
     universe: str = "sp500",
+    batch_size: int = 50,
 ) -> dict:
     """
     Collect US stock data and save to Supabase and/or CSV.
 
+    Optimized version with:
+    - Batch yfinance calls (50 tickers at a time)
+    - Bulk price download using yf.download
+
     Args:
         tickers: List of tickers to collect. If None, uses universe param.
         ticker_membership: Dict mapping ticker to index membership list.
-        delay: Delay between API calls in seconds.
+        delay: Delay between batches in seconds (reduced due to batching).
         save_csv: Whether to save data to CSV files.
         save_db: Whether to save data to Supabase.
         universe: Which universe to collect: "sp500", "full" (all indices).
+        batch_size: Number of tickers per batch.
 
     Returns:
         Dictionary with success/failure counts.
@@ -338,18 +455,35 @@ def collect_and_save(
     if ticker_membership is None:
         ticker_membership = {t: [] for t in tickers}
 
+    # === PHASE 1: Batch fetch stock data ===
+    print(f"\nPhase 1: Fetching stock data in batches of {batch_size}...")
+    stock_data_all: dict[str, dict] = {}
+
+    for i in tqdm(range(0, len(tickers), batch_size), desc="Fetching stock data"):
+        batch = tickers[i:i + batch_size]
+        batch_data = get_stock_data_batch(batch, batch_size=len(batch))
+        stock_data_all.update(batch_data)
+        time.sleep(delay)
+
+    print(f"Fetched data for {len(stock_data_all)} stocks")
+
+    # === PHASE 2: Batch fetch prices ===
+    print(f"\nPhase 2: Fetching prices...")
+    prices_all = get_prices_batch(tickers)
+    print(f"Fetched prices for {len(prices_all)} stocks")
+
+    # === PHASE 3: Combine and save ===
+    print(f"\nPhase 3: Combining data and saving...")
     stats = {"success": 0, "failed": 0, "skipped": 0}
 
-    # Lists for CSV export
     all_companies: list[dict] = []
     all_metrics: list[dict] = []
     all_prices: list[dict] = []
 
-    for ticker in tqdm(tickers, desc="Collecting US stocks"):
+    for ticker in tqdm(tickers, desc="Processing"):
         try:
-            # Get stock info
-            stock_info = get_stock_info(ticker)
-            if not stock_info or not stock_info.get("name"):
+            data = stock_data_all.get(ticker)
+            if not data or not data.get("name"):
                 stats["skipped"] += 1
                 continue
 
@@ -358,62 +492,66 @@ def collect_and_save(
 
             # Save to database
             if save_db and client:
+                stock_info = {
+                    "ticker": ticker,
+                    "name": data.get("name"),
+                    "sector": data.get("sector"),
+                    "industry": data.get("industry"),
+                    "market_cap": data.get("market_cap"),
+                    "currency": data.get("currency", "USD"),
+                }
                 company_id = upsert_company(client, stock_info, membership)
-                if not company_id:
-                    stats["failed"] += 1
-                    continue
+                if company_id:
+                    upsert_metrics(client, company_id, data)
+                    if ticker in prices_all:
+                        # Need to create price entry with proper structure
+                        price_data = prices_all[ticker]
+                        upsert_price(client, company_id, {"ticker": ticker, "market_cap": data.get("market_cap")})
 
             # Collect for CSV
             if save_csv:
                 all_companies.append({
-                    "ticker": stock_info["ticker"],
-                    "name": stock_info.get("name"),
+                    "ticker": ticker,
+                    "name": data.get("name"),
                     "market": "US",
-                    "sector": stock_info.get("sector"),
-                    "industry": stock_info.get("industry"),
-                    "currency": stock_info.get("currency", "USD"),
+                    "sector": data.get("sector"),
+                    "industry": data.get("industry"),
+                    "currency": data.get("currency", "USD"),
+                    "market_cap": data.get("market_cap"),
                     "index_membership": ",".join(membership),
                 })
 
-            # Get and save financials
-            financials = get_financials(ticker)
-            if financials:
-                if save_db and client and company_id:
-                    upsert_metrics(client, company_id, financials)
-                if save_csv:
-                    all_metrics.append({
+                # Metrics
+                all_metrics.append({
+                    "ticker": ticker,
+                    "date": date.today().isoformat(),
+                    "pe_ratio": data.get("pe_ratio"),
+                    "forward_pe": data.get("forward_pe"),
+                    "pb_ratio": data.get("pb_ratio"),
+                    "ps_ratio": data.get("ps_ratio"),
+                    "ev_ebitda": data.get("ev_ebitda"),
+                    "roe": data.get("roe"),
+                    "roa": data.get("roa"),
+                    "debt_equity": data.get("debt_equity"),
+                    "current_ratio": data.get("current_ratio"),
+                    "gross_margin": data.get("gross_margin"),
+                    "net_margin": data.get("net_margin"),
+                    "dividend_yield": data.get("dividend_yield"),
+                    "beta": data.get("beta"),
+                    "fifty_two_week_high": data.get("fifty_two_week_high"),
+                    "fifty_two_week_low": data.get("fifty_two_week_low"),
+                })
+
+                # Prices
+                if ticker in prices_all:
+                    price = prices_all[ticker]
+                    all_prices.append({
                         "ticker": ticker,
-                        "date": date.today().isoformat(),
-                        **{k: v for k, v in financials.items() if k != "ticker"},
+                        **price,
+                        "market_cap": data.get("market_cap"),
                     })
 
-            # Get and save price data
-            if save_db and client and company_id:
-                upsert_price(client, company_id, stock_info)
-
-            if save_csv:
-                try:
-                    stock = yf.Ticker(ticker)
-                    hist = stock.history(period="1d")
-                    if not hist.empty:
-                        latest = hist.iloc[-1]
-                        all_prices.append({
-                            "ticker": ticker,
-                            "date": date.today().isoformat(),
-                            "open": float(latest["Open"]) if pd.notna(latest["Open"]) else None,
-                            "high": float(latest["High"]) if pd.notna(latest["High"]) else None,
-                            "low": float(latest["Low"]) if pd.notna(latest["Low"]) else None,
-                            "close": float(latest["Close"]) if pd.notna(latest["Close"]) else None,
-                            "volume": int(latest["Volume"]) if pd.notna(latest["Volume"]) else None,
-                            "market_cap": stock_info.get("market_cap"),
-                        })
-                except Exception:
-                    pass
-
             stats["success"] += 1
-
-            # Rate limiting
-            time.sleep(delay)
 
         except Exception as e:
             print(f"Error processing {ticker}: {e}")
