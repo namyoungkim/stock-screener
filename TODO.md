@@ -1,23 +1,23 @@
 # TODO - 개선 필요 사항
 
-> 마지막 업데이트: 2024-12-26
+> 마지막 업데이트: 2025-12-26
 
 ## 1. 데이터 파이프라인
 
 ### US 수집기 (`data-pipeline/collectors/us_stocks.py`)
 
-- [ ] Supabase 저장 로직 구현
-- [ ] Rate limiting 대응 (sleep, 재시도 로직)
+- [x] Supabase 저장 로직 구현
+- [x] Rate limiting 대응 (sleep, 재시도 로직)
 - [ ] 배치 처리 (실패 시 이어서 수집)
-- [ ] 진행률 로깅 개선
+- [x] 진행률 로깅 개선
 - [ ] 데이터 검증 (null 체크, 이상치 필터링)
 
 ### KR 수집기 (`data-pipeline/collectors/kr_stocks.py`)
 
-- [ ] `get_krx_tickers()` 구현 (pykrx 또는 KRX 데이터 활용)
-- [ ] corp_code 조회 로직 구현 (종목코드 → DART corp_code 매핑)
-- [ ] `get_financial_statements()` 실제 데이터 추출 로직 구현
-- [ ] Supabase 저장 로직 구현
+- [x] `get_krx_tickers()` 구현 (pykrx 활용)
+- [x] corp_code 조회 로직 구현 (종목코드 → DART corp_code 매핑)
+- [x] `get_financial_statements()` 실제 데이터 추출 로직 구현
+- [x] Supabase 저장 로직 구현
 
 ### 공통
 
@@ -30,17 +30,17 @@
 
 ### Supabase 스키마 생성
 
-- [ ] `companies` 테이블 (id, ticker, name, market, sector, currency)
-- [ ] `financials` 테이블 (company_id, fiscal_year, quarter, revenue, ...)
-- [ ] `prices` 테이블 (company_id, date, close, market_cap)
-- [ ] `metrics` 테이블 (계산된 지표)
-- [ ] `watchlist` 테이블 (user_id, company_id, added_at)
-- [ ] `alerts` 테이블 (user_id, company_id, metric, operator, value)
+- [x] `companies` 테이블 (id, ticker, name, market, sector, currency)
+- [x] `financials` 테이블 (company_id, fiscal_year, quarter, revenue, ...)
+- [x] `prices` 테이블 (company_id, date, close, market_cap)
+- [x] `metrics` 테이블 (계산된 지표)
+- [x] `watchlist` 테이블 (user_id, company_id, added_at)
+- [x] `alerts` 테이블 (user_id, company_id, metric, operator, value)
 
 ### 인덱스 및 최적화
 
-- [ ] ticker, market 조합 인덱스
-- [ ] company_id + date 조합 인덱스
+- [x] ticker, market 조합 인덱스
+- [x] company_id + date 조합 인덱스
 
 ---
 
@@ -114,28 +114,28 @@
 - [ ] Vercel 배포 설정 (프론트엔드)
 - [ ] Railway 배포 설정 (백엔드, 봇)
 - [ ] 도메인 연결
-- [ ] GitHub Actions 실패 알림 추가
+- [x] GitHub Actions 워크플로우 개선 (병렬 실행, 수동 트리거 옵션)
 
 ---
 
 ## 우선순위
 
-### P0 - 즉시 (1주차 완료 필수)
-1. Supabase 테이블 생성
-2. US 수집기 저장 로직
-3. KR 티커 확보 방법 결정
+### P0 - 즉시 (완료)
+1. ~~Supabase 테이블 생성~~ ✅
+2. ~~US 수집기 저장 로직~~ ✅
+3. ~~KR 티커 확보 방법 결정~~ ✅ (pykrx 사용)
 
-### P1 - 높음 (2주차)
+### P1 - 높음 (다음 단계)
 1. 백엔드 API 기본 구조
 2. 지표 계산 엔진
 3. 스크리닝 엔드포인트
 
-### P2 - 중간 (3-4주차)
+### P2 - 중간
 1. 프론트엔드 MVP
 2. 디스코드 봇 기본 기능
 3. 워치리스트
 
-### P3 - 낮음 (5주차 이후)
+### P3 - 낮음
 1. 알림 시스템
 2. 프로덕션 보안 강화
 3. 성능 최적화
