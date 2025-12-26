@@ -1,65 +1,65 @@
 # Stock Screener
 
-Value investing screening tool for US and Korean stocks.
+미국(S&P 500) 및 한국 시장을 지원하는 가치투자 스크리닝 도구입니다.
 
-## Features
+## 주요 기능
 
-- **Screening**: Filter stocks by valuation, profitability, and financial health metrics
-- **Watchlist**: Save and track your favorite stocks
-- **Alerts**: Get notified when stocks meet your criteria
-- **Multi-language**: English and Korean support
-- **Discord Bot**: Screen stocks directly from Discord
+- **스크리닝**: 밸류에이션, 수익성, 재무 건전성 지표로 주식 필터링
+- **워치리스트**: 관심 종목 저장 및 추적
+- **알림**: 조건 충족 시 알림 수신
+- **다국어 지원**: 영어/한국어 지원
+- **디스코드 봇**: 디스코드에서 직접 스크리닝
 
-## Tech Stack
+## 기술 스택
 
-- **Frontend**: Next.js 14, Tailwind CSS, next-intl
-- **Backend**: FastAPI
-- **Database**: Supabase (PostgreSQL)
-- **Bot**: discord.py
-- **Data**: yfinance, FMP, OpenDartReader
-- **Deploy**: Vercel, Railway
+- **프론트엔드**: Next.js 14, Tailwind CSS, next-intl
+- **백엔드**: FastAPI
+- **데이터베이스**: Supabase (PostgreSQL)
+- **봇**: discord.py
+- **데이터**: yfinance, FMP, OpenDartReader
+- **배포**: Vercel, Railway
 
-## Project Structure
+## 프로젝트 구조
 
 ```
 stock-screener/
-├── backend/           # FastAPI server
-├── frontend/          # Next.js app
-├── data-pipeline/     # Data collection scripts
-├── discord-bot/       # Discord bot
+├── backend/           # FastAPI 서버
+├── frontend/          # Next.js 앱
+├── data-pipeline/     # 데이터 수집 스크립트
+├── discord-bot/       # 디스코드 봇
 └── .github/workflows/ # GitHub Actions
 ```
 
-## Getting Started
+## 시작하기
 
-### Prerequisites
+### 필수 조건
 
 - Python 3.11+
 - Node.js 18+
-- Supabase account
-- FMP API key (free tier)
-- Discord bot token
+- Supabase 계정
+- FMP API 키 (무료)
+- 디스코드 봇 토큰
 
-### Setup
+### 설치
 
-1. Clone the repository
+1. 저장소 클론
 ```bash
 git clone https://github.com/namyoungkim/stock-screener.git
 cd stock-screener
 ```
 
-2. Install dependencies
+2. 의존성 설치
 ```bash
 uv sync
 ```
 
-3. Copy environment variables
+3. 환경 변수 설정
 ```bash
 cp .env.example .env
-# Edit .env with your API keys
+# .env 파일에 API 키 입력
 ```
 
-## Environment Variables
+## 환경 변수
 
 ```
 # Supabase
@@ -69,13 +69,13 @@ SUPABASE_KEY=your_supabase_key
 # FMP (Financial Modeling Prep)
 FMP_API_KEY=your_fmp_key
 
-# DART (Korea)
+# DART (한국)
 DART_API_KEY=your_dart_key
 
 # Discord
 DISCORD_BOT_TOKEN=your_discord_token
 ```
 
-## License
+## 라이선스
 
 MIT
