@@ -18,9 +18,9 @@
 - [x] Tooltip UX (금융 용어 설명)
 
 ### 진행 중
-- [ ] 전체 데이터 수집 (S&P 500 + KOSPI/KOSDAQ)
-- [ ] 하이브리드 데이터 저장 전략
-- [ ] 백업 자동화
+- [x] 하이브리드 데이터 저장 전략
+- [x] 백업 자동화 (GitHub Actions)
+- [ ] 전체 데이터 수집 (S&P 500 + 400 + 600 + Russell 2000 + KOSPI/KOSDAQ)
 
 ### 예정
 - [ ] Graham Number 계산 추가

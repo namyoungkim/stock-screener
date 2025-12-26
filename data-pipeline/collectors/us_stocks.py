@@ -35,12 +35,127 @@ def get_supabase_client() -> Client:
     return create_client(url, key)
 
 
+def _fetch_wiki_tickers(url: str, index_name: str) -> list[str]:
+    """Fetch tickers from Wikipedia table."""
+    import requests
+    from io import StringIO
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    }
+    response = requests.get(url, headers=headers)
+    tables = pd.read_html(StringIO(response.text))
+    df = tables[0]
+
+    # Column name might be 'Symbol' or 'Ticker'
+    col = "Symbol" if "Symbol" in df.columns else "Ticker"
+    tickers = df[col].str.replace(".", "-").tolist()
+    print(f"Fetched {len(tickers)} {index_name} tickers")
+    return tickers
+
+
 def get_sp500_tickers() -> list[str]:
     """Get S&P 500 tickers from Wikipedia."""
-    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-    tables = pd.read_html(url)
-    df = tables[0]
-    return df["Symbol"].str.replace(".", "-").tolist()
+    try:
+        return _fetch_wiki_tickers(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+            "S&P 500",
+        )
+    except Exception as e:
+        print(f"Error fetching S&P 500: {e}")
+        return []
+
+
+def get_sp400_tickers() -> list[str]:
+    """Get S&P 400 Mid Cap tickers from Wikipedia."""
+    try:
+        return _fetch_wiki_tickers(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
+            "S&P 400",
+        )
+    except Exception as e:
+        print(f"Error fetching S&P 400: {e}")
+        return []
+
+
+def get_sp600_tickers() -> list[str]:
+    """Get S&P 600 Small Cap tickers from Wikipedia."""
+    try:
+        return _fetch_wiki_tickers(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies",
+            "S&P 600",
+        )
+    except Exception as e:
+        print(f"Error fetching S&P 600: {e}")
+        return []
+
+
+def get_russell2000_tickers() -> list[str]:
+    """Get Russell 2000 tickers from iShares IWM ETF holdings."""
+    try:
+        # iShares Russell 2000 ETF holdings
+        url = "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund"
+        df = pd.read_csv(url, skiprows=9)
+
+        # Filter to stocks only (exclude cash, futures, etc.)
+        if "Asset Class" in df.columns:
+            df = df[df["Asset Class"] == "Equity"]
+
+        tickers = df["Ticker"].dropna().str.strip().tolist()
+        # Clean up tickers
+        tickers = [t for t in tickers if t and isinstance(t, str) and len(t) <= 5]
+        print(f"Fetched {len(tickers)} Russell 2000 tickers")
+        return tickers
+    except Exception as e:
+        print(f"Error fetching Russell 2000 from iShares: {e}")
+        # Fallback: try alternative source
+        try:
+            # Alternative: use a static list or another source
+            print("Trying alternative source for Russell 2000...")
+            # For now, return empty - will implement alternative later
+            return []
+        except Exception:
+            return []
+
+
+def get_all_us_tickers() -> dict[str, list[str]]:
+    """
+    Get all US tickers with index membership.
+
+    Returns:
+        Dictionary mapping ticker to list of indices it belongs to.
+        Example: {"AAPL": ["SP500"], "ACAD": ["SP600", "RUSSELL2000"]}
+    """
+    print("Fetching all US index tickers...")
+
+    # Fetch from all indices
+    sp500 = set(get_sp500_tickers())
+    sp400 = set(get_sp400_tickers())
+    sp600 = set(get_sp600_tickers())
+    russell2000 = set(get_russell2000_tickers())
+
+    # Build membership dictionary
+    all_tickers: dict[str, list[str]] = {}
+
+    for ticker in sp500:
+        all_tickers.setdefault(ticker, []).append("SP500")
+
+    for ticker in sp400:
+        all_tickers.setdefault(ticker, []).append("SP400")
+
+    for ticker in sp600:
+        all_tickers.setdefault(ticker, []).append("SP600")
+
+    for ticker in russell2000:
+        all_tickers.setdefault(ticker, []).append("RUSSELL2000")
+
+    print(f"\nTotal unique tickers: {len(all_tickers)}")
+    print(f"  - S&P 500: {len(sp500)}")
+    print(f"  - S&P 400: {len(sp400)}")
+    print(f"  - S&P 600: {len(sp600)}")
+    print(f"  - Russell 2000: {len(russell2000)}")
+
+    return all_tickers
 
 
 def get_stock_info(ticker: str) -> dict | None:
@@ -88,7 +203,9 @@ def get_financials(ticker: str) -> dict | None:
         return None
 
 
-def upsert_company(client: Client, stock_info: dict) -> str | None:
+def upsert_company(
+    client: Client, stock_info: dict, index_membership: list[str] | None = None
+) -> str | None:
     """Insert or update company in Supabase, return company ID."""
     try:
         data = {
@@ -100,6 +217,9 @@ def upsert_company(client: Client, stock_info: dict) -> str | None:
             "currency": stock_info.get("currency", "USD"),
             "is_active": True,
         }
+
+        # Note: index_membership stored in separate tracking for now
+        # Could add a column later if needed
 
         result = (
             client.table("companies")
@@ -178,18 +298,22 @@ def upsert_price(client: Client, company_id: str, stock_info: dict) -> bool:
 
 def collect_and_save(
     tickers: list[str] | None = None,
+    ticker_membership: dict[str, list[str]] | None = None,
     delay: float = 0.5,
     save_csv: bool = True,
     save_db: bool = True,
+    universe: str = "sp500",
 ) -> dict:
     """
     Collect US stock data and save to Supabase and/or CSV.
 
     Args:
-        tickers: List of tickers to collect. If None, collects all S&P 500.
+        tickers: List of tickers to collect. If None, uses universe param.
+        ticker_membership: Dict mapping ticker to index membership list.
         delay: Delay between API calls in seconds.
         save_csv: Whether to save data to CSV files.
         save_db: Whether to save data to Supabase.
+        universe: Which universe to collect: "sp500", "full" (all indices).
 
     Returns:
         Dictionary with success/failure counts.
@@ -198,10 +322,21 @@ def collect_and_save(
     if save_db:
         client = get_supabase_client()
 
+    # Determine tickers to collect
     if tickers is None:
-        print("Fetching S&P 500 tickers...")
-        tickers = get_sp500_tickers()
-        print(f"Found {len(tickers)} tickers")
+        if universe == "full":
+            print("Fetching full US universe (S&P 500 + 400 + 600 + Russell 2000)...")
+            ticker_membership = get_all_us_tickers()
+            tickers = list(ticker_membership.keys())
+        else:
+            print("Fetching S&P 500 tickers...")
+            tickers = get_sp500_tickers()
+            ticker_membership = {t: ["SP500"] for t in tickers}
+
+        print(f"Found {len(tickers)} unique tickers")
+
+    if ticker_membership is None:
+        ticker_membership = {t: [] for t in tickers}
 
     stats = {"success": 0, "failed": 0, "skipped": 0}
 
@@ -218,11 +353,12 @@ def collect_and_save(
                 stats["skipped"] += 1
                 continue
 
+            membership = ticker_membership.get(ticker, [])
             company_id = None
 
             # Save to database
             if save_db and client:
-                company_id = upsert_company(client, stock_info)
+                company_id = upsert_company(client, stock_info, membership)
                 if not company_id:
                     stats["failed"] += 1
                     continue
@@ -236,6 +372,7 @@ def collect_and_save(
                     "sector": stock_info.get("sector"),
                     "industry": stock_info.get("industry"),
                     "currency": stock_info.get("currency", "USD"),
+                    "index_membership": ",".join(membership),
                 })
 
             # Get and save financials
@@ -363,13 +500,16 @@ def dry_run_test(tickers: list[str] | None = None) -> None:
 if __name__ == "__main__":
     import sys
 
-    if "--dry-run" in sys.argv:
+    args = sys.argv[1:]
+    csv_only = "--csv-only" in args
+    full_universe = "--full" in args
+
+    if "--dry-run" in args:
         # Dry run: test data collection without database
         dry_run_test()
-    elif "--test" in sys.argv:
+    elif "--test" in args:
         # Test mode: only a few tickers
         test_tickers = ["AAPL", "MSFT", "GOOGL"]
-        csv_only = "--csv-only" in sys.argv
         print(f"Running in test mode (csv_only={csv_only})...")
         collect_and_save(
             tickers=test_tickers,
@@ -377,11 +517,29 @@ if __name__ == "__main__":
             save_csv=True,
             save_db=not csv_only,
         )
-    elif "--csv-only" in sys.argv:
+    elif "--list-tickers" in args:
+        # Just list tickers without collecting
+        if full_universe:
+            tickers = get_all_us_tickers()
+            print(f"\nSample tickers with membership:")
+            for i, (t, m) in enumerate(list(tickers.items())[:20]):
+                print(f"  {t}: {m}")
+        else:
+            tickers = get_sp500_tickers()
+    elif full_universe:
+        # Full universe: S&P 500 + 400 + 600 + Russell 2000
+        print("Running FULL US universe collection...")
+        print("This will take 3-4 hours. Press Ctrl+C to cancel.\n")
+        collect_and_save(
+            save_csv=True,
+            save_db=not csv_only,
+            universe="full",
+        )
+    elif csv_only:
         # CSV only: save to files without database
-        print("Running full S&P 500 collection (CSV only)...")
-        collect_and_save(save_csv=True, save_db=False)
+        print("Running S&P 500 collection (CSV only)...")
+        collect_and_save(save_csv=True, save_db=False, universe="sp500")
     else:
-        # Full collection: both database and CSV
-        print("Running full S&P 500 collection...")
-        collect_and_save(save_csv=True, save_db=True)
+        # S&P 500 only: both database and CSV
+        print("Running S&P 500 collection...")
+        collect_and_save(save_csv=True, save_db=True, universe="sp500")
