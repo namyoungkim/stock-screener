@@ -12,6 +12,7 @@ Optimized for speed with:
 """
 
 import os
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
@@ -23,8 +24,9 @@ import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
 from pykrx import stock as pykrx  # type: ignore[import-untyped]
-from supabase import Client, create_client
 from tqdm import tqdm
+
+from supabase import Client, create_client
 
 if TYPE_CHECKING:
     from OpenDartReader.dart import OpenDartReader as OpenDartReaderType
@@ -82,7 +84,55 @@ def get_market_data_bulk(target_date: str | None = None) -> tuple[pd.DataFrame, 
     return market_df, target_date
 
 
-def get_yfinance_metrics_batch(tickers: list[str], markets: dict[str, str], batch_size: int = 50) -> dict[str, dict]:
+def get_single_yfinance_metrics(
+    yf_ticker: str,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+) -> dict | None:
+    """
+    Fetch yfinance metrics for a single ticker with exponential backoff.
+
+    Args:
+        yf_ticker: Yahoo Finance ticker (e.g., "005930.KS")
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay in seconds
+        max_delay: Maximum delay cap in seconds
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            stock = yf.Ticker(yf_ticker)
+            info = stock.info
+            if info and info.get("regularMarketPrice") is not None:
+                return {
+                    "gross_margin": info.get("grossMargins"),
+                    "ev_ebitda": info.get("enterpriseToEbitda"),
+                    "dividend_yield": info.get("dividendYield"),
+                    "forward_pe": info.get("forwardPE"),
+                    "beta": info.get("beta"),
+                    "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                    "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                    "trailing_pe": info.get("trailingPE"),
+                    "price_to_book": info.get("priceToBook"),
+                }
+            # No valid data, but not an error - don't retry
+            return None
+        except Exception:
+            if attempt < max_retries:
+                # Exponential backoff with jitter
+                delay = min(base_delay * (2**attempt) + random.uniform(0, 1), max_delay)
+                time.sleep(delay)
+            # Last attempt failed
+    return None
+
+
+def get_yfinance_metrics_batch(
+    tickers: list[str],
+    markets: dict[str, str],
+    batch_size: int = 30,
+    with_fallback: bool = True,
+    delay: float = 0.3,
+) -> dict[str, dict]:
     """
     Fetch yfinance metrics for multiple tickers in batches.
 
@@ -90,11 +140,14 @@ def get_yfinance_metrics_batch(tickers: list[str], markets: dict[str, str], batc
         tickers: List of KRX tickers (e.g., ["005930", "000660"])
         markets: Dict mapping ticker to market ("KOSPI" or "KOSDAQ")
         batch_size: Number of tickers per batch
+        with_fallback: If True, retry failed tickers individually
+        delay: Delay between individual fallback calls
 
     Returns:
         Dict mapping ticker to metrics dict.
     """
     results: dict[str, dict] = {}
+    failed_tickers: list[tuple[str, str]] = []  # (yf_ticker, krx_ticker)
 
     # Convert to yfinance format
     yf_tickers = []
@@ -108,7 +161,7 @@ def get_yfinance_metrics_batch(tickers: list[str], markets: dict[str, str], batc
 
     # Process in batches
     for i in range(0, len(yf_tickers), batch_size):
-        batch = yf_tickers[i:i + batch_size]
+        batch = yf_tickers[i : i + batch_size]
         try:
             # Use yf.Tickers for batch processing
             tickers_obj = yf.Tickers(" ".join(batch))
@@ -129,10 +182,41 @@ def get_yfinance_metrics_batch(tickers: list[str], markets: dict[str, str], batc
                             "trailing_pe": info.get("trailingPE"),
                             "price_to_book": info.get("priceToBook"),
                         }
+                    else:
+                        failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
                 except Exception:
-                    pass
+                    failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
         except Exception as e:
             print(f"Batch error: {e}")
+            for yf_ticker in batch:
+                failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
+
+    # Fallback: retry failed tickers individually with exponential backoff
+    if with_fallback and failed_tickers:
+        print(f"  Retrying {len(failed_tickers)} failed tickers individually...")
+        consecutive_failures = 0
+        base_delay = 0.5
+
+        for yf_ticker, krx_ticker in tqdm(
+            failed_tickers, desc="  Fallback", leave=False
+        ):
+            data = get_single_yfinance_metrics(yf_ticker)
+            if data:
+                results[krx_ticker] = data
+                consecutive_failures = 0  # Reset on success
+            else:
+                consecutive_failures += 1
+
+            # Adaptive delay: increase if seeing consecutive failures
+            if consecutive_failures >= 3:
+                current_delay = min(
+                    base_delay * (2 ** (consecutive_failures - 2)), 30.0
+                )
+                current_delay += random.uniform(0, 1)  # Jitter
+            else:
+                current_delay = base_delay
+
+            time.sleep(current_delay)
 
     return results
 
@@ -434,7 +518,9 @@ def calculate_metrics(
         return None
 
 
-def upsert_company(client: Client, stock_info: dict, corp_code: str | None) -> str | None:
+def upsert_company(
+    client: Client, stock_info: dict, corp_code: str | None
+) -> str | None:
     """Insert or update company in Supabase, return company ID."""
     try:
         market_type = stock_info["market"]  # "KOSPI" or "KOSDAQ"
@@ -650,7 +736,11 @@ def collect_and_save(
         return {"success": 0, "failed": 0, "skipped": 0}
 
     # Format trading date
-    trading_date = f"{bulk_date[:4]}-{bulk_date[4:6]}-{bulk_date[6:8]}" if bulk_date else date.today().isoformat()
+    trading_date = (
+        f"{bulk_date[:4]}-{bulk_date[4:6]}-{bulk_date[6:8]}"
+        if bulk_date
+        else date.today().isoformat()
+    )
 
     # Fetch index constituents
     print("Fetching index constituents...")
@@ -669,13 +759,15 @@ def collect_and_save(
     print(f"Found {len(df)} tickers")
 
     # Build ticker -> market mapping
-    ticker_markets = dict(zip(df["ticker"], df["market"]))
-    ticker_names = dict(zip(df["ticker"], df["name"]))
+    ticker_markets = dict(zip(df["ticker"], df["market"], strict=True))
+    ticker_names = dict(zip(df["ticker"], df["name"], strict=True))
     all_tickers = df["ticker"].tolist()
 
     # === PHASE 2: Batch yfinance metrics ===
-    print(f"\nPhase 2: Fetching yfinance metrics in batches...")
-    yf_metrics_all = get_yfinance_metrics_batch(all_tickers, ticker_markets, batch_size=50)
+    print("\nPhase 2: Fetching yfinance metrics in batches...")
+    yf_metrics_all = get_yfinance_metrics_batch(
+        all_tickers, ticker_markets, batch_size=30, with_fallback=True, delay=0.3
+    )
     print(f"Fetched yfinance metrics for {len(yf_metrics_all)} stocks")
 
     # === PHASE 3: Process DART data in parallel ===
@@ -692,7 +784,9 @@ def collect_and_save(
                 market_cap = int(market_df.loc[ticker, "시가총액"])
                 close_price = int(market_df.loc[ticker, "종가"])
 
-            price = {"date": trading_date, "close": close_price} if close_price else None
+            price = (
+                {"date": trading_date, "close": close_price} if close_price else None
+            )
             tasks.append((ticker, market_cap, price))
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -703,7 +797,9 @@ def collect_and_save(
                 for ticker, market_cap, price in tasks
             }
 
-            for future in tqdm(as_completed(futures), total=len(futures), desc="DART processing"):
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="DART processing"
+            ):
                 try:
                     ticker, financials, metrics = future.result()
                     dart_results[ticker] = (financials, metrics)
@@ -714,7 +810,7 @@ def collect_and_save(
                 time.sleep(delay)  # Small delay to avoid rate limiting
 
     # === PHASE 4: Combine all data ===
-    print(f"\nPhase 4: Combining data and saving...")
+    print("\nPhase 4: Combining data and saving...")
     stats = {"success": 0, "failed": 0, "skipped": 0}
 
     all_companies: list[dict] = []
@@ -783,22 +879,26 @@ def collect_and_save(
                 if ticker in index_members.get("KOSDAQ150", set()):
                     indices.append("KOSDAQ150")
 
-                all_companies.append({
-                    "ticker": ticker,
-                    "name": name,
-                    "market": mkt,
-                    "currency": "KRW",
-                    "market_cap": market_cap,
-                    "indices": ",".join(indices) if indices else None,
-                })
+                all_companies.append(
+                    {
+                        "ticker": ticker,
+                        "name": name,
+                        "market": mkt,
+                        "currency": "KRW",
+                        "market_cap": market_cap,
+                        "indices": ",".join(indices) if indices else None,
+                    }
+                )
 
                 # Price data
                 if price_data:
-                    all_prices.append({
-                        "ticker": ticker,
-                        **price_data,
-                        "market_cap": market_cap,
-                    })
+                    all_prices.append(
+                        {
+                            "ticker": ticker,
+                            **price_data,
+                            "market_cap": market_cap,
+                        }
+                    )
 
                 # Metrics data (combine DART + yfinance)
                 metrics_data = {
@@ -858,8 +958,16 @@ def dry_run_test(tickers: list[str] | None = None) -> None:
             price = get_stock_price(ticker)
             if price:
                 print(f"Date: {price['date']}")
-                print(f"Close: {price['close']:,} KRW" if price.get('close') else "Close: N/A")
-                print(f"Volume: {price['volume']:,}" if price.get('volume') else "Volume: N/A")
+                print(
+                    f"Close: {price['close']:,} KRW"
+                    if price.get("close")
+                    else "Close: N/A"
+                )
+                print(
+                    f"Volume: {price['volume']:,}"
+                    if price.get("volume")
+                    else "Volume: N/A"
+                )
 
         except Exception as e:
             print(f"Error: {e}")

@@ -10,16 +10,17 @@ Optimized for speed with:
 """
 
 import os
+import random
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
-from supabase import Client, create_client
 from tqdm import tqdm
+
+from supabase import Client, create_client
 
 load_dotenv()
 
@@ -42,8 +43,9 @@ def get_supabase_client() -> Client:
 
 def _fetch_wiki_tickers(url: str, index_name: str) -> list[str]:
     """Fetch tickers from Wikipedia table."""
-    import requests
     from io import StringIO
+
+    import requests
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
@@ -208,21 +210,83 @@ def get_financials(ticker: str) -> dict | None:
         return None
 
 
-def get_stock_data_batch(tickers: list[str], batch_size: int = 50) -> dict[str, dict]:
+def get_single_stock_info(
+    ticker: str,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+) -> dict | None:
+    """
+    Fetch info for a single ticker with exponential backoff.
+
+    Args:
+        ticker: Stock ticker symbol
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay in seconds
+        max_delay: Maximum delay cap in seconds
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            if info and info.get("regularMarketPrice") is not None:
+                return {
+                    "name": info.get("longName"),
+                    "sector": info.get("sector"),
+                    "industry": info.get("industry"),
+                    "market_cap": info.get("marketCap"),
+                    "currency": info.get("currency", "USD"),
+                    "pe_ratio": info.get("trailingPE"),
+                    "forward_pe": info.get("forwardPE"),
+                    "pb_ratio": info.get("priceToBook"),
+                    "ps_ratio": info.get("priceToSalesTrailing12Months"),
+                    "ev_ebitda": info.get("enterpriseToEbitda"),
+                    "roe": info.get("returnOnEquity"),
+                    "roa": info.get("returnOnAssets"),
+                    "debt_equity": info.get("debtToEquity"),
+                    "current_ratio": info.get("currentRatio"),
+                    "gross_margin": info.get("grossMargins"),
+                    "net_margin": info.get("profitMargins"),
+                    "fcf": info.get("freeCashflow"),
+                    "dividend_yield": info.get("dividendYield"),
+                    "beta": info.get("beta"),
+                    "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                    "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                }
+            # No valid data, but not an error - don't retry
+            return None
+        except Exception:
+            if attempt < max_retries:
+                # Exponential backoff with jitter
+                delay = min(base_delay * (2**attempt) + random.uniform(0, 1), max_delay)
+                time.sleep(delay)
+            # Last attempt failed
+    return None
+
+
+def get_stock_data_batch(
+    tickers: list[str],
+    batch_size: int = 50,
+    with_fallback: bool = True,
+    delay: float = 0.5,
+) -> dict[str, dict]:
     """
     Fetch stock info and financials for multiple tickers in batches.
 
     Args:
         tickers: List of ticker symbols
         batch_size: Number of tickers per batch
+        with_fallback: If True, retry failed tickers individually
+        delay: Delay between individual fallback calls
 
     Returns:
         Dict mapping ticker to combined stock info and financials dict.
     """
     results: dict[str, dict] = {}
+    failed_tickers: list[str] = []
 
     for i in range(0, len(tickers), batch_size):
-        batch = tickers[i:i + batch_size]
+        batch = tickers[i : i + batch_size]
         try:
             # Use yf.Tickers for batch processing
             tickers_obj = yf.Tickers(" ".join(batch))
@@ -232,13 +296,11 @@ def get_stock_data_batch(tickers: list[str], batch_size: int = 50) -> dict[str, 
                     info = tickers_obj.tickers[ticker].info
                     if info and info.get("regularMarketPrice") is not None:
                         results[ticker] = {
-                            # Stock info
                             "name": info.get("longName"),
                             "sector": info.get("sector"),
                             "industry": info.get("industry"),
                             "market_cap": info.get("marketCap"),
                             "currency": info.get("currency", "USD"),
-                            # Financials
                             "pe_ratio": info.get("trailingPE"),
                             "forward_pe": info.get("forwardPE"),
                             "pb_ratio": info.get("priceToBook"),
@@ -256,10 +318,38 @@ def get_stock_data_batch(tickers: list[str], batch_size: int = 50) -> dict[str, 
                             "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
                             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
                         }
+                    else:
+                        failed_tickers.append(ticker)
                 except Exception:
-                    pass
+                    failed_tickers.append(ticker)
         except Exception as e:
             print(f"Batch error: {e}")
+            failed_tickers.extend(batch)
+
+    # Fallback: retry failed tickers individually with exponential backoff
+    if with_fallback and failed_tickers:
+        print(f"  Retrying {len(failed_tickers)} failed tickers individually...")
+        consecutive_failures = 0
+        base_delay = 0.5
+
+        for ticker in tqdm(failed_tickers, desc="  Fallback", leave=False):
+            data = get_single_stock_info(ticker)
+            if data:
+                results[ticker] = data
+                consecutive_failures = 0  # Reset on success
+            else:
+                consecutive_failures += 1
+
+            # Adaptive delay: increase if seeing consecutive failures
+            if consecutive_failures >= 3:
+                current_delay = min(
+                    base_delay * (2 ** (consecutive_failures - 2)), 30.0
+                )
+                current_delay += random.uniform(0, 1)  # Jitter
+            else:
+                current_delay = base_delay
+
+            time.sleep(current_delay)
 
     return results
 
@@ -299,11 +389,19 @@ def get_prices_batch(tickers: list[str]) -> dict[str, dict]:
                 if pd.notna(row.get("Close")):
                     results[ticker] = {
                         "date": today,
-                        "open": float(row["Open"]) if pd.notna(row.get("Open")) else None,
-                        "high": float(row["High"]) if pd.notna(row.get("High")) else None,
+                        "open": float(row["Open"])
+                        if pd.notna(row.get("Open"))
+                        else None,
+                        "high": float(row["High"])
+                        if pd.notna(row.get("High"))
+                        else None,
                         "low": float(row["Low"]) if pd.notna(row.get("Low")) else None,
-                        "close": float(row["Close"]) if pd.notna(row.get("Close")) else None,
-                        "volume": int(row["Volume"]) if pd.notna(row.get("Volume")) else None,
+                        "close": float(row["Close"])
+                        if pd.notna(row.get("Close"))
+                        else None,
+                        "volume": int(row["Volume"])
+                        if pd.notna(row.get("Volume"))
+                        else None,
                     }
             except Exception:
                 pass
@@ -410,11 +508,11 @@ def upsert_price(client: Client, company_id: str, stock_info: dict) -> bool:
 def collect_and_save(
     tickers: list[str] | None = None,
     ticker_membership: dict[str, list[str]] | None = None,
-    delay: float = 0.1,
+    delay: float = 1.0,
     save_csv: bool = True,
     save_db: bool = True,
     universe: str = "sp500",
-    batch_size: int = 50,
+    batch_size: int = 30,
 ) -> dict:
     """
     Collect US stock data and save to Supabase and/or CSV.
@@ -455,36 +553,42 @@ def collect_and_save(
     if ticker_membership is None:
         ticker_membership = {t: [] for t in tickers}
 
-    # === PHASE 1: Batch fetch stock data ===
-    print(f"\nPhase 1: Fetching stock data in batches of {batch_size}...")
+    # === PHASE 1: Batch fetch prices FIRST (more reliable) ===
+    print("\nPhase 1: Fetching prices for all tickers...")
+    prices_all = get_prices_batch(tickers)
+    valid_tickers = list(prices_all.keys())
+    print(
+        f"Found {len(valid_tickers)} tickers with valid prices (out of {len(tickers)})"
+    )
+
+    # === PHASE 2: Fetch stock info only for valid tickers ===
+    print(f"\nPhase 2: Fetching stock data in batches of {batch_size}...")
     stock_data_all: dict[str, dict] = {}
 
-    for i in tqdm(range(0, len(tickers), batch_size), desc="Fetching stock data"):
-        batch = tickers[i:i + batch_size]
-        batch_data = get_stock_data_batch(batch, batch_size=len(batch))
+    for i in tqdm(range(0, len(valid_tickers), batch_size), desc="Fetching stock data"):
+        batch = valid_tickers[i : i + batch_size]
+        batch_data = get_stock_data_batch(
+            batch, batch_size=len(batch), with_fallback=True, delay=0.3
+        )
         stock_data_all.update(batch_data)
         time.sleep(delay)
 
     print(f"Fetched data for {len(stock_data_all)} stocks")
 
-    # === PHASE 2: Batch fetch prices ===
-    print(f"\nPhase 2: Fetching prices...")
-    prices_all = get_prices_batch(tickers)
-    print(f"Fetched prices for {len(prices_all)} stocks")
-
     # === PHASE 3: Combine and save ===
-    print(f"\nPhase 3: Combining data and saving...")
-    stats = {"success": 0, "failed": 0, "skipped": 0}
+    print("\nPhase 3: Combining data and saving...")
+    no_price_count = len(tickers) - len(valid_tickers)
+    stats = {"success": 0, "failed": 0, "no_price": no_price_count, "no_info": 0}
 
     all_companies: list[dict] = []
     all_metrics: list[dict] = []
     all_prices: list[dict] = []
 
-    for ticker in tqdm(tickers, desc="Processing"):
+    for ticker in tqdm(valid_tickers, desc="Processing"):
         try:
             data = stock_data_all.get(ticker)
             if not data or not data.get("name"):
-                stats["skipped"] += 1
+                stats["no_info"] += 1
                 continue
 
             membership = ticker_membership.get(ticker, [])
@@ -504,52 +608,60 @@ def collect_and_save(
                 if company_id:
                     upsert_metrics(client, company_id, data)
                     if ticker in prices_all:
-                        # Need to create price entry with proper structure
-                        price_data = prices_all[ticker]
-                        upsert_price(client, company_id, {"ticker": ticker, "market_cap": data.get("market_cap")})
+                        upsert_price(
+                            client,
+                            company_id,
+                            {"ticker": ticker, "market_cap": data.get("market_cap")},
+                        )
 
             # Collect for CSV
             if save_csv:
-                all_companies.append({
-                    "ticker": ticker,
-                    "name": data.get("name"),
-                    "market": "US",
-                    "sector": data.get("sector"),
-                    "industry": data.get("industry"),
-                    "currency": data.get("currency", "USD"),
-                    "market_cap": data.get("market_cap"),
-                    "index_membership": ",".join(membership),
-                })
+                all_companies.append(
+                    {
+                        "ticker": ticker,
+                        "name": data.get("name"),
+                        "market": "US",
+                        "sector": data.get("sector"),
+                        "industry": data.get("industry"),
+                        "currency": data.get("currency", "USD"),
+                        "market_cap": data.get("market_cap"),
+                        "index_membership": ",".join(membership),
+                    }
+                )
 
                 # Metrics
-                all_metrics.append({
-                    "ticker": ticker,
-                    "date": date.today().isoformat(),
-                    "pe_ratio": data.get("pe_ratio"),
-                    "forward_pe": data.get("forward_pe"),
-                    "pb_ratio": data.get("pb_ratio"),
-                    "ps_ratio": data.get("ps_ratio"),
-                    "ev_ebitda": data.get("ev_ebitda"),
-                    "roe": data.get("roe"),
-                    "roa": data.get("roa"),
-                    "debt_equity": data.get("debt_equity"),
-                    "current_ratio": data.get("current_ratio"),
-                    "gross_margin": data.get("gross_margin"),
-                    "net_margin": data.get("net_margin"),
-                    "dividend_yield": data.get("dividend_yield"),
-                    "beta": data.get("beta"),
-                    "fifty_two_week_high": data.get("fifty_two_week_high"),
-                    "fifty_two_week_low": data.get("fifty_two_week_low"),
-                })
+                all_metrics.append(
+                    {
+                        "ticker": ticker,
+                        "date": date.today().isoformat(),
+                        "pe_ratio": data.get("pe_ratio"),
+                        "forward_pe": data.get("forward_pe"),
+                        "pb_ratio": data.get("pb_ratio"),
+                        "ps_ratio": data.get("ps_ratio"),
+                        "ev_ebitda": data.get("ev_ebitda"),
+                        "roe": data.get("roe"),
+                        "roa": data.get("roa"),
+                        "debt_equity": data.get("debt_equity"),
+                        "current_ratio": data.get("current_ratio"),
+                        "gross_margin": data.get("gross_margin"),
+                        "net_margin": data.get("net_margin"),
+                        "dividend_yield": data.get("dividend_yield"),
+                        "beta": data.get("beta"),
+                        "fifty_two_week_high": data.get("fifty_two_week_high"),
+                        "fifty_two_week_low": data.get("fifty_two_week_low"),
+                    }
+                )
 
                 # Prices
                 if ticker in prices_all:
                     price = prices_all[ticker]
-                    all_prices.append({
-                        "ticker": ticker,
-                        **price,
-                        "market_cap": data.get("market_cap"),
-                    })
+                    all_prices.append(
+                        {
+                            "ticker": ticker,
+                            **price,
+                            "market_cap": data.get("market_cap"),
+                        }
+                    )
 
             stats["success"] += 1
 
@@ -622,7 +734,11 @@ def dry_run_test(tickers: list[str] | None = None) -> None:
             print(f"Name: {stock_info.get('name')}")
             print(f"Sector: {stock_info.get('sector')}")
             print(f"Industry: {stock_info.get('industry')}")
-            print(f"Market Cap: {stock_info.get('market_cap'):,}" if stock_info.get('market_cap') else "Market Cap: N/A")
+            print(
+                f"Market Cap: {stock_info.get('market_cap'):,}"
+                if stock_info.get("market_cap")
+                else "Market Cap: N/A"
+            )
 
         # Get financials
         financials = get_financials(ticker)
@@ -659,8 +775,8 @@ if __name__ == "__main__":
         # Just list tickers without collecting
         if full_universe:
             tickers = get_all_us_tickers()
-            print(f"\nSample tickers with membership:")
-            for i, (t, m) in enumerate(list(tickers.items())[:20]):
+            print("\nSample tickers with membership:")
+            for t, m in list(tickers.items())[:20]:
                 print(f"  {t}: {m}")
         else:
             tickers = get_sp500_tickers()
