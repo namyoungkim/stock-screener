@@ -140,8 +140,14 @@ out/
 *.swo
 .DS_Store
 
-# Data files
-*.csv
+# Data files (large files excluded from git)
 *.xlsx
 *.db
 *.sqlite
+
+# Data directory (CSV files stored locally, not in git)
+data/*.csv
+data/prices/*.csv
+data/financials/*.csv
+data/backup/*.csv
+!data/**/.gitkeep

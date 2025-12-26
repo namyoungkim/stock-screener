@@ -2,11 +2,13 @@
 US Stock Data Collector
 
 Collects financial data for US stocks using yfinance and saves to Supabase.
+Supports hybrid storage: Supabase for latest data, CSV for history.
 """
 
 import os
 import time
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
@@ -15,6 +17,11 @@ from supabase import Client, create_client
 from tqdm import tqdm
 
 load_dotenv()
+
+# Data directory for CSV exports
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
+PRICES_DIR = DATA_DIR / "prices"
+FINANCIALS_DIR = DATA_DIR / "financials"
 
 
 def get_supabase_client() -> Client:
@@ -172,20 +179,24 @@ def upsert_price(client: Client, company_id: str, stock_info: dict) -> bool:
 def collect_and_save(
     tickers: list[str] | None = None,
     delay: float = 0.5,
-    batch_size: int = 50,
+    save_csv: bool = True,
+    save_db: bool = True,
 ) -> dict:
     """
-    Collect US stock data and save to Supabase.
+    Collect US stock data and save to Supabase and/or CSV.
 
     Args:
         tickers: List of tickers to collect. If None, collects all S&P 500.
         delay: Delay between API calls in seconds.
-        batch_size: Number of stocks to process before printing progress.
+        save_csv: Whether to save data to CSV files.
+        save_db: Whether to save data to Supabase.
 
     Returns:
         Dictionary with success/failure counts.
     """
-    client = get_supabase_client()
+    client = None
+    if save_db:
+        client = get_supabase_client()
 
     if tickers is None:
         print("Fetching S&P 500 tickers...")
@@ -193,6 +204,11 @@ def collect_and_save(
         print(f"Found {len(tickers)} tickers")
 
     stats = {"success": 0, "failed": 0, "skipped": 0}
+
+    # Lists for CSV export
+    all_companies: list[dict] = []
+    all_metrics: list[dict] = []
+    all_prices: list[dict] = []
 
     for ticker in tqdm(tickers, desc="Collecting US stocks"):
         try:
@@ -202,19 +218,60 @@ def collect_and_save(
                 stats["skipped"] += 1
                 continue
 
-            # Upsert company
-            company_id = upsert_company(client, stock_info)
-            if not company_id:
-                stats["failed"] += 1
-                continue
+            company_id = None
+
+            # Save to database
+            if save_db and client:
+                company_id = upsert_company(client, stock_info)
+                if not company_id:
+                    stats["failed"] += 1
+                    continue
+
+            # Collect for CSV
+            if save_csv:
+                all_companies.append({
+                    "ticker": stock_info["ticker"],
+                    "name": stock_info.get("name"),
+                    "market": "US",
+                    "sector": stock_info.get("sector"),
+                    "industry": stock_info.get("industry"),
+                    "currency": stock_info.get("currency", "USD"),
+                })
 
             # Get and save financials
             financials = get_financials(ticker)
             if financials:
-                upsert_metrics(client, company_id, financials)
+                if save_db and client and company_id:
+                    upsert_metrics(client, company_id, financials)
+                if save_csv:
+                    all_metrics.append({
+                        "ticker": ticker,
+                        "date": date.today().isoformat(),
+                        **{k: v for k, v in financials.items() if k != "ticker"},
+                    })
 
-            # Save price data
-            upsert_price(client, company_id, stock_info)
+            # Get and save price data
+            if save_db and client and company_id:
+                upsert_price(client, company_id, stock_info)
+
+            if save_csv:
+                try:
+                    stock = yf.Ticker(ticker)
+                    hist = stock.history(period="1d")
+                    if not hist.empty:
+                        latest = hist.iloc[-1]
+                        all_prices.append({
+                            "ticker": ticker,
+                            "date": date.today().isoformat(),
+                            "open": float(latest["Open"]) if pd.notna(latest["Open"]) else None,
+                            "high": float(latest["High"]) if pd.notna(latest["High"]) else None,
+                            "low": float(latest["Low"]) if pd.notna(latest["Low"]) else None,
+                            "close": float(latest["Close"]) if pd.notna(latest["Close"]) else None,
+                            "volume": int(latest["Volume"]) if pd.notna(latest["Volume"]) else None,
+                            "market_cap": stock_info.get("market_cap"),
+                        })
+                except Exception:
+                    pass
 
             stats["success"] += 1
 
@@ -225,8 +282,53 @@ def collect_and_save(
             print(f"Error processing {ticker}: {e}")
             stats["failed"] += 1
 
+    # Save to CSV
+    if save_csv:
+        save_to_csv(all_companies, all_metrics, all_prices)
+
     print(f"\nCollection complete: {stats}")
     return stats
+
+
+def save_to_csv(
+    companies: list[dict],
+    metrics: list[dict],
+    prices: list[dict],
+) -> None:
+    """Save collected data to CSV files for local storage."""
+    today = date.today().strftime("%Y%m%d")
+
+    # Ensure directories exist
+    PRICES_DIR.mkdir(parents=True, exist_ok=True)
+    FINANCIALS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Save companies (append to existing or create new)
+    if companies:
+        companies_df = pd.DataFrame(companies)
+        companies_file = DATA_DIR / "us_companies.csv"
+        if companies_file.exists():
+            existing = pd.read_csv(companies_file)
+            combined = pd.concat([existing, companies_df]).drop_duplicates(
+                subset=["ticker"], keep="last"
+            )
+            combined.to_csv(companies_file, index=False)
+        else:
+            companies_df.to_csv(companies_file, index=False)
+        print(f"Saved {len(companies)} companies to {companies_file}")
+
+    # Save metrics with date
+    if metrics:
+        metrics_df = pd.DataFrame(metrics)
+        metrics_file = FINANCIALS_DIR / f"us_metrics_{today}.csv"
+        metrics_df.to_csv(metrics_file, index=False)
+        print(f"Saved {len(metrics)} metrics to {metrics_file}")
+
+    # Save prices with date
+    if prices:
+        prices_df = pd.DataFrame(prices)
+        prices_file = PRICES_DIR / f"us_prices_{today}.csv"
+        prices_df.to_csv(prices_file, index=False)
+        print(f"Saved {len(prices)} prices to {prices_file}")
 
 
 def dry_run_test(tickers: list[str] | None = None) -> None:
@@ -265,11 +367,21 @@ if __name__ == "__main__":
         # Dry run: test data collection without database
         dry_run_test()
     elif "--test" in sys.argv:
-        # Test mode: only a few tickers, save to database
+        # Test mode: only a few tickers
         test_tickers = ["AAPL", "MSFT", "GOOGL"]
-        print("Running in test mode...")
-        collect_and_save(tickers=test_tickers, delay=0.2)
+        csv_only = "--csv-only" in sys.argv
+        print(f"Running in test mode (csv_only={csv_only})...")
+        collect_and_save(
+            tickers=test_tickers,
+            delay=0.2,
+            save_csv=True,
+            save_db=not csv_only,
+        )
+    elif "--csv-only" in sys.argv:
+        # CSV only: save to files without database
+        print("Running full S&P 500 collection (CSV only)...")
+        collect_and_save(save_csv=True, save_db=False)
     else:
-        # Full collection
+        # Full collection: both database and CSV
         print("Running full S&P 500 collection...")
-        collect_and_save()
+        collect_and_save(save_csv=True, save_db=True)

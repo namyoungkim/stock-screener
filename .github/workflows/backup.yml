@@ -1,0 +1,78 @@
+name: Weekly Backup
+
+on:
+  schedule:
+    # Every Sunday at 00:00 UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install supabase pandas python-dotenv
+
+      - name: Export Supabase data
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -c "
+          import os
+          import pandas as pd
+          from datetime import date
+          from supabase import create_client
+
+          url = os.environ['SUPABASE_URL']
+          key = os.environ['SUPABASE_KEY']
+          client = create_client(url, key)
+
+          today = date.today().strftime('%Y%m%d')
+          backup_dir = 'data/backup'
+          os.makedirs(backup_dir, exist_ok=True)
+
+          # Export companies
+          result = client.table('companies').select('*').execute()
+          if result.data:
+              df = pd.DataFrame(result.data)
+              df.to_csv(f'{backup_dir}/companies_{today}.csv', index=False)
+              print(f'Exported {len(result.data)} companies')
+
+          # Export metrics (latest only)
+          result = client.table('metrics').select('*').execute()
+          if result.data:
+              df = pd.DataFrame(result.data)
+              df.to_csv(f'{backup_dir}/metrics_{today}.csv', index=False)
+              print(f'Exported {len(result.data)} metrics')
+          "
+
+      - name: Create backup archive
+        run: |
+          cd data/backup
+          DATE=$(date +%Y%m%d)
+          tar -czvf backup_${DATE}.tar.gz *.csv 2>/dev/null || echo "No CSV files to archive"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup-${{ github.run_id }}
+          path: data/backup/*.tar.gz
+          retention-days: 30
+
+      - name: Cleanup old backups
+        run: |
+          # Keep only the latest backup archive
+          cd data/backup
+          ls -t *.tar.gz 2>/dev/null | tail -n +2 | xargs -r rm
+          rm -f *.csv 2>/dev/null || true
