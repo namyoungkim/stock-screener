@@ -1,0 +1,38 @@
+name: Update Stock Data
+
+on:
+  schedule:
+    # Run every Sunday at 00:00 UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run US stock collector
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: uv run --package stock-screener-data-pipeline python -m collectors.us_stocks
+
+      - name: Run Korean stock collector
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks
