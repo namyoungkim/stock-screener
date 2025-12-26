@@ -31,6 +31,12 @@ uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --c
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --test      # 테스트 (3개)
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kospi     # KOSPI만
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kosdaq    # KOSDAQ만
+
+# CSV → Supabase 로딩
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db              # 전체 (US + KR)
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --us-only    # US만
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --kr-only    # KR만
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 20251227  # 특정 날짜
 ```
 
 ### 코드 품질
@@ -59,6 +65,8 @@ stock-screener/
 │   ├── collectors/
 │   │   ├── us_stocks.py  # 미국 주식 수집 (S&P 500/400/600 + Russell 2000)
 │   │   └── kr_stocks.py  # 한국 주식 수집 (KOSPI + KOSDAQ)
+│   ├── loaders/
+│   │   └── csv_to_db.py  # CSV → Supabase 로딩
 │   └── processors/       # 데이터 변환 (스캐폴드)
 ├── discord-bot/          # 디스코드 인터페이스
 │   └── pyproject.toml    # 봇 의존성
