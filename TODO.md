@@ -8,8 +8,9 @@
 
 - [x] Supabase 저장 로직 구현
 - [x] Rate limiting 대응 (sleep, 재시도 로직)
-- [ ] 배치 처리 (실패 시 이어서 수집)
+- [x] `--dry-run` 모드 추가 (DB 없이 테스트)
 - [x] 진행률 로깅 개선
+- [ ] 배치 처리 (실패 시 이어서 수집)
 - [ ] 데이터 검증 (null 체크, 이상치 필터링)
 
 ### KR 수집기 (`data-pipeline/collectors/kr_stocks.py`)
@@ -18,6 +19,7 @@
 - [x] corp_code 조회 로직 구현 (종목코드 → DART corp_code 매핑)
 - [x] `get_financial_statements()` 실제 데이터 추출 로직 구현
 - [x] Supabase 저장 로직 구현
+- [x] `--dry-run` 모드 추가 (DB 없이 테스트)
 
 ### 공통
 
@@ -36,11 +38,19 @@
 - [x] `metrics` 테이블 (계산된 지표)
 - [x] `watchlist` 테이블 (user_id, company_id, added_at)
 - [x] `alerts` 테이블 (user_id, company_id, metric, operator, value)
+- [x] `company_latest_metrics` 뷰 (스크리닝용)
+- [x] 통합 스키마 파일 (`supabase/schema.sql`)
 
 ### 인덱스 및 최적화
 
 - [x] ticker, market 조합 인덱스
 - [x] company_id + date 조합 인덱스
+- [x] 스크리닝용 부분 인덱스 (pe_ratio, pb_ratio, roe, dividend_yield)
+
+### 적용 상태
+
+- [ ] Supabase SQL Editor에서 schema.sql 실행 필요
+- [ ] .env에 SUPABASE_URL, SUPABASE_KEY 설정 필요
 
 ---
 
@@ -48,31 +58,30 @@
 
 ### 핵심 구현
 
-- [ ] `backend/app/core/config.py` - 환경변수 설정 관리
-- [ ] `backend/app/core/database.py` - Supabase 연결
-- [ ] `backend/app/models/stock.py` - Pydantic 모델
-- [ ] `backend/app/services/screener.py` - 스크리닝 로직
+- [x] `backend/app/core/config.py` - 환경변수 설정 관리
+- [x] `backend/app/core/database.py` - Supabase 연결
+- [x] `backend/app/models/stock.py` - Pydantic 모델
+- [x] `backend/app/services/screener.py` - 스크리닝 로직
 
 ### API 엔드포인트
 
-- [ ] `GET /api/stocks` - 종목 목록 조회
-- [ ] `GET /api/stocks/{ticker}` - 종목 상세 조회
-- [ ] `POST /api/screen` - 스크리닝 (필터 + 프리셋)
-- [ ] `GET /api/presets` - 프리셋 전략 목록
-
-### 지표 계산 엔진
-
-- [ ] Valuation: P/E, P/B, P/S, EV/EBITDA
-- [ ] Profitability: ROE, ROA, Net Margin, Gross Margin
-- [ ] Financial Health: Debt/Equity, Current Ratio
-- [ ] Cash Flow: FCF, FCF Yield
+- [x] `GET /api/stocks` - 종목 목록 조회
+- [x] `GET /api/stocks/{ticker}` - 종목 상세 조회
+- [x] `POST /api/screen` - 스크리닝 (필터 + 프리셋)
+- [x] `GET /api/screen/presets` - 프리셋 전략 목록
 
 ### 프리셋 전략
 
-- [ ] Graham Classic (P/E < 15, P/B < 1.5, D/E < 0.5)
-- [ ] Buffett Quality (ROE > 15%, 연속 수익)
-- [ ] Dividend Value (배당 > 3%, 배당성향 < 60%)
-- [ ] Deep Value (P/B < 1, P/E < 10, FCF > 0)
+- [x] Graham Classic (P/E < 15, P/B < 1.5, D/E < 0.5)
+- [x] Buffett Quality (ROE > 15%, Net Margin > 10%)
+- [x] Dividend Value (배당 > 3%)
+- [x] Deep Value (P/B < 1, P/E < 10)
+
+### 추가 필요
+
+- [ ] 워치리스트 API (`/api/watchlist`)
+- [ ] 알림 API (`/api/alerts`)
+- [ ] 사용자 인증 (Supabase Auth)
 
 ---
 
@@ -87,22 +96,27 @@
 
 ## 5. 디스코드 봇
 
-- [ ] `discord-bot/bot.py` - 봇 메인 코드
-- [ ] `/screen {preset}` 명령어
-- [ ] `/stock {ticker}` 명령어
-- [ ] `/watch {ticker}` 명령어
-- [ ] `/watchlist` 명령어
+- [x] `discord-bot/bot/main.py` - 봇 메인 코드
+- [x] `discord-bot/bot/api.py` - 백엔드 API 클라이언트
+- [x] `/stock {ticker}` 명령어 - 종목 정보 조회
+- [x] `/screen {preset}` 명령어 - 프리셋 스크리닝
+- [x] `/presets` 명령어 - 프리셋 목록
+- [x] `/search {query}` 명령어 - 종목 검색
+- [ ] `/watch {ticker}` 명령어 - 워치리스트 추가
+- [ ] `/watchlist` 명령어 - 워치리스트 조회
 - [ ] `/alert {ticker} {metric} {operator} {value}` 명령어
 
 ---
 
 ## 6. 프론트엔드 (Next.js)
 
-- [ ] 프로젝트 초기 세팅 (Next.js 14, Tailwind, next-intl)
+- [x] 프로젝트 초기 세팅 (Next.js 14, Tailwind, React Query)
+- [x] 레이아웃 및 네비게이션 (Header, Footer)
+- [x] API 클라이언트 (`src/lib/api.ts`)
+- [x] 스크리너 페이지 (메인)
+- [x] 종목 상세 페이지 (`/stocks/[ticker]`)
+- [x] StockTable, FilterPanel 컴포넌트
 - [ ] Supabase Auth 연동
-- [ ] 레이아웃 및 네비게이션
-- [ ] 스크리너 페이지
-- [ ] 종목 상세 페이지
 - [ ] 워치리스트 페이지
 - [ ] 다크모드
 - [ ] 한/영 i18n
@@ -115,6 +129,7 @@
 - [ ] Railway 배포 설정 (백엔드, 봇)
 - [ ] 도메인 연결
 - [x] GitHub Actions 워크플로우 개선 (병렬 실행, 수동 트리거 옵션)
+- [x] Supabase CLI 설정 (`supabase/config.toml`)
 
 ---
 
@@ -124,18 +139,24 @@
 1. ~~Supabase 테이블 생성~~ ✅
 2. ~~US 수집기 저장 로직~~ ✅
 3. ~~KR 티커 확보 방법 결정~~ ✅ (pykrx 사용)
+4. ~~백엔드 API 기본 구조~~ ✅
+5. ~~프론트엔드 MVP~~ ✅
+6. ~~디스코드 봇 기본 기능~~ ✅
 
 ### P1 - 높음 (다음 단계)
-1. 백엔드 API 기본 구조
-2. 지표 계산 엔진
-3. 스크리닝 엔드포인트
+1. Supabase 스키마 적용 (SQL Editor에서 실행)
+2. 환경 변수 설정 (.env)
+3. 데이터 수집 실행 (US/KR)
+4. 통합 테스트
 
 ### P2 - 중간
-1. 프론트엔드 MVP
-2. 디스코드 봇 기본 기능
-3. 워치리스트
+1. Supabase Auth 연동
+2. 워치리스트 기능
+3. 알림 시스템
 
 ### P3 - 낮음
-1. 알림 시스템
-2. 프로덕션 보안 강화
-3. 성능 최적화
+1. 다크모드
+2. i18n (한/영)
+3. 프로덕션 보안 강화
+4. 성능 최적화
+5. 배포 (Vercel, Railway)
