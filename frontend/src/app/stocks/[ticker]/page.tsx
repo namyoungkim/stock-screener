@@ -6,6 +6,23 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatMarketCap, formatPercent, formatRatio } from "@/lib/utils";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { metricsGlossary } from "@/lib/glossary";
+
+function MetricLabel({ label, glossaryKey }: { label: string; glossaryKey: string }) {
+  const tooltip = metricsGlossary[glossaryKey];
+  return (
+    <p className="text-xs font-semibold uppercase text-slate-500">
+      {tooltip ? (
+        <Tooltip content={tooltip} position="bottom">
+          <span className="border-b border-dashed border-slate-400">{label}</span>
+        </Tooltip>
+      ) : (
+        label
+      )}
+    </p>
+  );
+}
 
 export default function StockDetailPage() {
   const params = useParams();
@@ -88,7 +105,11 @@ export default function StockDetailPage() {
               </p>
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">Market Cap</p>
+              <p className="text-sm font-medium text-slate-500">
+                <Tooltip content={metricsGlossary.market_cap} position="bottom">
+                  <span className="border-b border-dashed border-slate-400">Market Cap</span>
+                </Tooltip>
+              </p>
               <p className="text-lg font-bold text-slate-900">
                 {formatMarketCap(price.market_cap)}
               </p>
@@ -115,33 +136,25 @@ export default function StockDetailPage() {
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
             {/* Valuation */}
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                P/E Ratio
-              </p>
+              <MetricLabel label="P/E Ratio" glossaryKey="pe_ratio" />
               <p className="text-lg font-bold text-slate-900">
                 {formatRatio(metrics.pe_ratio)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                P/B Ratio
-              </p>
+              <MetricLabel label="P/B Ratio" glossaryKey="pb_ratio" />
               <p className="text-lg font-bold text-slate-900">
                 {formatRatio(metrics.pb_ratio)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                P/S Ratio
-              </p>
+              <MetricLabel label="P/S Ratio" glossaryKey="ps_ratio" />
               <p className="text-lg font-bold text-slate-900">
                 {formatRatio(metrics.ps_ratio)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                EV/EBITDA
-              </p>
+              <MetricLabel label="EV/EBITDA" glossaryKey="ev_ebitda" />
               <p className="text-lg font-bold text-slate-900">
                 {formatRatio(metrics.ev_ebitda)}
               </p>
@@ -149,29 +162,25 @@ export default function StockDetailPage() {
 
             {/* Profitability */}
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">ROE</p>
+              <MetricLabel label="ROE" glossaryKey="roe" />
               <p className="text-lg font-bold text-emerald-600">
                 {formatPercent(metrics.roe)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">ROA</p>
+              <MetricLabel label="ROA" glossaryKey="roa" />
               <p className="text-lg font-bold text-emerald-600">
                 {formatPercent(metrics.roa)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Gross Margin
-              </p>
+              <MetricLabel label="Gross Margin" glossaryKey="gross_margin" />
               <p className="text-lg font-bold text-emerald-600">
                 {formatPercent(metrics.gross_margin)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Net Margin
-              </p>
+              <MetricLabel label="Net Margin" glossaryKey="net_margin" />
               <p className="text-lg font-bold text-emerald-600">
                 {formatPercent(metrics.net_margin)}
               </p>
@@ -179,17 +188,13 @@ export default function StockDetailPage() {
 
             {/* Financial Health */}
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Debt/Equity
-              </p>
+              <MetricLabel label="Debt/Equity" glossaryKey="debt_equity" />
               <p className="text-lg font-bold text-slate-900">
                 {formatRatio(metrics.debt_equity)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Current Ratio
-              </p>
+              <MetricLabel label="Current Ratio" glossaryKey="current_ratio" />
               <p className="text-lg font-bold text-slate-900">
                 {formatRatio(metrics.current_ratio)}
               </p>
@@ -197,9 +202,7 @@ export default function StockDetailPage() {
 
             {/* Dividend */}
             <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Dividend Yield
-              </p>
+              <MetricLabel label="Dividend Yield" glossaryKey="dividend_yield" />
               <p className="text-lg font-bold text-orange-600">
                 {formatPercent(metrics.dividend_yield)}
               </p>

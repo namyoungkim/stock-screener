@@ -3,6 +3,25 @@
 import Link from "next/link";
 import { CompanyWithMetrics } from "@/lib/api";
 import { formatMarketCap, formatPercent, formatRatio } from "@/lib/utils";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { getMetricTooltip } from "@/lib/glossary";
+
+function MetricHeader({ label, align = "right" }: { label: string; align?: "left" | "right" }) {
+  const tooltip = getMetricTooltip(label);
+  const alignClass = align === "right" ? "text-right" : "text-left";
+
+  return (
+    <th className={`px-4 py-3 ${alignClass} text-xs font-semibold uppercase tracking-wider text-white`}>
+      {tooltip ? (
+        <Tooltip content={tooltip} position="bottom">
+          <span className="border-b border-dashed border-white/50">{label}</span>
+        </Tooltip>
+      ) : (
+        label
+      )}
+    </th>
+  );
+}
 
 interface StockTableProps {
   stocks: CompanyWithMetrics[];
@@ -40,21 +59,11 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-white">
               Market
             </th>
-            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
-              Market Cap
-            </th>
-            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
-              P/E
-            </th>
-            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
-              P/B
-            </th>
-            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
-              ROE
-            </th>
-            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-white">
-              Div Yield
-            </th>
+            <MetricHeader label="Market Cap" />
+            <MetricHeader label="P/E" />
+            <MetricHeader label="P/B" />
+            <MetricHeader label="ROE" />
+            <MetricHeader label="Div Yield" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 bg-white">

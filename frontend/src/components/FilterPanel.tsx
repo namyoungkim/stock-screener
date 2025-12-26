@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Search, Filter, X } from "lucide-react";
 import { PresetStrategy, MetricFilter } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { getPresetTooltip } from "@/lib/glossary";
 
 interface FilterPanelProps {
   presets: PresetStrategy[];
@@ -86,21 +88,24 @@ export function FilterPanel({
               Clear
             </button>
           )}
-          {presets.map((preset) => (
-            <button
-              key={preset.id}
-              onClick={() => onPresetChange(preset.id)}
-              className={cn(
-                "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                selectedPreset === preset.id
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              )}
-              title={preset.description}
-            >
-              {preset.name}
-            </button>
-          ))}
+          {presets.map((preset) => {
+            const tooltip = getPresetTooltip(preset.id) || preset.description;
+            return (
+              <Tooltip key={preset.id} content={tooltip || preset.name} position="bottom">
+                <button
+                  onClick={() => onPresetChange(preset.id)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                    selectedPreset === preset.id
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  )}
+                >
+                  {preset.name}
+                </button>
+              </Tooltip>
+            );
+          })}
         </div>
       </div>
 
