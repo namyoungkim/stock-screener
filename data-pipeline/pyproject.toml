@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=1.26.3",
     "python-dotenv>=1.0.0",
     "tqdm>=4.66.1",
+    "setuptools>=69.0.0",
 ]
 
 [build-system]

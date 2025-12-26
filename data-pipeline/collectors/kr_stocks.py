@@ -440,18 +440,60 @@ def collect_and_save(
     return stats
 
 
+def dry_run_test(tickers: list[str] | None = None) -> None:
+    """Test data collection without saving to database (no DART API needed)."""
+    if tickers is None:
+        tickers = ["005930", "000660", "035720"]  # 삼성전자, SK하이닉스, 카카오
+
+    print(f"Dry run test with {len(tickers)} tickers (pykrx only)...\n")
+
+    # Get ticker names
+    for ticker in tickers:
+        print(f"=== {ticker} ===")
+
+        try:
+            name = pykrx.get_market_ticker_name(ticker)
+            print(f"Name: {name}")
+
+            # Determine market
+            today = datetime.now().strftime("%Y%m%d")
+            kospi_list = pykrx.get_market_ticker_list(today, market="KOSPI")
+            market = "KOSPI" if ticker in kospi_list else "KOSDAQ"
+            print(f"Market: {market}")
+
+            # Get stock info
+            stock_info = get_stock_info(ticker, name, market)
+            if stock_info.get("market_cap"):
+                print(f"Market Cap: {stock_info['market_cap']:,} KRW")
+
+            # Get price
+            price = get_stock_price(ticker)
+            if price:
+                print(f"Date: {price['date']}")
+                print(f"Close: {price['close']:,} KRW" if price.get('close') else "Close: N/A")
+                print(f"Volume: {price['volume']:,}" if price.get('volume') else "Volume: N/A")
+
+        except Exception as e:
+            print(f"Error: {e}")
+
+        print()
+
+
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        # Test mode: only a few tickers
+    if "--dry-run" in sys.argv:
+        # Dry run: test data collection without database
+        dry_run_test()
+    elif "--test" in sys.argv:
+        # Test mode: only a few tickers, save to database
         test_tickers = ["005930", "000660", "035720"]  # 삼성전자, SK하이닉스, 카카오
         print("Running in test mode...")
         collect_and_save(tickers=test_tickers, delay=0.2)
-    elif len(sys.argv) > 1 and sys.argv[1] == "--kospi":
+    elif "--kospi" in sys.argv:
         print("Running KOSPI collection...")
         collect_and_save(market="KOSPI")
-    elif len(sys.argv) > 1 and sys.argv[1] == "--kosdaq":
+    elif "--kosdaq" in sys.argv:
         print("Running KOSDAQ collection...")
         collect_and_save(market="KOSDAQ")
     else:

@@ -229,11 +229,43 @@ def collect_and_save(
     return stats
 
 
+def dry_run_test(tickers: list[str] | None = None) -> None:
+    """Test data collection without saving to database."""
+    if tickers is None:
+        tickers = ["AAPL", "MSFT", "GOOGL"]
+
+    print(f"Dry run test with {len(tickers)} tickers...\n")
+
+    for ticker in tickers:
+        print(f"=== {ticker} ===")
+
+        # Get stock info
+        stock_info = get_stock_info(ticker)
+        if stock_info:
+            print(f"Name: {stock_info.get('name')}")
+            print(f"Sector: {stock_info.get('sector')}")
+            print(f"Industry: {stock_info.get('industry')}")
+            print(f"Market Cap: {stock_info.get('market_cap'):,}" if stock_info.get('market_cap') else "Market Cap: N/A")
+
+        # Get financials
+        financials = get_financials(ticker)
+        if financials:
+            print(f"P/E: {financials.get('pe_ratio')}")
+            print(f"P/B: {financials.get('pb_ratio')}")
+            print(f"ROE: {financials.get('roe')}")
+            print(f"Dividend Yield: {financials.get('dividend_yield')}")
+
+        print()
+
+
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        # Test mode: only a few tickers
+    if "--dry-run" in sys.argv:
+        # Dry run: test data collection without database
+        dry_run_test()
+    elif "--test" in sys.argv:
+        # Test mode: only a few tickers, save to database
         test_tickers = ["AAPL", "MSFT", "GOOGL"]
         print("Running in test mode...")
         collect_and_save(tickers=test_tickers, delay=0.2)
