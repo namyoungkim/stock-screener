@@ -1,6 +1,6 @@
 # Stock Screener
 
-미국(S&P 500) 및 한국 시장을 지원하는 가치투자 스크리닝 도구입니다.
+미국(S&P 500 + 400 + 600 + Russell 2000) 및 한국(KOSPI + KOSDAQ) 시장을 지원하는 가치투자 스크리닝 도구입니다.
 
 ## 주요 기능
 
@@ -16,7 +16,7 @@
 - **백엔드**: FastAPI
 - **데이터베이스**: Supabase (PostgreSQL)
 - **봇**: discord.py
-- **데이터**: yfinance, FMP, OpenDartReader
+- **데이터**: yfinance, pykrx, OpenDartReader
 - **배포**: Vercel, Railway
 
 ## 프로젝트 구조

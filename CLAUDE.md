@@ -4,7 +4,7 @@
 
 ## 프로젝트 개요
 
-미국(S&P 500) 및 한국 시장을 지원하는 가치투자 스크리닝 도구. FastAPI 백엔드, 데이터 수집 파이프라인, 디스코드 봇, Next.js 프론트엔드로 구성된 멀티 서비스 모노레포 (프론트엔드는 아직 미구현).
+미국(S&P 500 + 400 + 600 + Russell 2000) 및 한국(KOSPI + KOSDAQ) 시장을 지원하는 가치투자 스크리닝 도구. FastAPI 백엔드, 데이터 수집 파이프라인, 디스코드 봇, Next.js 프론트엔드로 구성된 멀티 서비스 모노레포.
 
 ## 실행 명령어
 
@@ -20,8 +20,17 @@ uv run --package stock-screener-backend uvicorn app.main:app --reload
 
 ### 데이터 파이프라인
 ```bash
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks   # 미국 주식
-uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks   # 한국 주식
+# 미국 주식 수집
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks             # 전체 (DB + CSV)
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only  # CSV만
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test      # 테스트 (10개)
+
+# 한국 주식 수집
+uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks             # 전체 (DB + CSV)
+uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --csv-only  # CSV만
+uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --test      # 테스트 (3개)
+uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kospi     # KOSPI만
+uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kosdaq    # KOSDAQ만
 ```
 
 ### 코드 품질
@@ -48,8 +57,8 @@ stock-screener/
 ├── data-pipeline/        # 데이터 수집 스크립트
 │   ├── pyproject.toml    # 파이프라인 의존성
 │   ├── collectors/
-│   │   ├── us_stocks.py  # S&P 500 수집 (yfinance + FMP API)
-│   │   └── kr_stocks.py  # 한국 주식 수집 (OpenDartReader)
+│   │   ├── us_stocks.py  # 미국 주식 수집 (S&P 500/400/600 + Russell 2000)
+│   │   └── kr_stocks.py  # 한국 주식 수집 (KOSPI + KOSDAQ)
 │   └── processors/       # 데이터 변환 (스캐폴드)
 ├── discord-bot/          # 디스코드 인터페이스
 │   └── pyproject.toml    # 봇 의존성
@@ -58,28 +67,81 @@ stock-screener/
 ```
 
 ### 데이터 흐름
-- **미국 주식**: Wikipedia (S&P 500 티커) → yfinance (가격/재무) → Supabase
-- **한국 주식**: OpenDartReader (DART API) → Supabase
-- **자동화**: GitHub Actions가 매주 일요일 00:00 UTC에 수집기 실행
+
+**미국 주식** (~2,800개):
+- 티커 소스: Wikipedia (S&P 500/400/600) + iShares (Russell 2000)
+- 데이터: yfinance (가격, 재무, 지표)
+- 저장: Supabase + CSV
+
+**한국 주식** (~2,800개):
+- 티커 소스: pykrx (KOSPI + KOSDAQ 전체)
+- 가격/시가총액: pykrx
+- 재무제표: OpenDartReader (DART API)
+- 추가 지표: yfinance (Gross Margin, EV/EBITDA, Dividend Yield, Beta 등)
+- 저장: Supabase + CSV
+
+**자동화**:
+- GitHub Actions가 매주 일요일 00:00 UTC에 수집기 실행
+- 매주 Supabase 데이터를 CSV로 백업
+
+### 수집 지표
+
+| 지표 | US 소스 | KR 소스 |
+|------|---------|---------|
+| P/E (Trailing) | yfinance | DART 계산 |
+| P/E (Forward) | yfinance | yfinance |
+| P/B | yfinance | DART 계산 |
+| P/S | yfinance | DART 계산 |
+| EV/EBITDA | yfinance | yfinance |
+| ROE, ROA | yfinance | DART 계산 |
+| Gross Margin | yfinance | yfinance |
+| Net Margin | yfinance | DART 계산 |
+| Debt/Equity | yfinance | DART 계산 |
+| Current Ratio | yfinance | DART 계산 |
+| Dividend Yield | yfinance | yfinance |
+| Beta | yfinance | yfinance |
+| 52주 고/저 | yfinance | yfinance |
 
 ### 주요 의존성
 - 백엔드: FastAPI, asyncpg, Pydantic, httpx
-- 데이터 파이프라인: yfinance, opendartreader, pandas, supabase-py
+- 데이터 파이프라인: yfinance, pykrx, opendartreader, pandas, supabase-py
 - 데이터베이스: Supabase (PostgreSQL)
+
+### 하이브리드 저장 전략
+- **Supabase**: 최신 데이터만 유지 (무료 티어 ~500MB 제한)
+- **CSV (로컬/GitHub)**: 전체 히스토리 저장 (`data/` 디렉토리)
+
+### CSV 출력 파일
+```
+data/
+├── us_companies.csv              # 미국 기업 목록
+├── kr_companies.csv              # 한국 기업 목록
+├── prices/
+│   ├── us_prices_YYYYMMDD.csv    # 미국 일별 가격
+│   └── kr_prices_YYYYMMDD.csv    # 한국 일별 가격
+└── financials/
+    ├── us_metrics_YYYYMMDD.csv   # 미국 일별 지표
+    └── kr_metrics_YYYYMMDD.csv   # 한국 일별 지표
+```
 
 ## 환경 변수
 
-`.env` 파일에 필요 (`.env.example` 참고):
-- `SUPABASE_URL`, `SUPABASE_KEY` - 데이터베이스
-- `FMP_API_KEY` - Financial Modeling Prep (미국 주식)
-- `DART_API_KEY` - 한국 DART 시스템
-- `DISCORD_BOT_TOKEN` - 디스코드 봇
+`.env` 파일에 필요:
+- `SUPABASE_URL`, `SUPABASE_KEY` - 데이터베이스 (필수)
+- `DART_API_KEY` - 한국 DART 재무제표 (KR 수집 시 필수)
+- `DISCORD_BOT_TOKEN` - 디스코드 봇 (봇 사용 시)
+- `FMP_API_KEY` - Financial Modeling Prep (현재 미사용, yfinance로 대체)
 
 ## 현재 상태
 
-**구현됨**: 미국/한국 주식 데이터 수집기, GitHub Actions 워크플로우, FastAPI 스켈레톤
-**미구현**: API 라우트, Pydantic 모델, 서비스 레이어, 스크리닝 로직, 워치리스트, 알림, 프론트엔드, 디스코드 봇 로직
+**구현됨**:
+- 미국/한국 주식 데이터 수집기 (전체 유니버스)
+- 하이브리드 저장 (Supabase + CSV)
+- GitHub Actions 워크플로우 (수집 + 백업)
+- FastAPI 백엔드 API
+- Next.js 프론트엔드 (Preset 전략, Tooltip UX)
+
+**미구현**: 워치리스트, 알림, 디스코드 봇 로직
 
 **코드 내 알려진 TODO**:
-- `kr_stocks.py`: KRX 티커 가져오기 미구현
 - CORS가 "*"로 설정됨 (프로덕션에서는 제한 필요)

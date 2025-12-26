@@ -3,15 +3,18 @@ Korean Stock Data Collector
 
 Collects financial data for Korean stocks using pykrx and OpenDartReader,
 and saves to Supabase.
+Supports hybrid storage: Supabase for latest data, CSV for history.
 """
 
 import os
 import time
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import OpenDartReader  # type: ignore[import-untyped]
 import pandas as pd
+import yfinance as yf
 from dotenv import load_dotenv
 from pykrx import stock as pykrx  # type: ignore[import-untyped]
 from supabase import Client, create_client
@@ -23,6 +26,11 @@ if TYPE_CHECKING:
 load_dotenv()
 
 DART_API_KEY = os.getenv("DART_API_KEY")
+
+# Data directory for CSV exports
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
+PRICES_DIR = DATA_DIR / "prices"
+FINANCIALS_DIR = DATA_DIR / "financials"
 
 
 def get_supabase_client() -> Client:
@@ -42,6 +50,38 @@ def get_dart_reader() -> "OpenDartReaderType | None":
         print("Warning: DART_API_KEY not set. Financial statements will be skipped.")
         return None
     return OpenDartReader(DART_API_KEY)  # type: ignore[call-non-callable]
+
+
+def get_index_constituents() -> dict[str, set[str]]:
+    """
+    Get constituents of major Korean indices using pykrx.
+
+    Returns:
+        Dictionary mapping index name to set of tickers.
+        Includes: KOSPI200, KOSDAQ150
+    """
+    today = datetime.now().strftime("%Y%m%d")
+    indices: dict[str, set[str]] = {}
+
+    try:
+        # KOSPI200 (코스피200)
+        kospi200 = pykrx.get_index_portfolio_deposit_file("1028", today)
+        if kospi200 is not None and len(kospi200) > 0:
+            indices["KOSPI200"] = set(kospi200)
+            print(f"Fetched {len(indices['KOSPI200'])} KOSPI200 constituents")
+    except Exception as e:
+        print(f"Warning: Could not fetch KOSPI200: {e}")
+
+    try:
+        # KOSDAQ150 (코스닥150)
+        kosdaq150 = pykrx.get_index_portfolio_deposit_file("2203", today)
+        if kosdaq150 is not None and len(kosdaq150) > 0:
+            indices["KOSDAQ150"] = set(kosdaq150)
+            print(f"Fetched {len(indices['KOSDAQ150'])} KOSDAQ150 constituents")
+    except Exception as e:
+        print(f"Warning: Could not fetch KOSDAQ150: {e}")
+
+    return indices
 
 
 def get_krx_tickers(market: str = "ALL") -> pd.DataFrame:
@@ -75,18 +115,22 @@ def get_krx_tickers(market: str = "ALL") -> pd.DataFrame:
 
 def get_stock_info(ticker: str, name: str, market: str) -> dict:
     """Get stock info from pykrx."""
-    today = datetime.now().strftime("%Y%m%d")
-
     try:
-        # Get market cap and basic info
-        df = pykrx.get_market_cap_by_date(today, today, ticker)
-
         market_cap = None
         volume = None
 
-        if not df.empty:
-            market_cap = int(df.iloc[-1]["시가총액"]) if "시가총액" in df.columns else None
-            volume = int(df.iloc[-1]["거래량"]) if "거래량" in df.columns else None
+        # Try recent days to find market cap (handles weekends/holidays)
+        for i in range(7):
+            day = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+            df = pykrx.get_market_cap(day)
+
+            if not df.empty and ticker in df.index:
+                cap = df.loc[ticker, "시가총액"]
+                vol = df.loc[ticker, "거래량"]
+                if cap > 0:
+                    market_cap = int(cap)
+                    volume = int(vol) if vol > 0 else None
+                    break
 
         return {
             "ticker": ticker,
@@ -133,6 +177,44 @@ def get_stock_price(ticker: str) -> dict | None:
         }
     except Exception as e:
         print(f"Error fetching price for {ticker}: {e}")
+        return None
+
+
+def get_yfinance_metrics(ticker: str, market: str) -> dict | None:
+    """
+    Get additional metrics from yfinance for Korean stocks.
+
+    Args:
+        ticker: KRX ticker (e.g., "005930")
+        market: "KOSPI" or "KOSDAQ"
+
+    Returns:
+        Dictionary with yfinance metrics, or None if failed.
+    """
+    try:
+        # Convert to yfinance format: 005930 -> 005930.KS (KOSPI) or .KQ (KOSDAQ)
+        suffix = ".KS" if market == "KOSPI" else ".KQ"
+        yf_ticker = f"{ticker}{suffix}"
+
+        stock = yf.Ticker(yf_ticker)
+        info = stock.info
+
+        if not info or info.get("regularMarketPrice") is None:
+            return None
+
+        return {
+            "gross_margin": info.get("grossMargins"),
+            "ev_ebitda": info.get("enterpriseToEbitda"),
+            "dividend_yield": info.get("dividendYield"),
+            "forward_pe": info.get("forwardPE"),
+            "beta": info.get("beta"),
+            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "trailing_pe": info.get("trailingPE"),
+            "price_to_book": info.get("priceToBook"),
+        }
+    except Exception as e:
+        print(f"Error fetching yfinance metrics for {ticker}: {e}")
         return None
 
 
@@ -191,10 +273,13 @@ def get_financial_statements(
             "corp_code": corp_code,
             "year": year,
             "revenue": get_amount(["매출액", "영업수익", "수익(매출액)"]),
+            "gross_profit": get_amount(["매출총이익", "매출 총이익"]),
             "operating_income": get_amount(["영업이익", "영업손익"]),
             "net_income": get_amount(["당기순이익", "분기순이익", "반기순이익"]),
             "total_assets": get_amount(["자산총계", "자산 총계"]),
+            "current_assets": get_amount(["유동자산", "유동 자산"]),
             "total_liabilities": get_amount(["부채총계", "부채 총계"]),
+            "current_liabilities": get_amount(["유동부채", "유동 부채"]),
             "total_equity": get_amount(["자본총계", "자본 총계"]),
         }
     except Exception as e:
@@ -212,10 +297,13 @@ def calculate_metrics(
             return None
 
         revenue = financials.get("revenue")
+        gross_profit = financials.get("gross_profit")
         net_income = financials.get("net_income")
         total_equity = financials.get("total_equity")
         total_assets = financials.get("total_assets")
+        current_assets = financials.get("current_assets")
         total_liabilities = financials.get("total_liabilities")
+        current_liabilities = financials.get("current_liabilities")
 
         metrics = {}
 
@@ -246,6 +334,14 @@ def calculate_metrics(
         # Net Margin
         if revenue and revenue > 0 and net_income:
             metrics["net_margin"] = net_income / revenue
+
+        # Gross Margin
+        if revenue and revenue > 0 and gross_profit:
+            metrics["gross_margin"] = gross_profit / revenue
+
+        # Current Ratio
+        if current_liabilities and current_liabilities > 0 and current_assets:
+            metrics["current_ratio"] = current_assets / current_liabilities
 
         return metrics if metrics else None
     except Exception as e:
@@ -356,15 +452,58 @@ def upsert_price(
         return False
 
 
+def save_to_csv(
+    companies: list[dict],
+    metrics: list[dict],
+    prices: list[dict],
+) -> None:
+    """Save collected data to CSV files for local storage."""
+    today = date.today().strftime("%Y%m%d")
+
+    # Ensure directories exist
+    PRICES_DIR.mkdir(parents=True, exist_ok=True)
+    FINANCIALS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Save companies (append to existing or create new)
+    if companies:
+        companies_df = pd.DataFrame(companies)
+        companies_file = DATA_DIR / "kr_companies.csv"
+        if companies_file.exists():
+            existing = pd.read_csv(companies_file)
+            combined = pd.concat([existing, companies_df]).drop_duplicates(
+                subset=["ticker"], keep="last"
+            )
+            combined.to_csv(companies_file, index=False)
+        else:
+            companies_df.to_csv(companies_file, index=False)
+        print(f"Saved {len(companies)} companies to {companies_file}")
+
+    # Save metrics with date
+    if metrics:
+        metrics_df = pd.DataFrame(metrics)
+        metrics_file = FINANCIALS_DIR / f"kr_metrics_{today}.csv"
+        metrics_df.to_csv(metrics_file, index=False)
+        print(f"Saved {len(metrics)} metrics to {metrics_file}")
+
+    # Save prices with date
+    if prices:
+        prices_df = pd.DataFrame(prices)
+        prices_file = PRICES_DIR / f"kr_prices_{today}.csv"
+        prices_df.to_csv(prices_file, index=False)
+        print(f"Saved {len(prices)} prices to {prices_file}")
+
+
 def collect_and_save(
     market: str = "ALL",
     tickers: list[str] | None = None,
     delay: float = 0.3,
     fiscal_year: int | None = None,
     limit: int | None = None,
+    save_csv: bool = True,
+    save_db: bool = True,
 ) -> dict:
     """
-    Collect Korean stock data and save to Supabase.
+    Collect Korean stock data and save to Supabase and/or CSV.
 
     Args:
         market: "KOSPI", "KOSDAQ", or "ALL" for both.
@@ -372,15 +511,24 @@ def collect_and_save(
         delay: Delay between API calls in seconds.
         fiscal_year: Year for financial statements. Defaults to last year.
         limit: Maximum number of stocks to process (for testing).
+        save_csv: Whether to save data to CSV files.
+        save_db: Whether to save data to Supabase.
 
     Returns:
         Dictionary with success/failure counts.
     """
-    client = get_supabase_client()
+    client = None
+    if save_db:
+        client = get_supabase_client()
+
     dart = get_dart_reader()
 
     if fiscal_year is None:
         fiscal_year = datetime.now().year - 1
+
+    # Fetch index constituents for membership tracking
+    print("Fetching index constituents...")
+    index_members = get_index_constituents()
 
     print(f"Fetching {market} tickers...")
     df = get_krx_tickers(market)
@@ -395,6 +543,11 @@ def collect_and_save(
 
     stats = {"success": 0, "failed": 0, "skipped": 0}
 
+    # Lists for CSV export
+    all_companies: list[dict] = []
+    all_metrics: list[dict] = []
+    all_prices: list[dict] = []
+
     for _, row in tqdm(df.iterrows(), total=len(df), desc="Collecting KR stocks"):
         ticker = row["ticker"]
         name = row["name"]
@@ -407,28 +560,87 @@ def collect_and_save(
             # Get corp_code for DART (only if dart is available)
             corp_code = get_corp_code(dart, ticker) if dart else None
 
-            # Upsert company
-            company_id = upsert_company(client, stock_info, corp_code)
-            if not company_id:
-                stats["failed"] += 1
-                continue
+            company_id = None
 
-            # Get and save price
+            # Save to database
+            if save_db and client:
+                company_id = upsert_company(client, stock_info, corp_code)
+                if not company_id:
+                    stats["failed"] += 1
+                    continue
+
+            # Collect for CSV (with index membership)
+            if save_csv:
+                # Determine index membership
+                indices = []
+                if ticker in index_members.get("KOSPI200", set()):
+                    indices.append("KOSPI200")
+                if ticker in index_members.get("KOSDAQ150", set()):
+                    indices.append("KOSDAQ150")
+
+                all_companies.append({
+                    "ticker": stock_info["ticker"],
+                    "name": stock_info.get("name"),
+                    "market": mkt,
+                    "currency": "KRW",
+                    "market_cap": stock_info.get("market_cap"),
+                    "indices": ",".join(indices) if indices else None,
+                })
+
+            # Get price
             price = get_stock_price(ticker)
             if price:
-                upsert_price(client, company_id, price, stock_info.get("market_cap"))
+                if save_db and client and company_id:
+                    upsert_price(client, company_id, price, stock_info.get("market_cap"))
+                if save_csv:
+                    all_prices.append({
+                        "ticker": ticker,
+                        "date": price["date"],
+                        "open": price.get("open"),
+                        "high": price.get("high"),
+                        "low": price.get("low"),
+                        "close": price.get("close"),
+                        "volume": price.get("volume"),
+                        "market_cap": stock_info.get("market_cap"),
+                    })
 
             # Get financial statements if corp_code exists and dart is available
+            metrics = None
             if dart and corp_code:
                 financials = get_financial_statements(dart, corp_code, fiscal_year)
 
                 if financials:
-                    upsert_financials(client, company_id, financials, fiscal_year)
+                    if save_db and client and company_id:
+                        upsert_financials(client, company_id, financials, fiscal_year)
 
-                    # Calculate and save metrics
+                    # Calculate metrics
                     metrics = calculate_metrics(financials, stock_info, price)
                     if metrics:
-                        upsert_metrics(client, company_id, metrics)
+                        if save_db and client and company_id:
+                            upsert_metrics(client, company_id, metrics)
+
+            # Get additional metrics from yfinance
+            yf_metrics = get_yfinance_metrics(ticker, mkt)
+
+            # Save metrics to CSV (even without DART data, save basic info)
+            # Use trading date from price data for consistency
+            if save_csv:
+                trading_date = price["date"] if price else date.today().isoformat()
+                metrics_data = {
+                    "ticker": ticker,
+                    "date": trading_date,
+                    "market": mkt,
+                }
+                # Add DART-calculated metrics
+                if metrics:
+                    metrics_data.update(metrics)
+                # Add/override with yfinance metrics (yfinance values take precedence)
+                if yf_metrics:
+                    # Only override if yfinance has actual values
+                    for key, value in yf_metrics.items():
+                        if value is not None:
+                            metrics_data[key] = value
+                all_metrics.append(metrics_data)
 
             stats["success"] += 1
             time.sleep(delay)
@@ -436,6 +648,10 @@ def collect_and_save(
         except Exception as e:
             print(f"Error processing {ticker}: {e}")
             stats["failed"] += 1
+
+    # Save to CSV
+    if save_csv:
+        save_to_csv(all_companies, all_metrics, all_prices)
 
     print(f"\nCollection complete: {stats}")
     return stats
@@ -483,21 +699,33 @@ def dry_run_test(tickers: list[str] | None = None) -> None:
 if __name__ == "__main__":
     import sys
 
-    if "--dry-run" in sys.argv:
+    args = sys.argv[1:]
+    csv_only = "--csv-only" in args
+
+    if "--dry-run" in args:
         # Dry run: test data collection without database
         dry_run_test()
-    elif "--test" in sys.argv:
-        # Test mode: only a few tickers, save to database
+    elif "--test" in args:
+        # Test mode: only a few tickers
         test_tickers = ["005930", "000660", "035720"]  # 삼성전자, SK하이닉스, 카카오
-        print("Running in test mode...")
-        collect_and_save(tickers=test_tickers, delay=0.2)
-    elif "--kospi" in sys.argv:
-        print("Running KOSPI collection...")
-        collect_and_save(market="KOSPI")
-    elif "--kosdaq" in sys.argv:
-        print("Running KOSDAQ collection...")
-        collect_and_save(market="KOSDAQ")
+        print(f"Running in test mode (csv_only={csv_only})...")
+        collect_and_save(
+            tickers=test_tickers,
+            delay=0.2,
+            save_csv=True,
+            save_db=not csv_only,
+        )
+    elif "--kospi" in args:
+        print(f"Running KOSPI collection (csv_only={csv_only})...")
+        collect_and_save(market="KOSPI", save_csv=True, save_db=not csv_only)
+    elif "--kosdaq" in args:
+        print(f"Running KOSDAQ collection (csv_only={csv_only})...")
+        collect_and_save(market="KOSDAQ", save_csv=True, save_db=not csv_only)
+    elif csv_only:
+        # CSV only: save to files without database
+        print("Running full KRX collection (CSV only)...")
+        collect_and_save(save_csv=True, save_db=False)
     else:
-        # Full collection
+        # Full collection: both database and CSV
         print("Running full KRX (KOSPI + KOSDAQ) collection...")
-        collect_and_save()
+        collect_and_save(save_csv=True, save_db=True)

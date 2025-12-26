@@ -151,3 +151,5 @@ data/prices/*.csv
 data/financials/*.csv
 data/backup/*.csv
 !data/**/.gitkeep
+
+supabase/.temp/
