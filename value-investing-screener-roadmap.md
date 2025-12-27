@@ -46,14 +46,14 @@
 ├──────────────────────────────────────────────┤
 │  Backend                                     │
 │  - FastAPI                                   │
-│  - Railway                                   │
+│  - Render                                    │
 ├──────────────────────────────────────────────┤
 │  Database                                    │
 │  - Supabase (PostgreSQL + Auth)              │
 ├──────────────────────────────────────────────┤
 │  Bot                                         │
 │  - discord.py                                │
-│  - Railway                                   │
+│  - Render                                    │
 ├──────────────────────────────────────────────┤
 │  Data Pipeline                               │
 │  - yfinance + FMP (미국)                      │
@@ -245,5 +245,5 @@ alerts (
 
 **배포:**
 - Vercel: https://vercel.com/
-- Railway: https://railway.app/
+- Render: https://render.com/
 - Supabase: https://supabase.com/
