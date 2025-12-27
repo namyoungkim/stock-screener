@@ -4,11 +4,22 @@
 
 ## 주요 기능
 
-- **스크리닝**: 밸류에이션, 수익성, 재무 건전성 지표로 주식 필터링
-- **워치리스트**: 관심 종목 저장 및 추적
-- **알림**: 조건 충족 시 알림 수신
-- **다국어 지원**: 영어/한국어 지원
-- **디스코드 봇**: 디스코드에서 직접 스크리닝
+### 스크리닝
+- **프리셋 전략**: Graham Classic, Buffett Quality, Dividend Value, Deep Value
+- **커스텀 필터**: P/E, P/B, ROE, Dividend Yield 등 다양한 지표로 필터링
+- **페이지네이션**: 대량 데이터 효율적 탐색 (페이지당 50개)
+
+### 인증 및 개인화
+- **GitHub OAuth**: Supabase Auth 기반 소셜 로그인
+- **워치리스트**: 관심 종목 저장 및 관리 (로그인 필요)
+
+### 기술 지표
+- **기본 지표**: P/E, P/B, P/S, EV/EBITDA, ROE, ROA, Margin 등
+- **모멘텀 지표**: RSI, MACD, 볼린저 밴드, MFI
+- **가격 지표**: 52주 고/저, 50일/200일 이동평균, Beta
+
+### 추가 기능
+- **디스코드 봇**: 디스코드에서 직접 스크리닝 (/stock, /screen, /presets)
 
 ## 기술 스택
 
@@ -61,24 +72,68 @@ cp .env.example .env
 
 ## 환경 변수
 
-```
+### Backend / Data Pipeline (.env)
+
+```bash
 # Supabase
 SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_key
+SUPABASE_KEY=your_supabase_service_key
 
-# FMP (Financial Modeling Prep)
-FMP_API_KEY=your_fmp_key
-
-# DART (한국)
+# DART (한국 재무제표)
 DART_API_KEY=your_dart_key
 
 # Discord
 DISCORD_BOT_TOKEN=your_discord_token
 ```
 
-## 배포 URL
+### Frontend (.env.local)
 
-- **Live Demo**: https://stock-screener-inky.vercel.app
+```bash
+# Supabase (공개 가능한 키)
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# Backend API
+NEXT_PUBLIC_API_URL=http://localhost:8000  # 로컬
+# NEXT_PUBLIC_API_URL=https://stock-screener-api-c0kc.onrender.com  # 프로덕션
+```
+
+## 배포
+
+### 배포 URL
+
+| 서비스 | 플랫폼 | URL |
+|--------|--------|-----|
+| Frontend | Vercel | https://stock-screener-inky.vercel.app |
+| Backend | Render | https://stock-screener-api-c0kc.onrender.com |
+| Database | Supabase | (대시보드에서 확인) |
+
+### Vercel (Frontend)
+
+1. GitHub 저장소 연결
+2. 환경 변수 설정:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_API_URL`
+3. `main` 브랜치 푸시 시 자동 배포
+
+### Render (Backend)
+
+1. GitHub 저장소 연결
+2. Build Command: `pip install -r backend/requirements.txt`
+3. Start Command: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+4. 환경 변수 설정:
+   - `SUPABASE_URL`
+   - `SUPABASE_KEY`
+5. `main` 브랜치 푸시 시 자동 배포
+
+### Supabase
+
+1. 프로젝트 생성 후 `supabase/schema.sql` 실행
+2. Authentication > Providers에서 GitHub OAuth 활성화
+3. Site URL 및 Redirect URL 설정:
+   - Site URL: `https://your-domain.vercel.app`
+   - Redirect URL: `https://your-domain.vercel.app/auth/callback`
 
 ## 라이선스
 
