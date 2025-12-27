@@ -30,6 +30,7 @@ export interface CompanyWithMetrics extends Company {
   graham_number?: number;
   fifty_two_week_high?: number;
   fifty_two_week_low?: number;
+  beta?: number;
 }
 
 export interface MetricFilter {
@@ -77,6 +78,7 @@ export interface Metrics {
   graham_number?: number;
   fifty_two_week_high?: number;
   fifty_two_week_low?: number;
+  beta?: number;
 }
 
 export interface Price {

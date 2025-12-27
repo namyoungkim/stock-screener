@@ -264,6 +264,18 @@ export default function StockDetailPage() {
                 {formatRatio(metrics.graham_number)}
               </p>
             </div>
+
+            {/* Risk */}
+            <div>
+              <MetricLabel label="Beta" glossaryKey="beta" />
+              <p className={`text-lg font-bold ${
+                metrics.beta && metrics.beta > 1.5 ? "text-red-600" :
+                metrics.beta && metrics.beta < 0.8 ? "text-green-600" :
+                "text-slate-900"
+              }`}>
+                {formatRatio(metrics.beta)}
+              </p>
+            </div>
           </div>
         </div>
       )}

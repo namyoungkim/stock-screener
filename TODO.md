@@ -183,7 +183,7 @@
 |------|--------|------|
 | ~~52주 최고~~ | `fifty_two_week_high` | ✅ 완료 |
 | ~~52주 최저~~ | `fifty_two_week_low` | ✅ 완료 |
-| Beta | `beta` | 프론트엔드 표시 |
+| ~~Beta~~ | `beta` | ✅ 완료 |
 
 ### 옵션 1: yfinance 직접 제공 (권장 - 빠름)
 - 50일/200일 이동평균: `fiftyDayAverage`, `twoHundredDayAverage`

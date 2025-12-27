@@ -492,6 +492,7 @@ def upsert_metrics(client: Client, company_id: str, financials: dict) -> bool:
             "graham_number": financials.get("graham_number"),
             "fifty_two_week_high": financials.get("fifty_two_week_high"),
             "fifty_two_week_low": financials.get("fifty_two_week_low"),
+            "beta": financials.get("beta"),
             "data_source": "yfinance",
         }
 

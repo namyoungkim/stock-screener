@@ -26,6 +26,9 @@ export const metricsGlossary: Record<string, string> = {
   fifty_two_week_high: "52주 최고가. 최근 1년간 최고 거래가격",
   fifty_two_week_low: "52주 최저가. 최근 1년간 최저 거래가격",
 
+  // Risk
+  beta: "베타. 시장 대비 변동성. 1보다 크면 시장보다 변동성이 큼",
+
   // Graham Number
   eps: "주당순이익(EPS). 순이익 ÷ 발행주식수",
   book_value_per_share: "주당순자산(BPS). 순자산 ÷ 발행주식수",
@@ -53,6 +56,7 @@ export const headerToGlossaryKey: Record<string, string> = {
   "Graham Number": "graham_number",
   "52W High": "fifty_two_week_high",
   "52W Low": "fifty_two_week_low",
+  Beta: "beta",
 };
 
 // Preset strategies glossary (Korean explanations)

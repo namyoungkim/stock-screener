@@ -178,7 +178,8 @@ def load_metrics(
         "dividend_yield": "dividend_yield",
         "fifty_two_week_high": "fifty_two_week_high",
         "fifty_two_week_low": "fifty_two_week_low",
-        # Skipped: forward_pe, beta
+        "beta": "beta",
+        # Skipped: forward_pe
     }
 
     # Read US metrics

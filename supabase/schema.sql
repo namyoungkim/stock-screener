@@ -179,6 +179,9 @@ CREATE TABLE metrics (
     fifty_two_week_high NUMERIC(16, 4), -- 52주 최고가
     fifty_two_week_low NUMERIC(16, 4),  -- 52주 최저가
 
+    -- Risk (리스크)
+    beta NUMERIC(8, 4),                 -- 베타 (시장 대비 변동성)
+
     -- Growth (성장성) - YoY
     revenue_growth_yoy NUMERIC(8, 4),   -- 매출 성장률 (전년대비)
     earnings_growth_yoy NUMERIC(8, 4),  -- 이익 성장률 (전년대비)

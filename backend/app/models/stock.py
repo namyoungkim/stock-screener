@@ -71,6 +71,9 @@ class CompanyWithMetrics(Company):
     fifty_two_week_high: float | None = None
     fifty_two_week_low: float | None = None
 
+    # Risk
+    beta: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -105,6 +108,9 @@ class Metrics(BaseModel):
     # Price Range
     fifty_two_week_high: float | None = None
     fifty_two_week_low: float | None = None
+
+    # Risk
+    beta: float | None = None
 
     data_source: str | None = None
 
