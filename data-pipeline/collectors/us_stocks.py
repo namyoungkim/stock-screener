@@ -214,6 +214,55 @@ def calculate_bollinger_bands(
         return None
 
 
+def calculate_mfi(ticker_symbol: str, period: int = 14) -> float | None:
+    """
+    Calculate Money Flow Index (MFI).
+
+    MFI is a volume-weighted RSI that measures buying/selling pressure.
+
+    Args:
+        ticker_symbol: Stock ticker symbol
+        period: MFI period (default 14 days)
+
+    Returns:
+        MFI value (0-100) or None if calculation fails
+    """
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker(ticker_symbol)
+        hist = ticker.history(period="3mo")
+
+        if len(hist) < period + 1:
+            return None
+
+        # Typical Price = (High + Low + Close) / 3
+        typical_price = (hist["High"] + hist["Low"] + hist["Close"]) / 3
+
+        # Raw Money Flow = Typical Price × Volume
+        raw_money_flow = typical_price * hist["Volume"]
+
+        # Determine positive/negative money flow
+        tp_diff = typical_price.diff()
+
+        positive_flow = raw_money_flow.where(tp_diff > 0, 0)
+        negative_flow = raw_money_flow.where(tp_diff < 0, 0)
+
+        # Sum over period
+        positive_mf = positive_flow.rolling(window=period).sum()
+        negative_mf = negative_flow.rolling(window=period).sum()
+
+        # Money Flow Ratio
+        mf_ratio = positive_mf / negative_mf.replace(0, float("inf"))
+
+        # MFI = 100 - (100 / (1 + MFR))
+        mfi = 100 - (100 / (1 + mf_ratio))
+
+        return round(mfi.iloc[-1], 2)
+    except Exception:
+        return None
+
+
 load_dotenv()
 
 # Data directory for CSV exports
@@ -456,6 +505,7 @@ def get_single_stock_info(
                     "volume_change": calculate_volume_change(ticker),
                     **(calculate_macd(ticker) or {}),
                     **(calculate_bollinger_bands(ticker) or {}),
+                    "mfi": calculate_mfi(ticker),
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -533,6 +583,7 @@ def get_stock_data_batch(
                             "volume_change": calculate_volume_change(ticker),
                             **(calculate_macd(ticker) or {}),
                             **(calculate_bollinger_bands(ticker) or {}),
+                            "mfi": calculate_mfi(ticker),
                         }
                     else:
                         failed_tickers.append(ticker)
@@ -697,6 +748,7 @@ def upsert_metrics(client: Client, company_id: str, financials: dict) -> bool:
             "bb_middle": financials.get("bb_middle"),
             "bb_lower": financials.get("bb_lower"),
             "bb_percent": financials.get("bb_percent"),
+            "mfi": financials.get("mfi"),
             "data_source": "yfinance",
         }
 
@@ -899,6 +951,7 @@ def collect_and_save(
                         "bb_middle": data.get("bb_middle"),
                         "bb_lower": data.get("bb_lower"),
                         "bb_percent": data.get("bb_percent"),
+                        "mfi": data.get("mfi"),
                     }
                 )
 

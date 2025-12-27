@@ -98,6 +98,9 @@ class CompanyWithMetrics(Company):
     bb_lower: float | None = None
     bb_percent: float | None = None
 
+    # MFI
+    mfi: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -159,6 +162,9 @@ class Metrics(BaseModel):
     bb_middle: float | None = None
     bb_lower: float | None = None
     bb_percent: float | None = None
+
+    # MFI
+    mfi: float | None = None
 
     data_source: str | None = None
 

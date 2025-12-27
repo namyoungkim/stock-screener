@@ -191,6 +191,7 @@ def load_metrics(
         "bb_middle": "bb_middle",
         "bb_lower": "bb_lower",
         "bb_percent": "bb_percent",
+        "mfi": "mfi",
         # Skipped: forward_pe
     }
 

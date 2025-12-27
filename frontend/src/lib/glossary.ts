@@ -50,6 +50,7 @@ export const metricsGlossary: Record<string, string> = {
   bb_middle: "볼린저 중심. 20일 단순이동평균(SMA)",
   bb_lower: "볼린저 하단. 20일 SMA - 2×표준편차. 지지선 역할",
   bb_percent: "볼린저 %B. 밴드 내 위치(%). 0% 이하 과매도, 100% 이상 과매수",
+  mfi: "MFI(자금흐름지수). 거래량 가중 RSI. 20 이하 과매도, 80 이상 과매수",
 };
 
 // Table header labels to glossary key mapping
@@ -85,6 +86,7 @@ export const headerToGlossaryKey: Record<string, string> = {
   "BB Middle": "bb_middle",
   "BB Lower": "bb_lower",
   "BB %": "bb_percent",
+  MFI: "mfi",
 };
 
 // Preset strategies glossary (Korean explanations)

@@ -422,6 +422,23 @@ export default function StockDetailPage() {
                 )}
               </p>
             </div>
+
+            {/* MFI */}
+            <div>
+              <MetricLabel label="MFI" glossaryKey="mfi" />
+              <p className={`text-lg font-bold ${
+                metrics.mfi && metrics.mfi >= 80 ? "text-red-600" :
+                metrics.mfi && metrics.mfi <= 20 ? "text-green-600" :
+                "text-slate-900"
+              }`}>
+                {metrics.mfi != null ? metrics.mfi.toFixed(1) : "-"}
+                {metrics.mfi != null && (
+                  <span className="ml-1 text-sm font-normal text-slate-500">
+                    {metrics.mfi >= 80 ? "(Overbought)" : metrics.mfi <= 20 ? "(Oversold)" : ""}
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
         </div>
       )}

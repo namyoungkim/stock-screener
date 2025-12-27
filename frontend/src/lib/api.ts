@@ -43,6 +43,7 @@ export interface CompanyWithMetrics extends Company {
   bb_middle?: number;
   bb_lower?: number;
   bb_percent?: number;
+  mfi?: number;
 }
 
 export interface MetricFilter {
@@ -103,6 +104,7 @@ export interface Metrics {
   bb_middle?: number;
   bb_lower?: number;
   bb_percent?: number;
+  mfi?: number;
 }
 
 export interface Price {
