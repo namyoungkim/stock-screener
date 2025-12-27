@@ -25,6 +25,11 @@
   - 수집기: MACD Line (12일-26일 EMA), Signal (9일 EMA), Histogram 계산
   - DB: `metrics` 테이블에 `macd`, `macd_signal`, `macd_histogram` 컬럼 추가
   - 프론트엔드: 히스토그램 양수 초록(상승), 음수 빨강(하락) 표시
+- [x] **볼린저 밴드 추가** - 변동성 밴드 지표
+  - 커밋: `7f5909d`
+  - 수집기: Upper/Middle/Lower Band (20일 SMA ± 2×표준편차), %B 계산
+  - DB: `metrics` 테이블에 `bb_upper`, `bb_middle`, `bb_lower`, `bb_percent` 컬럼 추가
+  - 프론트엔드: %B 100% 이상 과매수(빨강), 0% 이하 과매도(초록) 표시
 
 ---
 
@@ -212,7 +217,8 @@
 
 ### 옵션 3: Phase 3 전체 (고급 분석)
 - ~~MACD~~: `macd`, `macd_signal`, `macd_histogram` ✅ 완료
-- 볼린저 밴드, Money Flow Index
+- ~~볼린저 밴드~~: `bb_upper`, `bb_middle`, `bb_lower`, `bb_percent` ✅ 완료
+- Money Flow Index
 - 히스토리 60일 필요
 - 수집 시간 대폭 증가
 
