@@ -57,14 +57,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGitHub = async () => {
-    if (!supabase) return;
+    if (!supabase) {
+      console.error("Supabase client not initialized");
+      alert("Authentication service not available. Please try again later.");
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "github",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-    if (error) throw error;
+    if (error) {
+      console.error("GitHub sign in error:", error);
+      throw error;
+    }
   };
 
   const signOut = async () => {
