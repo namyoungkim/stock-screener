@@ -20,7 +20,7 @@ interface FilterPanelProps {
 
 const markets = [
   { id: null, name: "All Markets" },
-  { id: "US", name: "US (S&P 500)" },
+  { id: "US", name: "US" },
   { id: "KOSPI", name: "KOSPI" },
   { id: "KOSDAQ", name: "KOSDAQ" },
 ];

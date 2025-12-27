@@ -77,8 +77,8 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
                   {stock.ticker}
                 </Link>
               </td>
-              <td className="px-4 py-4 text-gray-900 font-medium">
-                <div className="max-w-xs truncate">{stock.name}</div>
+              <td className="px-4 py-4 text-gray-900 font-medium max-w-[200px]">
+                <div className="truncate" title={stock.name}>{stock.name}</div>
               </td>
               <td className="whitespace-nowrap px-4 py-4">
                 <span
