@@ -81,6 +81,9 @@ class CompanyWithMetrics(Company):
     # PEG
     peg_ratio: float | None = None
 
+    # RSI
+    rsi: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -125,6 +128,9 @@ class Metrics(BaseModel):
 
     # PEG
     peg_ratio: float | None = None
+
+    # RSI
+    rsi: float | None = None
 
     data_source: str | None = None
 

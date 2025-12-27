@@ -331,6 +331,23 @@ export default function StockDetailPage() {
                 {formatRatio(metrics.beta)}
               </p>
             </div>
+
+            {/* Technical Indicators */}
+            <div>
+              <MetricLabel label="RSI" glossaryKey="rsi" />
+              <p className={`text-lg font-bold ${
+                metrics.rsi && metrics.rsi < 30 ? "text-green-600" :
+                metrics.rsi && metrics.rsi > 70 ? "text-red-600" :
+                "text-slate-900"
+              }`}>
+                {metrics.rsi != null ? `${metrics.rsi.toFixed(1)}` : "-"}
+                {metrics.rsi != null && (
+                  <span className="ml-1 text-sm font-normal text-slate-500">
+                    {metrics.rsi < 30 ? "(Oversold)" : metrics.rsi > 70 ? "(Overbought)" : ""}
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
         </div>
       )}

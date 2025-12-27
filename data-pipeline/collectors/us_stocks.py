@@ -36,6 +36,42 @@ def calculate_graham_number(eps: float | None, bvps: float | None) -> float | No
         return None
     return math.sqrt(22.5 * eps * bvps)
 
+
+def calculate_rsi(ticker_symbol: str, period: int = 14) -> float | None:
+    """
+    Calculate RSI (Relative Strength Index) for a ticker.
+
+    Args:
+        ticker_symbol: Stock ticker symbol
+        period: RSI period (default 14 days)
+
+    Returns:
+        RSI value (0-100) or None if calculation fails
+    """
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker(ticker_symbol)
+        # Get 1 month of history to ensure enough data for 14-day RSI
+        hist = ticker.history(period="1mo")
+
+        if len(hist) < period + 1:
+            return None
+
+        delta = hist["Close"].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+
+        if loss.iloc[-1] == 0:
+            return 100.0 if gain.iloc[-1] > 0 else 50.0
+
+        rs = gain.iloc[-1] / loss.iloc[-1]
+        rsi = 100 - (100 / (1 + rs))
+        return round(rsi, 2)
+    except Exception:
+        return None
+
+
 load_dotenv()
 
 # Data directory for CSV exports
@@ -274,6 +310,7 @@ def get_single_stock_info(
                     "eps": eps,
                     "book_value_per_share": bvps,
                     "graham_number": calculate_graham_number(eps, bvps),
+                    "rsi": calculate_rsi(ticker),
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -347,6 +384,7 @@ def get_stock_data_batch(
                             "eps": eps,
                             "book_value_per_share": bvps,
                             "graham_number": calculate_graham_number(eps, bvps),
+                            "rsi": calculate_rsi(ticker),
                         }
                     else:
                         failed_tickers.append(ticker)
@@ -502,6 +540,7 @@ def upsert_metrics(client: Client, company_id: str, financials: dict) -> bool:
             "two_hundred_day_average": financials.get("two_hundred_day_average"),
             "peg_ratio": financials.get("peg_ratio"),
             "beta": financials.get("beta"),
+            "rsi": financials.get("rsi"),
             "data_source": "yfinance",
         }
 
@@ -695,6 +734,7 @@ def collect_and_save(
                         "eps": data.get("eps"),
                         "book_value_per_share": data.get("book_value_per_share"),
                         "graham_number": data.get("graham_number"),
+                        "rsi": data.get("rsi"),
                     }
                 )
 

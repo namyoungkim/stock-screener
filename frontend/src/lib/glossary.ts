@@ -39,6 +39,9 @@ export const metricsGlossary: Record<string, string> = {
   book_value_per_share: "주당순자산(BPS). 순자산 ÷ 발행주식수",
   graham_number:
     "그레이엄 넘버. √(22.5 × EPS × BPS). 현재가보다 높으면 저평가 가능성",
+
+  // Technical Indicators
+  rsi: "RSI(상대강도지수). 14일 기준. 30 이하 과매도, 70 이상 과매수 신호",
 };
 
 // Table header labels to glossary key mapping
@@ -65,6 +68,7 @@ export const headerToGlossaryKey: Record<string, string> = {
   Beta: "beta",
   "MA 50": "fifty_day_average",
   "MA 200": "two_hundred_day_average",
+  RSI: "rsi",
 };
 
 // Preset strategies glossary (Korean explanations)
