@@ -21,7 +21,6 @@
 | `SECURITY.md` | 보안 설정 (CORS, 인증, API) | 보안 관련 작업 시 |
 | `ROADMAP.md` | 장기 로드맵 (Phase 1-3) | 다음 Phase 계획 시 |
 | `TODO.md` | 상세 작업 목록 | 구현할 기능 선택 시 |
-| `value-investing-screener-roadmap.md` | 주차별 상세 일정 | 일정/마일스톤 확인 시 (참고용) |
 
 ## 환경 변수
 
