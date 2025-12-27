@@ -153,3 +153,6 @@ data/backup/*.csv
 !data/**/.gitkeep
 
 supabase/.temp/
+
+# Documentation cache
+docs_cache/
