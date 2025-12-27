@@ -348,6 +348,17 @@ export default function StockDetailPage() {
                 )}
               </p>
             </div>
+            <div>
+              <MetricLabel label="Vol Chg" glossaryKey="volume_change" />
+              <p className={`text-lg font-bold ${
+                metrics.volume_change && metrics.volume_change > 100 ? "text-red-600" :
+                metrics.volume_change && metrics.volume_change > 50 ? "text-orange-600" :
+                metrics.volume_change && metrics.volume_change < -50 ? "text-blue-600" :
+                "text-slate-900"
+              }`}>
+                {metrics.volume_change != null ? `${metrics.volume_change > 0 ? "+" : ""}${metrics.volume_change.toFixed(1)}%` : "-"}
+              </p>
+            </div>
           </div>
         </div>
       )}

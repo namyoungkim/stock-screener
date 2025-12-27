@@ -35,6 +35,7 @@ export interface CompanyWithMetrics extends Company {
   two_hundred_day_average?: number;
   peg_ratio?: number;
   rsi?: number;
+  volume_change?: number;
 }
 
 export interface MetricFilter {
@@ -87,6 +88,7 @@ export interface Metrics {
   two_hundred_day_average?: number;
   peg_ratio?: number;
   rsi?: number;
+  volume_change?: number;
 }
 
 export interface Price {

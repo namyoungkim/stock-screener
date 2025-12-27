@@ -84,6 +84,9 @@ class CompanyWithMetrics(Company):
     # RSI
     rsi: float | None = None
 
+    # Volume
+    volume_change: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -131,6 +134,9 @@ class Metrics(BaseModel):
 
     # RSI
     rsi: float | None = None
+
+    # Volume
+    volume_change: float | None = None
 
     data_source: str | None = None
 

@@ -72,6 +72,39 @@ def calculate_rsi(ticker_symbol: str, period: int = 14) -> float | None:
         return None
 
 
+def calculate_volume_change(ticker_symbol: str, period: int = 20) -> float | None:
+    """
+    Calculate volume change rate compared to average volume.
+
+    Args:
+        ticker_symbol: Stock ticker symbol
+        period: Period for average volume (default 20 days)
+
+    Returns:
+        Volume change rate as percentage (e.g., 50.0 means 50% above average)
+        or None if calculation fails
+    """
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker(ticker_symbol)
+        hist = ticker.history(period="1mo")
+
+        if len(hist) < period:
+            return None
+
+        avg_volume = hist["Volume"].iloc[-period:].mean()
+        current_volume = hist["Volume"].iloc[-1]
+
+        if avg_volume == 0:
+            return None
+
+        change_rate = ((current_volume / avg_volume) - 1) * 100
+        return round(change_rate, 2)
+    except Exception:
+        return None
+
+
 load_dotenv()
 
 # Data directory for CSV exports
@@ -311,6 +344,7 @@ def get_single_stock_info(
                     "book_value_per_share": bvps,
                     "graham_number": calculate_graham_number(eps, bvps),
                     "rsi": calculate_rsi(ticker),
+                    "volume_change": calculate_volume_change(ticker),
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -385,6 +419,7 @@ def get_stock_data_batch(
                             "book_value_per_share": bvps,
                             "graham_number": calculate_graham_number(eps, bvps),
                             "rsi": calculate_rsi(ticker),
+                            "volume_change": calculate_volume_change(ticker),
                         }
                     else:
                         failed_tickers.append(ticker)
@@ -541,6 +576,7 @@ def upsert_metrics(client: Client, company_id: str, financials: dict) -> bool:
             "peg_ratio": financials.get("peg_ratio"),
             "beta": financials.get("beta"),
             "rsi": financials.get("rsi"),
+            "volume_change": financials.get("volume_change"),
             "data_source": "yfinance",
         }
 
@@ -735,6 +771,7 @@ def collect_and_save(
                         "book_value_per_share": data.get("book_value_per_share"),
                         "graham_number": data.get("graham_number"),
                         "rsi": data.get("rsi"),
+                        "volume_change": data.get("volume_change"),
                     }
                 )
 

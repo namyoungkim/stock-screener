@@ -183,6 +183,7 @@ def load_metrics(
         "two_hundred_day_average": "two_hundred_day_average",
         "peg_ratio": "peg_ratio",
         "rsi": "rsi",
+        "volume_change": "volume_change",
         # Skipped: forward_pe
     }
 

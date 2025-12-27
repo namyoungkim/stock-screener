@@ -42,6 +42,7 @@ export const metricsGlossary: Record<string, string> = {
 
   // Technical Indicators
   rsi: "RSI(상대강도지수). 14일 기준. 30 이하 과매도, 70 이상 과매수 신호",
+  volume_change: "거래량 변화율. 20일 평균 대비 현재 거래량 변화(%)",
 };
 
 // Table header labels to glossary key mapping
@@ -69,6 +70,7 @@ export const headerToGlossaryKey: Record<string, string> = {
   "MA 50": "fifty_day_average",
   "MA 200": "two_hundred_day_average",
   RSI: "rsi",
+  "Vol Chg": "volume_change",
 };
 
 // Preset strategies glossary (Korean explanations)
