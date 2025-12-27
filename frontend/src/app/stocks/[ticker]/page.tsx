@@ -359,6 +359,34 @@ export default function StockDetailPage() {
                 {metrics.volume_change != null ? `${metrics.volume_change > 0 ? "+" : ""}${metrics.volume_change.toFixed(1)}%` : "-"}
               </p>
             </div>
+
+            {/* MACD */}
+            <div>
+              <MetricLabel label="MACD" glossaryKey="macd" />
+              <p className={`text-lg font-bold ${
+                metrics.macd_histogram && metrics.macd_histogram > 0 ? "text-green-600" :
+                metrics.macd_histogram && metrics.macd_histogram < 0 ? "text-red-600" :
+                "text-slate-900"
+              }`}>
+                {metrics.macd != null ? metrics.macd.toFixed(2) : "-"}
+              </p>
+            </div>
+            <div>
+              <MetricLabel label="Signal" glossaryKey="macd_signal" />
+              <p className="text-lg font-bold text-slate-900">
+                {metrics.macd_signal != null ? metrics.macd_signal.toFixed(2) : "-"}
+              </p>
+            </div>
+            <div>
+              <MetricLabel label="Histogram" glossaryKey="macd_histogram" />
+              <p className={`text-lg font-bold ${
+                metrics.macd_histogram && metrics.macd_histogram > 0 ? "text-green-600" :
+                metrics.macd_histogram && metrics.macd_histogram < 0 ? "text-red-600" :
+                "text-slate-900"
+              }`}>
+                {metrics.macd_histogram != null ? `${metrics.macd_histogram > 0 ? "+" : ""}${metrics.macd_histogram.toFixed(2)}` : "-"}
+              </p>
+            </div>
           </div>
         </div>
       )}

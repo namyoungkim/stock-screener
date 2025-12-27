@@ -43,6 +43,9 @@ export const metricsGlossary: Record<string, string> = {
   // Technical Indicators
   rsi: "RSI(상대강도지수). 14일 기준. 30 이하 과매도, 70 이상 과매수 신호",
   volume_change: "거래량 변화율. 20일 평균 대비 현재 거래량 변화(%)",
+  macd: "MACD(이동평균수렴확산). 12일 EMA - 26일 EMA. 추세 방향과 모멘텀 측정",
+  macd_signal: "MACD 시그널선. MACD의 9일 EMA. MACD가 시그널 상향돌파 시 매수 신호",
+  macd_histogram: "MACD 히스토그램. MACD - 시그널. 양수면 상승 모멘텀, 음수면 하락 모멘텀",
 };
 
 // Table header labels to glossary key mapping
@@ -71,6 +74,9 @@ export const headerToGlossaryKey: Record<string, string> = {
   "MA 200": "two_hundred_day_average",
   RSI: "rsi",
   "Vol Chg": "volume_change",
+  MACD: "macd",
+  Signal: "macd_signal",
+  Histogram: "macd_histogram",
 };
 
 // Preset strategies glossary (Korean explanations)

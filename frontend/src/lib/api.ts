@@ -36,6 +36,9 @@ export interface CompanyWithMetrics extends Company {
   peg_ratio?: number;
   rsi?: number;
   volume_change?: number;
+  macd?: number;
+  macd_signal?: number;
+  macd_histogram?: number;
 }
 
 export interface MetricFilter {
@@ -89,6 +92,9 @@ export interface Metrics {
   peg_ratio?: number;
   rsi?: number;
   volume_change?: number;
+  macd?: number;
+  macd_signal?: number;
+  macd_histogram?: number;
 }
 
 export interface Price {

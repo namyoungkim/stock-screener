@@ -87,6 +87,11 @@ class CompanyWithMetrics(Company):
     # Volume
     volume_change: float | None = None
 
+    # MACD
+    macd: float | None = None
+    macd_signal: float | None = None
+    macd_histogram: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -137,6 +142,11 @@ class Metrics(BaseModel):
 
     # Volume
     volume_change: float | None = None
+
+    # MACD
+    macd: float | None = None
+    macd_signal: float | None = None
+    macd_histogram: float | None = None
 
     data_source: str | None = None
 

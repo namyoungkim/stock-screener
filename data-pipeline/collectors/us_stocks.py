@@ -105,6 +105,57 @@ def calculate_volume_change(ticker_symbol: str, period: int = 20) -> float | Non
         return None
 
 
+def calculate_macd(
+    ticker_symbol: str,
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> dict[str, float | None] | None:
+    """
+    Calculate MACD (Moving Average Convergence Divergence).
+
+    Args:
+        ticker_symbol: Stock ticker symbol
+        fast: Fast EMA period (default 12)
+        slow: Slow EMA period (default 26)
+        signal: Signal line EMA period (default 9)
+
+    Returns:
+        Dictionary with macd, signal, histogram values or None if calculation fails
+    """
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker(ticker_symbol)
+        hist = ticker.history(period="3mo")  # Need enough data for 26-day EMA
+
+        if len(hist) < slow + signal:
+            return None
+
+        close = hist["Close"]
+
+        # Calculate EMAs
+        ema_fast = close.ewm(span=fast, adjust=False).mean()
+        ema_slow = close.ewm(span=slow, adjust=False).mean()
+
+        # MACD Line
+        macd_line = ema_fast - ema_slow
+
+        # Signal Line (9-day EMA of MACD)
+        signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+
+        # Histogram
+        histogram = macd_line - signal_line
+
+        return {
+            "macd": round(macd_line.iloc[-1], 4),
+            "macd_signal": round(signal_line.iloc[-1], 4),
+            "macd_histogram": round(histogram.iloc[-1], 4),
+        }
+    except Exception:
+        return None
+
+
 load_dotenv()
 
 # Data directory for CSV exports
@@ -345,6 +396,7 @@ def get_single_stock_info(
                     "graham_number": calculate_graham_number(eps, bvps),
                     "rsi": calculate_rsi(ticker),
                     "volume_change": calculate_volume_change(ticker),
+                    **(calculate_macd(ticker) or {}),
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -420,6 +472,7 @@ def get_stock_data_batch(
                             "graham_number": calculate_graham_number(eps, bvps),
                             "rsi": calculate_rsi(ticker),
                             "volume_change": calculate_volume_change(ticker),
+                            **(calculate_macd(ticker) or {}),
                         }
                     else:
                         failed_tickers.append(ticker)
@@ -577,6 +630,9 @@ def upsert_metrics(client: Client, company_id: str, financials: dict) -> bool:
             "beta": financials.get("beta"),
             "rsi": financials.get("rsi"),
             "volume_change": financials.get("volume_change"),
+            "macd": financials.get("macd"),
+            "macd_signal": financials.get("macd_signal"),
+            "macd_histogram": financials.get("macd_histogram"),
             "data_source": "yfinance",
         }
 
@@ -772,6 +828,9 @@ def collect_and_save(
                         "graham_number": data.get("graham_number"),
                         "rsi": data.get("rsi"),
                         "volume_change": data.get("volume_change"),
+                        "macd": data.get("macd"),
+                        "macd_signal": data.get("macd_signal"),
+                        "macd_histogram": data.get("macd_histogram"),
                     }
                 )
 

@@ -184,6 +184,9 @@ def load_metrics(
         "peg_ratio": "peg_ratio",
         "rsi": "rsi",
         "volume_change": "volume_change",
+        "macd": "macd",
+        "macd_signal": "macd_signal",
+        "macd_histogram": "macd_histogram",
         # Skipped: forward_pe
     }
 
