@@ -30,6 +30,11 @@
   - 수집기: Upper/Middle/Lower Band (20일 SMA ± 2×표준편차), %B 계산
   - DB: `metrics` 테이블에 `bb_upper`, `bb_middle`, `bb_lower`, `bb_percent` 컬럼 추가
   - 프론트엔드: %B 100% 이상 과매수(빨강), 0% 이하 과매도(초록) 표시
+- [x] **MFI 지표 추가** - 자금흐름지수 (거래량 가중 RSI)
+  - 커밋: `65dc337`
+  - 수집기: Typical Price × Volume 기반 MFI 계산
+  - DB: `metrics` 테이블에 `mfi` 컬럼 추가
+  - 프론트엔드: 20 이하 과매도(초록), 80 이상 과매수(빨강) 표시
 
 ---
 
@@ -215,10 +220,10 @@
 - ~~거래량 변화율~~: `volume_change` ✅ 완료
 - 수집 시간 증가
 
-### 옵션 3: Phase 3 전체 (고급 분석)
+### 옵션 3: Phase 3 전체 (고급 분석) ✅ 완료
 - ~~MACD~~: `macd`, `macd_signal`, `macd_histogram` ✅ 완료
 - ~~볼린저 밴드~~: `bb_upper`, `bb_middle`, `bb_lower`, `bb_percent` ✅ 완료
-- Money Flow Index
+- ~~Money Flow Index~~: `mfi` ✅ 완료
 - 히스토리 60일 필요
 - 수집 시간 대폭 증가
 
