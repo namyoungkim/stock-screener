@@ -1,8 +1,9 @@
 """Screening API routes."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.core.database import get_db
+from app.core.rate_limit import limiter, RATE_LIMITS
 from app.models.stock import (
     PresetStrategy,
     ScreenRequest,
@@ -15,8 +16,10 @@ router = APIRouter(prefix="/screen", tags=["screening"])
 
 
 @router.post("", response_model=ScreenResponse)
+@limiter.limit(RATE_LIMITS["screen"])
 async def screen_stocks(
     request: ScreenRequest,
+    req: Request,
     db: Client = Depends(get_db),
 ):
     """
@@ -68,7 +71,8 @@ async def screen_stocks(
 
 
 @router.get("/presets", response_model=list[PresetStrategy])
-async def list_presets():
+@limiter.limit(RATE_LIMITS["default"])
+async def list_presets(request: Request):
     """
     Get all available preset strategies.
 
@@ -78,7 +82,8 @@ async def list_presets():
 
 
 @router.get("/presets/{preset_id}", response_model=PresetStrategy)
-async def get_preset(preset_id: str):
+@limiter.limit(RATE_LIMITS["default"])
+async def get_preset(request: Request, preset_id: str):
     """
     Get a specific preset strategy by ID.
 

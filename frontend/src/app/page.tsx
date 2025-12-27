@@ -72,8 +72,8 @@ export default function Home() {
   return (
     <div className="mx-auto max-w-screen-xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Stock Screener</h1>
-        <p className="mt-2 text-slate-600">
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Stock Screener</h1>
+        <p className="mt-2 text-slate-600 dark:text-slate-400">
           Find undervalued stocks using proven value investing strategies
         </p>
       </div>
@@ -95,22 +95,22 @@ export default function Home() {
 
         {/* Results */}
         <div className="lg:col-span-3">
-          <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-            <div className="border-b border-gray-200 px-4 py-3 bg-slate-50">
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+            <div className="border-b border-gray-200 dark:border-slate-700 px-4 py-3 bg-slate-50 dark:bg-slate-700">
               <div className="flex items-center justify-between">
-                <h2 className="font-semibold text-slate-900">
+                <h2 className="font-semibold text-slate-900 dark:text-white">
                   {selectedPreset
                     ? `${presets.find((p) => p.id === selectedPreset)?.name} Results`
                     : "All Stocks"}
                 </h2>
-                <span className="text-sm font-medium text-slate-600">
+                <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
                   {stocksData?.total ?? 0} stocks found
                 </span>
               </div>
             </div>
 
             {error ? (
-              <div className="p-8 text-center text-red-600 font-medium">
+              <div className="p-8 text-center text-red-600 dark:text-red-400 font-medium">
                 Error loading stocks. Make sure the API server is running.
               </div>
             ) : (
@@ -122,7 +122,7 @@ export default function Home() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="border-t border-gray-200 px-4 py-3 bg-slate-50">
+              <div className="border-t border-gray-200 dark:border-slate-700 px-4 py-3 bg-slate-50 dark:bg-slate-700">
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}

@@ -130,7 +130,7 @@
 
 - [x] CORS 설정 수정 (`"*"` → 특정 도메인만 허용)
 - [ ] API 키 노출 방지 (환경변수 검증)
-- [ ] Rate limiting 미들웨어 추가
+- [x] Rate limiting 미들웨어 추가 (slowapi)
 - [ ] 입력 검증 강화
 
 ---
@@ -160,7 +160,7 @@
 - [x] Supabase Auth 연동 (GitHub OAuth)
 - [x] 워치리스트 페이지
 - [x] 페이지네이션 컴포넌트
-- [ ] 다크모드
+- [x] 다크모드 (Tailwind class 전략)
 - [ ] 한/영 i18n
 
 ---

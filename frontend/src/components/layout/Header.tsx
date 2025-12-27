@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 const navigation = [
   { name: "Screener", href: "/" },
@@ -47,6 +48,7 @@ export function Header() {
             <span className="hidden sm:inline text-sm text-slate-300 bg-slate-700 px-3 py-1 rounded-full">
               US & KR Markets
             </span>
+            <ThemeToggle />
             <UserMenu />
           </div>
         </div>

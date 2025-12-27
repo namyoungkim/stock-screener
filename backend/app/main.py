@@ -1,16 +1,24 @@
 """FastAPI application entry point."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api import screen, stocks, watchlist
 from app.core.config import settings
+from app.core.rate_limit import limiter
 
 app = FastAPI(
     title=settings.app_name,
     description="Value investing screening tool for US and Korean stocks",
     version=settings.app_version,
 )
+
+# Rate Limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS
 app.add_middleware(

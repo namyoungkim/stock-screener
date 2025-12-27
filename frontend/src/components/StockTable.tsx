@@ -40,16 +40,16 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
 
   if (stocks.length === 0) {
     return (
-      <div className="py-12 text-center text-gray-500">
+      <div className="py-12 text-center text-gray-500 dark:text-gray-400">
         No stocks found. Try adjusting your filters.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-slate-800">
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
+        <thead className="bg-slate-800 dark:bg-slate-900">
           <tr>
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-white">
               Ticker
@@ -70,18 +70,18 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
             </th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-200 bg-white">
+        <tbody className="divide-y divide-gray-200 dark:divide-slate-700 bg-white dark:bg-slate-800">
           {stocks.map((stock) => (
-            <tr key={stock.id} className="hover:bg-blue-50 transition-colors">
+            <tr key={stock.id} className="hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors">
               <td className="whitespace-nowrap px-4 py-4">
                 <Link
                   href={`/stocks/${stock.ticker}?market=${stock.market}`}
-                  className="font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                  className="font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
                 >
                   {stock.ticker}
                 </Link>
               </td>
-              <td className="px-4 py-4 text-gray-900 font-medium">
+              <td className="px-4 py-4 text-gray-900 dark:text-gray-100 font-medium">
                 <Tooltip content={stock.name} position="bottom">
                   <div className="w-[180px] truncate cursor-default">{stock.name}</div>
                 </Tooltip>
@@ -90,28 +90,28 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
                 <span
                   className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
                     stock.market === "US"
-                      ? "bg-blue-100 text-blue-800"
+                      ? "bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300"
                       : stock.market === "KOSPI"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-purple-100 text-purple-800"
+                        ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300"
+                        : "bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300"
                   }`}
                 >
                   {stock.market}
                 </span>
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900 font-medium">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900 dark:text-gray-100 font-medium">
                 {formatMarketCap(stock.market_cap)}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900 dark:text-gray-100">
                 {formatRatio(stock.pe_ratio)}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-gray-900 dark:text-gray-100">
                 {formatRatio(stock.pb_ratio)}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right text-emerald-600 font-medium">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-emerald-600 dark:text-emerald-400 font-medium">
                 {formatPercent(stock.roe)}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right text-orange-600 font-medium">
+              <td className="whitespace-nowrap px-4 py-4 text-right text-orange-600 dark:text-orange-400 font-medium">
                 {formatPercent(stock.dividend_yield)}
               </td>
               <td className="whitespace-nowrap px-4 py-4 text-center">

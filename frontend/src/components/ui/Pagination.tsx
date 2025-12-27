@@ -50,7 +50,7 @@ export function Pagination({
 
   return (
     <div className="flex items-center justify-between">
-      <div className="text-sm text-slate-600">
+      <div className="text-sm text-slate-600 dark:text-slate-300">
         Page {currentPage} of {totalPages}
       </div>
 
@@ -58,7 +58,7 @@ export function Pagination({
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className="p-2 rounded-md hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="p-2 rounded-md text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           aria-label="Previous page"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -71,8 +71,8 @@ export function Pagination({
               onClick={() => onPageChange(page)}
               className={`min-w-[32px] h-8 px-2 rounded-md text-sm font-medium transition-colors ${
                 currentPage === page
-                  ? "bg-slate-800 text-white"
-                  : "hover:bg-slate-200 text-slate-700"
+                  ? "bg-slate-800 dark:bg-slate-600 text-white"
+                  : "hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300"
               }`}
             >
               {page}
@@ -87,7 +87,7 @@ export function Pagination({
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className="p-2 rounded-md hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="p-2 rounded-md text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           aria-label="Next page"
         >
           <ChevronRight className="h-4 w-4" />

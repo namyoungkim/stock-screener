@@ -37,22 +37,22 @@ export function FilterPanel({
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="space-y-4 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
       {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-slate-400" />
         <input
           type="text"
           placeholder="Search by ticker or name..."
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 py-2 pl-10 pr-4 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 py-2 pl-10 pr-4 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
 
       {/* Market Filter */}
       <div>
-        <label className="mb-2 block text-sm font-semibold text-slate-800">
+        <label className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-200">
           Market
         </label>
         <div className="flex flex-wrap gap-2">
@@ -64,7 +64,7 @@ export function FilterPanel({
                 "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
                 selectedMarket === market.id
                   ? "bg-blue-600 text-white shadow-sm"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
               )}
             >
               {market.name}
@@ -75,14 +75,14 @@ export function FilterPanel({
 
       {/* Presets */}
       <div>
-        <label className="mb-2 block text-sm font-semibold text-slate-800">
+        <label className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-200">
           Preset Strategies
         </label>
         <div className="flex flex-wrap gap-2">
           {selectedPreset && (
             <button
               onClick={() => onPresetChange(null)}
-              className="flex items-center gap-1 rounded-full bg-red-100 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-200"
+              className="flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/50 px-3 py-1.5 text-sm font-medium text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/70"
             >
               <X className="h-3 w-3" />
               Clear
@@ -98,7 +98,7 @@ export function FilterPanel({
                     "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
                     selectedPreset === preset.id
                       ? "bg-emerald-600 text-white shadow-sm"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                   )}
                 >
                   {preset.name}
@@ -112,7 +112,7 @@ export function FilterPanel({
       {/* Advanced Filters Toggle */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+        className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
       >
         <Filter className="h-4 w-4" />
         {isExpanded ? "Hide" : "Show"} Advanced Filters
@@ -120,8 +120,8 @@ export function FilterPanel({
 
       {/* Advanced Filters */}
       {isExpanded && (
-        <div className="rounded-lg bg-slate-50 p-4 border border-slate-200">
-          <p className="text-sm text-slate-600">
+        <div className="rounded-lg bg-slate-50 dark:bg-slate-700 p-4 border border-slate-200 dark:border-slate-600">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
             Advanced custom filters coming soon...
           </p>
         </div>
