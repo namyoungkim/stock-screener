@@ -124,12 +124,37 @@ export interface StockDetailResponse {
   price?: Price;
 }
 
-async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
+// Watchlist types
+export interface WatchlistItem {
+  id: string;
+  user_id: string;
+  company_id: string;
+  added_at: string;
+  notes?: string;
+  target_price?: number;
+  ticker?: string;
+  name?: string;
+  market?: string;
+  latest_price?: number;
+}
+
+export interface WatchlistResponse {
+  total: number;
+  items: WatchlistItem[];
+}
+
+async function fetchApi<T>(
+  endpoint: string,
+  options?: RequestInit & { token?: string }
+): Promise<T> {
+  const { token, ...fetchOptions } = options || {};
+
   const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
+    ...fetchOptions,
     headers: {
       "Content-Type": "application/json",
-      ...options?.headers,
+      ...(token && { Authorization: `Bearer ${token}` }),
+      ...fetchOptions?.headers,
     },
   });
 
@@ -173,4 +198,48 @@ export const api = {
   getPresets: () => fetchApi<PresetStrategy[]>("/api/screen/presets"),
 
   getPreset: (id: string) => fetchApi<PresetStrategy>(`/api/screen/presets/${id}`),
+
+  // Watchlist (requires auth)
+  getWatchlist: (token: string, params?: { limit?: number; offset?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.offset) searchParams.set("offset", String(params.offset));
+    const query = searchParams.toString();
+    return fetchApi<WatchlistResponse>(
+      `/api/watchlist${query ? `?${query}` : ""}`,
+      { token }
+    );
+  },
+
+  addToWatchlist: (
+    token: string,
+    data: { company_id: string; notes?: string; target_price?: number }
+  ) =>
+    fetchApi<{ success: boolean; item: WatchlistItem }>("/api/watchlist", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  removeFromWatchlist: (token: string, companyId: string) =>
+    fetchApi<{ success: boolean; message: string }>(
+      `/api/watchlist/${companyId}`,
+      { method: "DELETE", token }
+    ),
+
+  updateWatchlistItem: (
+    token: string,
+    companyId: string,
+    data: { notes?: string; target_price?: number }
+  ) =>
+    fetchApi<{ success: boolean; item: WatchlistItem }>(
+      `/api/watchlist/${companyId}`,
+      { method: "PATCH", body: JSON.stringify(data), token }
+    ),
+
+  checkInWatchlist: (token: string, companyId: string) =>
+    fetchApi<{ in_watchlist: boolean }>(
+      `/api/watchlist/check/${companyId}`,
+      { token }
+    ),
 };

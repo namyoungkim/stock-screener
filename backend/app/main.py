@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import screen, stocks
+from app.api import screen, stocks, watchlist
 from app.core.config import settings
 
 app = FastAPI(
@@ -24,6 +24,7 @@ app.add_middleware(
 # Routers
 app.include_router(stocks.router, prefix="/api")
 app.include_router(screen.router, prefix="/api")
+app.include_router(watchlist.router, prefix="/api")
 
 
 @app.get("/")

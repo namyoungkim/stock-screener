@@ -5,6 +5,7 @@ import { CompanyWithMetrics } from "@/lib/api";
 import { formatMarketCap, formatPercent, formatRatio } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { getMetricTooltip } from "@/lib/glossary";
+import { WatchlistButton } from "@/components/WatchlistButton";
 
 function MetricHeader({ label, align = "right" }: { label: string; align?: "left" | "right" }) {
   const tooltip = getMetricTooltip(label);
@@ -64,6 +65,9 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
             <MetricHeader label="P/B" />
             <MetricHeader label="ROE" />
             <MetricHeader label="Div Yield" />
+            <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-white">
+              Watch
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 bg-white">
@@ -109,6 +113,9 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
               </td>
               <td className="whitespace-nowrap px-4 py-4 text-right text-orange-600 font-medium">
                 {formatPercent(stock.dividend_yield)}
+              </td>
+              <td className="whitespace-nowrap px-4 py-4 text-center">
+                <WatchlistButton companyId={stock.id} size="sm" />
               </td>
             </tr>
           ))}

@@ -4,10 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { UserMenu } from "@/components/auth/UserMenu";
 
 const navigation = [
   { name: "Screener", href: "/" },
   { name: "Presets", href: "/presets" },
+  { name: "Watchlist", href: "/watchlist" },
 ];
 
 export function Header() {
@@ -42,7 +44,10 @@ export function Header() {
           </div>
 
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-300 bg-slate-700 px-3 py-1 rounded-full">US & KR Markets</span>
+            <span className="hidden sm:inline text-sm text-slate-300 bg-slate-700 px-3 py-1 rounded-full">
+              US & KR Markets
+            </span>
+            <UserMenu />
           </div>
         </div>
       </div>

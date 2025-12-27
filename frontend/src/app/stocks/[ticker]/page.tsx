@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api";
+import { WatchlistButton } from "@/components/WatchlistButton";
 import { formatMarketCap, formatPercent, formatRatio } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { metricsGlossary } from "@/lib/glossary";
@@ -84,6 +85,7 @@ export default function StockDetailPage() {
           >
             {company.market}
           </span>
+          <WatchlistButton companyId={company.id} />
         </div>
         <p className="mt-1 text-xl text-slate-700 font-medium">{company.name}</p>
         {company.sector && (

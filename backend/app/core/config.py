@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # Supabase
     supabase_url: str = os.getenv("SUPABASE_URL", "")
     supabase_key: str = os.getenv("SUPABASE_KEY", "")
+    supabase_jwt_secret: str = os.getenv("SUPABASE_JWT_SECRET", "")
 
     # CORS
     cors_origins: list[str] = ["*"]
