@@ -29,6 +29,10 @@ export const metricsGlossary: Record<string, string> = {
   // Risk
   beta: "베타. 시장 대비 변동성. 1보다 크면 시장보다 변동성이 큼",
 
+  // Moving Averages
+  fifty_day_average: "50일 이동평균. 최근 50거래일 평균 가격",
+  two_hundred_day_average: "200일 이동평균. 최근 200거래일 평균 가격. 장기 추세 판단에 사용",
+
   // Graham Number
   eps: "주당순이익(EPS). 순이익 ÷ 발행주식수",
   book_value_per_share: "주당순자산(BPS). 순자산 ÷ 발행주식수",
@@ -57,6 +61,8 @@ export const headerToGlossaryKey: Record<string, string> = {
   "52W High": "fifty_two_week_high",
   "52W Low": "fifty_two_week_low",
   Beta: "beta",
+  "MA 50": "fifty_day_average",
+  "MA 200": "two_hundred_day_average",
 };
 
 // Preset strategies glossary (Korean explanations)

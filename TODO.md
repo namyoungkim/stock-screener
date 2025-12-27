@@ -186,7 +186,7 @@
 | ~~Beta~~ | `beta` | ✅ 완료 |
 
 ### 옵션 1: yfinance 직접 제공 (권장 - 빠름)
-- 50일/200일 이동평균: `fiftyDayAverage`, `twoHundredDayAverage`
+- ~~50일/200일 이동평균~~: `fiftyDayAverage`, `twoHundredDayAverage` ✅ 완료
 - PEG Ratio: `pegRatio`
 - 수집 시간 거의 증가 없음
 

@@ -31,6 +31,8 @@ export interface CompanyWithMetrics extends Company {
   fifty_two_week_high?: number;
   fifty_two_week_low?: number;
   beta?: number;
+  fifty_day_average?: number;
+  two_hundred_day_average?: number;
 }
 
 export interface MetricFilter {
@@ -79,6 +81,8 @@ export interface Metrics {
   fifty_two_week_high?: number;
   fifty_two_week_low?: number;
   beta?: number;
+  fifty_day_average?: number;
+  two_hundred_day_average?: number;
 }
 
 export interface Price {

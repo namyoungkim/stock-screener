@@ -182,6 +182,10 @@ CREATE TABLE metrics (
     -- Risk (리스크)
     beta NUMERIC(8, 4),                 -- 베타 (시장 대비 변동성)
 
+    -- Moving Averages (이동평균)
+    fifty_day_average NUMERIC(16, 4),   -- 50일 이동평균
+    two_hundred_day_average NUMERIC(16, 4), -- 200일 이동평균
+
     -- Growth (성장성) - YoY
     revenue_growth_yoy NUMERIC(8, 4),   -- 매출 성장률 (전년대비)
     earnings_growth_yoy NUMERIC(8, 4),  -- 이익 성장률 (전년대비)

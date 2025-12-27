@@ -162,6 +162,51 @@ export default function StockDetailPage() {
               </div>
             </div>
           )}
+
+          {/* Moving Averages */}
+          {metrics && (metrics.fifty_day_average || metrics.two_hundred_day_average) && (
+            <div className="mt-6 border-t border-gray-100 pt-4">
+              <h3 className="mb-3 text-sm font-semibold text-slate-600">Moving Averages</h3>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-500">
+                    <Tooltip content={metricsGlossary.fifty_day_average} position="bottom">
+                      <span className="border-b border-dashed border-slate-400">MA 50</span>
+                    </Tooltip>
+                  </p>
+                  <p className={`text-lg font-bold ${
+                    price?.close && metrics.fifty_day_average && price.close > metrics.fifty_day_average
+                      ? "text-green-600" : "text-red-600"
+                  }`}>
+                    {metrics.fifty_day_average?.toLocaleString(undefined, {maximumFractionDigits: 2}) ?? "-"} {company.currency}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">
+                    <Tooltip content={metricsGlossary.two_hundred_day_average} position="bottom">
+                      <span className="border-b border-dashed border-slate-400">MA 200</span>
+                    </Tooltip>
+                  </p>
+                  <p className={`text-lg font-bold ${
+                    price?.close && metrics.two_hundred_day_average && price.close > metrics.two_hundred_day_average
+                      ? "text-green-600" : "text-red-600"
+                  }`}>
+                    {metrics.two_hundred_day_average?.toLocaleString(undefined, {maximumFractionDigits: 2}) ?? "-"} {company.currency}
+                  </p>
+                </div>
+                {price?.close && metrics.fifty_day_average && metrics.two_hundred_day_average && (
+                  <div>
+                    <p className="text-sm font-medium text-slate-500">Trend</p>
+                    <p className={`text-lg font-bold ${
+                      metrics.fifty_day_average > metrics.two_hundred_day_average ? "text-green-600" : "text-red-600"
+                    }`}>
+                      {metrics.fifty_day_average > metrics.two_hundred_day_average ? "↑ Bullish" : "↓ Bearish"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

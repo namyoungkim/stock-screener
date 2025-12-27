@@ -179,6 +179,8 @@ def load_metrics(
         "fifty_two_week_high": "fifty_two_week_high",
         "fifty_two_week_low": "fifty_two_week_low",
         "beta": "beta",
+        "fifty_day_average": "fifty_day_average",
+        "two_hundred_day_average": "two_hundred_day_average",
         # Skipped: forward_pe
     }
 
