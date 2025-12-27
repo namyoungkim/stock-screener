@@ -14,6 +14,7 @@
 - 프론트엔드 스타일 가이드: @.claude/rules/frontend.md
 - 비전 및 AI 로드맵: @.claude/rules/vision.md
 - 데이터 백업 정책: @.claude/rules/data-policy.md
+- 알림 시스템 가이드: @.claude/rules/alerts.md
 
 ## 관련 문서 (필요 시 참조)
 
