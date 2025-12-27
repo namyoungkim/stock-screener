@@ -35,10 +35,12 @@
 - 하이브리드 저장 (Supabase + CSV)
 - GitHub Actions 워크플로우 (수집 + 백업)
 - FastAPI 백엔드 API
-- Next.js 프론트엔드 (Preset 전략, Tooltip UX)
+- Next.js 프론트엔드 (Preset 전략, Tooltip UX, 페이지네이션)
 - Vercel + Render 배포
+- GitHub OAuth 인증 (Supabase Auth)
+- 워치리스트 기능 (추가/삭제/조회)
 
-**미구현**: 워치리스트, 알림, 디스코드 봇 로직
+**미구현**: 알림 시스템, 디스코드 봇 워치리스트 연동
 
 **코드 내 알려진 TODO**:
 - CORS가 "*"로 설정됨 (프로덕션에서는 제한 필요)
