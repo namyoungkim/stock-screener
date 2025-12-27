@@ -78,8 +78,7 @@ DISCORD_BOT_TOKEN=your_discord_token
 
 ## 배포 URL
 
-- **Frontend**: https://stock-screener-inky.vercel.app
-- **Backend API**: https://stock-screener-api-c0kc.onrender.com
+- **Live Demo**: https://stock-screener-inky.vercel.app
 
 ## 라이선스
 
