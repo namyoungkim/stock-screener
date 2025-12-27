@@ -18,8 +18,8 @@ router = APIRouter(prefix="/screen", tags=["screening"])
 @router.post("", response_model=ScreenResponse)
 @limiter.limit(RATE_LIMITS["screen"])
 async def screen_stocks(
-    request: ScreenRequest,
-    req: Request,
+    request: Request,
+    screen_request: ScreenRequest,
     db: Client = Depends(get_db),
 ):
     """
@@ -51,20 +51,20 @@ async def screen_stocks(
     }
     ```
     """
-    filters = request.filters.copy()
+    filters = screen_request.filters.copy()
 
     # If preset is specified, add its filters
-    if request.preset:
-        preset = screener.get_preset(request.preset)
+    if screen_request.preset:
+        preset = screener.get_preset(screen_request.preset)
         if preset:
             filters.extend(preset.filters)
 
     total, stocks = await screener.screen_stocks(
         db=db,
         filters=filters,
-        market=request.market,
-        limit=request.limit,
-        offset=request.offset,
+        market=screen_request.market,
+        limit=screen_request.limit,
+        offset=screen_request.offset,
     )
 
     return ScreenResponse(total=total, stocks=stocks)
