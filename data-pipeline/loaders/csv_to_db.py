@@ -176,7 +176,9 @@ def load_metrics(
         "gross_margin": "gross_margin",
         "net_margin": "net_margin",
         "dividend_yield": "dividend_yield",
-        # Skipped: forward_pe, beta, fifty_two_week_high, fifty_two_week_low
+        "fifty_two_week_high": "fifty_two_week_high",
+        "fifty_two_week_low": "fifty_two_week_low",
+        # Skipped: forward_pe, beta
     }
 
     # Read US metrics

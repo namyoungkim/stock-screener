@@ -175,6 +175,10 @@ CREATE TABLE metrics (
     dividend_yield NUMERIC(8, 4),       -- 배당수익률
     payout_ratio NUMERIC(8, 4),         -- 배당성향
 
+    -- Price Range (가격 범위)
+    fifty_two_week_high NUMERIC(16, 4), -- 52주 최고가
+    fifty_two_week_low NUMERIC(16, 4),  -- 52주 최저가
+
     -- Growth (성장성) - YoY
     revenue_growth_yoy NUMERIC(8, 4),   -- 매출 성장률 (전년대비)
     earnings_growth_yoy NUMERIC(8, 4),  -- 이익 성장률 (전년대비)
@@ -421,6 +425,8 @@ SELECT
     m.fcf_yield,
     m.dividend_yield,
     m.payout_ratio,
+    m.fifty_two_week_high,
+    m.fifty_two_week_low,
     m.revenue_growth_yoy,
     m.earnings_growth_yoy,
     p.close AS latest_price,

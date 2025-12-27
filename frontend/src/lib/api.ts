@@ -28,6 +28,8 @@ export interface CompanyWithMetrics extends Company {
   eps?: number;
   book_value_per_share?: number;
   graham_number?: number;
+  fifty_two_week_high?: number;
+  fifty_two_week_low?: number;
 }
 
 export interface MetricFilter {
@@ -73,6 +75,8 @@ export interface Metrics {
   eps?: number;
   book_value_per_share?: number;
   graham_number?: number;
+  fifty_two_week_high?: number;
+  fifty_two_week_low?: number;
 }
 
 export interface Price {

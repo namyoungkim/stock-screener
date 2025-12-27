@@ -67,6 +67,10 @@ class CompanyWithMetrics(Company):
     book_value_per_share: float | None = None
     graham_number: float | None = None
 
+    # Price Range
+    fifty_two_week_high: float | None = None
+    fifty_two_week_low: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -97,6 +101,10 @@ class Metrics(BaseModel):
     eps: float | None = None
     book_value_per_share: float | None = None
     graham_number: float | None = None
+
+    # Price Range
+    fifty_two_week_high: float | None = None
+    fifty_two_week_low: float | None = None
 
     data_source: str | None = None
 

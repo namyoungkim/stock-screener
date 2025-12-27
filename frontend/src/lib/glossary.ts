@@ -22,6 +22,10 @@ export const metricsGlossary: Record<string, string> = {
   // Market data
   market_cap: "시가총액. 주가 × 발행주식수",
 
+  // Price Range
+  fifty_two_week_high: "52주 최고가. 최근 1년간 최고 거래가격",
+  fifty_two_week_low: "52주 최저가. 최근 1년간 최저 거래가격",
+
   // Graham Number
   eps: "주당순이익(EPS). 순이익 ÷ 발행주식수",
   book_value_per_share: "주당순자산(BPS). 순자산 ÷ 발행주식수",
@@ -47,6 +51,8 @@ export const headerToGlossaryKey: Record<string, string> = {
   EPS: "eps",
   BPS: "book_value_per_share",
   "Graham Number": "graham_number",
+  "52W High": "fifty_two_week_high",
+  "52W Low": "fifty_two_week_low",
 };
 
 // Preset strategies glossary (Korean explanations)
