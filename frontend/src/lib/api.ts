@@ -143,6 +143,46 @@ export interface WatchlistResponse {
   items: WatchlistItem[];
 }
 
+// Alert types
+export type OperatorType = "<" | "<=" | "=" | ">=" | ">";
+
+export interface AlertItem {
+  id: string;
+  user_id: string;
+  company_id: string;
+  metric: string;
+  operator: OperatorType;
+  value: number;
+  is_active: boolean;
+  triggered_at?: string;
+  triggered_count: number;
+  created_at: string;
+  updated_at: string;
+  ticker?: string;
+  name?: string;
+  market?: string;
+  latest_price?: number;
+}
+
+export interface AlertResponse {
+  total: number;
+  items: AlertItem[];
+}
+
+export interface AlertCreateData {
+  company_id: string;
+  metric: string;
+  operator: OperatorType;
+  value: number;
+}
+
+export interface AlertUpdateData {
+  metric?: string;
+  operator?: OperatorType;
+  value?: number;
+  is_active?: boolean;
+}
+
 async function fetchApi<T>(
   endpoint: string,
   options?: RequestInit & { token?: string }
@@ -242,4 +282,48 @@ export const api = {
       `/api/watchlist/check/${companyId}`,
       { token }
     ),
+
+  // Alerts (requires auth)
+  getAlerts: (token: string, params?: { limit?: number; offset?: number; active_only?: boolean }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.offset) searchParams.set("offset", String(params.offset));
+    if (params?.active_only) searchParams.set("active_only", String(params.active_only));
+    const query = searchParams.toString();
+    return fetchApi<AlertResponse>(
+      `/api/alerts${query ? `?${query}` : ""}`,
+      { token }
+    );
+  },
+
+  createAlert: (token: string, data: AlertCreateData) =>
+    fetchApi<{ success: boolean; item: AlertItem }>("/api/alerts", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  getAlert: (token: string, alertId: string) =>
+    fetchApi<AlertItem>(`/api/alerts/${alertId}`, { token }),
+
+  updateAlert: (token: string, alertId: string, data: AlertUpdateData) =>
+    fetchApi<{ success: boolean; item: AlertItem }>(
+      `/api/alerts/${alertId}`,
+      { method: "PATCH", body: JSON.stringify(data), token }
+    ),
+
+  deleteAlert: (token: string, alertId: string) =>
+    fetchApi<{ success: boolean; message: string }>(
+      `/api/alerts/${alertId}`,
+      { method: "DELETE", token }
+    ),
+
+  toggleAlert: (token: string, alertId: string) =>
+    fetchApi<{ success: boolean; item: AlertItem }>(
+      `/api/alerts/${alertId}/toggle`,
+      { method: "POST", token }
+    ),
+
+  getAlertsForCompany: (token: string, companyId: string) =>
+    fetchApi<AlertItem[]>(`/api/alerts/company/${companyId}`, { token }),
 };

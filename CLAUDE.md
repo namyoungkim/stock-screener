@@ -45,8 +45,9 @@
 - CORS 도메인 제한 (프로덕션 보안)
 - Rate Limiting (slowapi: 스크리닝 30/min, 일반 100/min)
 - 다크모드 (Tailwind class 전략, localStorage 저장)
+- 알림 시스템 (지표 기반 알림 CRUD, /alerts 페이지)
 
-**미구현**: 알림 시스템, 디스코드 봇 워치리스트 연동, i18n
+**미구현**: 디스코드 봇 워치리스트/알림 연동, i18n
 
 **코드 내 알려진 TODO**:
 - 입력 검증 강화

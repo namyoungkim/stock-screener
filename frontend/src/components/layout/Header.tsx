@@ -11,6 +11,7 @@ const navigation = [
   { name: "Screener", href: "/" },
   { name: "Presets", href: "/presets" },
   { name: "Watchlist", href: "/watchlist" },
+  { name: "Alerts", href: "/alerts" },
 ];
 
 export function Header() {

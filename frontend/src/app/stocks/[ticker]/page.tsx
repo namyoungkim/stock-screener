@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { WatchlistButton } from "@/components/WatchlistButton";
+import { AlertForm } from "@/components/AlertForm";
 import { formatMarketCap, formatPercent, formatRatio } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { metricsGlossary } from "@/lib/glossary";
@@ -86,6 +87,7 @@ export default function StockDetailPage() {
             {company.market}
           </span>
           <WatchlistButton companyId={company.id} />
+          <AlertForm companyId={company.id} ticker={company.ticker} companyName={company.name} />
         </div>
         <p className="mt-1 text-xl text-slate-700 dark:text-slate-200 font-medium">{company.name}</p>
         {company.sector && (

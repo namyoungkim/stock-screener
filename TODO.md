@@ -4,6 +4,12 @@
 
 ## 0. 최근 완료 (2025-12-28)
 
+- [x] **문서 구조 개선** - 문서 통합 및 간결화
+  - 커밋: `86ea589`
+  - `value-investing-screener-roadmap.md` 삭제 (역할 완료)
+  - `ROADMAP.md` 간결화 (141줄 → 64줄)
+  - `.claude/rules/vision.md` 생성 (AI 비전 + Phase 4,5)
+  - `.claude/rules/data-policy.md` 생성 (Google Drive 백업 정책)
 - [x] **Rate Limiting 구현** - API 요청 횟수 제한
   - 커밋: `d4a1009`
   - 라이브러리: slowapi
@@ -26,6 +32,11 @@
   - 커밋: `c857b5b`
 - [x] **문서화** - README, SECURITY.md 업데이트
   - 커밋: `02f2c97`
+- [x] **알림 시스템 구현** - 지표 기반 알림 CRUD
+  - 백엔드: `/api/alerts` CRUD API (models, service, routes)
+  - 프론트엔드: `/alerts` 페이지, `AlertForm` 컴포넌트
+  - 종목 상세 페이지에서 알림 추가 가능
+  - 알림 조건: 지표 + 연산자 + 값 (예: P/E <= 15)
 
 ## 이전 완료 (2025-12-27)
 
@@ -146,7 +157,7 @@
 ### 추가 필요
 
 - [x] 워치리스트 API (`/api/watchlist`)
-- [ ] 알림 API (`/api/alerts`)
+- [x] 알림 API (`/api/alerts`)
 - [x] 사용자 인증 (Supabase Auth)
 
 ---
@@ -184,6 +195,7 @@
 - [x] StockTable, FilterPanel 컴포넌트
 - [x] Supabase Auth 연동 (GitHub OAuth)
 - [x] 워치리스트 페이지
+- [x] 알림 페이지 + AlertForm 컴포넌트
 - [x] 페이지네이션 컴포넌트
 - [x] 다크모드 (Tailwind class 전략)
 - [ ] 한/영 i18n
