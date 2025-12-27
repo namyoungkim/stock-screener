@@ -20,6 +20,11 @@
   - 수집기: 20일 평균 거래량 대비 변화율(%) 계산
   - DB: `metrics` 테이블에 `volume_change` 컬럼 추가
   - 프론트엔드: +100% 빨강, +50% 주황, -50% 파랑 표시
+- [x] **MACD 지표 추가** - 이동평균수렴확산 지표
+  - 커밋: `576fa00`
+  - 수집기: MACD Line (12일-26일 EMA), Signal (9일 EMA), Histogram 계산
+  - DB: `metrics` 테이블에 `macd`, `macd_signal`, `macd_histogram` 컬럼 추가
+  - 프론트엔드: 히스토그램 양수 초록(상승), 음수 빨강(하락) 표시
 
 ---
 
@@ -206,7 +211,8 @@
 - 수집 시간 증가
 
 ### 옵션 3: Phase 3 전체 (고급 분석)
-- MACD, 볼린저 밴드, Money Flow Index
+- ~~MACD~~: `macd`, `macd_signal`, `macd_histogram` ✅ 완료
+- 볼린저 밴드, Money Flow Index
 - 히스토리 60일 필요
 - 수집 시간 대폭 증가
 
