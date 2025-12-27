@@ -21,6 +21,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (!supabase) {
+      setIsLoading(false);
+      return;
+    }
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -41,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = async () => {
+    if (!supabase) return;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -51,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGitHub = async () => {
+    if (!supabase) return;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "github",
       options: {
@@ -61,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    if (!supabase) return;
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   };

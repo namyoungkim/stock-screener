@@ -10,6 +10,11 @@ function AuthCallbackContent() {
 
   useEffect(() => {
     const handleCallback = async () => {
+      if (!supabase) {
+        router.push("/");
+        return;
+      }
+
       const code = searchParams.get("code");
 
       if (code) {
