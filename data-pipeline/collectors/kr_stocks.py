@@ -11,6 +11,7 @@ Optimized for speed with:
 - ThreadPoolExecutor for parallel processing
 """
 
+import math
 import os
 import random
 import time
@@ -27,6 +28,19 @@ from pykrx import stock as pykrx  # type: ignore[import-untyped]
 from tqdm import tqdm
 
 from supabase import Client, create_client
+
+
+def calculate_graham_number(eps: float | None, bvps: float | None) -> float | None:
+    """
+    Calculate Graham Number = sqrt(22.5 * EPS * BVPS).
+
+    Only valid when both EPS and BVPS are positive.
+    """
+    if eps is None or bvps is None:
+        return None
+    if eps <= 0 or bvps <= 0:
+        return None
+    return math.sqrt(22.5 * eps * bvps)
 
 if TYPE_CHECKING:
     from OpenDartReader.dart import OpenDartReader as OpenDartReaderType
@@ -104,6 +118,8 @@ def get_single_yfinance_metrics(
             stock = yf.Ticker(yf_ticker)
             info = stock.info
             if info and info.get("regularMarketPrice") is not None:
+                eps = info.get("trailingEps")
+                bvps = info.get("bookValue")
                 return {
                     "gross_margin": info.get("grossMargins"),
                     "ev_ebitda": info.get("enterpriseToEbitda"),
@@ -114,6 +130,9 @@ def get_single_yfinance_metrics(
                     "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
                     "trailing_pe": info.get("trailingPE"),
                     "price_to_book": info.get("priceToBook"),
+                    "eps": eps,
+                    "book_value_per_share": bvps,
+                    "graham_number": calculate_graham_number(eps, bvps),
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -171,6 +190,8 @@ def get_yfinance_metrics_batch(
                     info = tickers_obj.tickers[yf_ticker].info
                     if info and info.get("regularMarketPrice") is not None:
                         krx_ticker = ticker_map[yf_ticker]
+                        eps = info.get("trailingEps")
+                        bvps = info.get("bookValue")
                         results[krx_ticker] = {
                             "gross_margin": info.get("grossMargins"),
                             "ev_ebitda": info.get("enterpriseToEbitda"),
@@ -181,6 +202,9 @@ def get_yfinance_metrics_batch(
                             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
                             "trailing_pe": info.get("trailingPE"),
                             "price_to_book": info.get("priceToBook"),
+                            "eps": eps,
+                            "book_value_per_share": bvps,
+                            "graham_number": calculate_graham_number(eps, bvps),
                         }
                     else:
                         failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
@@ -371,6 +395,8 @@ def get_yfinance_metrics(ticker: str, market: str) -> dict | None:
         if not info or info.get("regularMarketPrice") is None:
             return None
 
+        eps = info.get("trailingEps")
+        bvps = info.get("bookValue")
         return {
             "gross_margin": info.get("grossMargins"),
             "ev_ebitda": info.get("enterpriseToEbitda"),
@@ -381,6 +407,9 @@ def get_yfinance_metrics(ticker: str, market: str) -> dict | None:
             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
             "trailing_pe": info.get("trailingPE"),
             "price_to_book": info.get("priceToBook"),
+            "eps": eps,
+            "book_value_per_share": bvps,
+            "graham_number": calculate_graham_number(eps, bvps),
         }
     except Exception as e:
         print(f"Error fetching yfinance metrics for {ticker}: {e}")
@@ -590,6 +619,9 @@ def upsert_metrics(client: Client, company_id: str, metrics: dict) -> bool:
             "roa": metrics.get("roa"),
             "debt_equity": metrics.get("debt_equity"),
             "net_margin": metrics.get("net_margin"),
+            "eps": metrics.get("eps"),
+            "book_value_per_share": metrics.get("book_value_per_share"),
+            "graham_number": metrics.get("graham_number"),
             "data_source": "calculated",
         }
 
@@ -627,9 +659,11 @@ def save_to_csv(
     companies: list[dict],
     metrics: list[dict],
     prices: list[dict],
+    is_test: bool = False,
 ) -> None:
     """Save collected data to CSV files for local storage."""
     today = date.today().strftime("%Y%m%d")
+    suffix = "_test" if is_test else ""
 
     # Ensure directories exist
     PRICES_DIR.mkdir(parents=True, exist_ok=True)
@@ -638,8 +672,8 @@ def save_to_csv(
     # Save companies (append to existing or create new)
     if companies:
         companies_df = pd.DataFrame(companies)
-        companies_file = DATA_DIR / "kr_companies.csv"
-        if companies_file.exists():
+        companies_file = DATA_DIR / f"kr_companies{suffix}.csv"
+        if not is_test and companies_file.exists():
             existing = pd.read_csv(companies_file)
             combined = pd.concat([existing, companies_df]).drop_duplicates(
                 subset=["ticker"], keep="last"
@@ -652,14 +686,14 @@ def save_to_csv(
     # Save metrics with date
     if metrics:
         metrics_df = pd.DataFrame(metrics)
-        metrics_file = FINANCIALS_DIR / f"kr_metrics_{today}.csv"
+        metrics_file = FINANCIALS_DIR / f"kr_metrics_{today}{suffix}.csv"
         metrics_df.to_csv(metrics_file, index=False)
         print(f"Saved {len(metrics)} metrics to {metrics_file}")
 
     # Save prices with date
     if prices:
         prices_df = pd.DataFrame(prices)
-        prices_file = PRICES_DIR / f"kr_prices_{today}.csv"
+        prices_file = PRICES_DIR / f"kr_prices_{today}{suffix}.csv"
         prices_df.to_csv(prices_file, index=False)
         print(f"Saved {len(prices)} prices to {prices_file}")
 
@@ -696,6 +730,7 @@ def collect_and_save(
     save_csv: bool = True,
     save_db: bool = True,
     max_workers: int = 4,
+    is_test: bool = False,
 ) -> dict:
     """
     Collect Korean stock data and save to Supabase and/or CSV.
@@ -922,7 +957,7 @@ def collect_and_save(
 
     # Save to CSV
     if save_csv:
-        save_to_csv(all_companies, all_metrics, all_prices)
+        save_to_csv(all_companies, all_metrics, all_prices, is_test=is_test)
 
     print(f"\nCollection complete: {stats}")
     return stats
@@ -993,6 +1028,7 @@ if __name__ == "__main__":
             delay=0.2,
             save_csv=True,
             save_db=not csv_only,
+            is_test=True,
         )
     elif "--kospi" in args:
         print(f"Running KOSPI collection (csv_only={csv_only})...")

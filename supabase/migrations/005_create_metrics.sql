@@ -46,6 +46,11 @@ CREATE TABLE metrics (
     revenue_growth_3y NUMERIC(8, 4),    -- 매출 3년 CAGR
     earnings_growth_3y NUMERIC(8, 4),   -- 이익 3년 CAGR
 
+    -- Graham Number (가치투자)
+    eps NUMERIC(20, 4),                 -- 주당순이익 (Earnings Per Share)
+    book_value_per_share NUMERIC(20, 4),-- 주당순자산 (Book Value Per Share)
+    graham_number NUMERIC(20, 4),       -- 그레이엄 숫자 = sqrt(22.5 * EPS * BVPS)
+
     -- 메타데이터
     data_source VARCHAR(50),            -- 'yfinance', 'calculated'
     created_at TIMESTAMPTZ DEFAULT NOW(),

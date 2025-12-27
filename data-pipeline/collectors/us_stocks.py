@@ -9,6 +9,7 @@ Optimized for speed with:
 - ThreadPoolExecutor for parallel processing
 """
 
+import math
 import os
 import random
 import time
@@ -21,6 +22,19 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 from supabase import Client, create_client
+
+
+def calculate_graham_number(eps: float | None, bvps: float | None) -> float | None:
+    """
+    Calculate Graham Number = sqrt(22.5 * EPS * BVPS).
+
+    Only valid when both EPS and BVPS are positive.
+    """
+    if eps is None or bvps is None:
+        return None
+    if eps <= 0 or bvps <= 0:
+        return None
+    return math.sqrt(22.5 * eps * bvps)
 
 load_dotenv()
 
@@ -230,6 +244,8 @@ def get_single_stock_info(
             stock = yf.Ticker(ticker)
             info = stock.info
             if info and info.get("regularMarketPrice") is not None:
+                eps = info.get("trailingEps")
+                bvps = info.get("bookValue")
                 return {
                     "name": info.get("longName"),
                     "sector": info.get("sector"),
@@ -252,6 +268,9 @@ def get_single_stock_info(
                     "beta": info.get("beta"),
                     "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
                     "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                    "eps": eps,
+                    "book_value_per_share": bvps,
+                    "graham_number": calculate_graham_number(eps, bvps),
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -295,6 +314,8 @@ def get_stock_data_batch(
                 try:
                     info = tickers_obj.tickers[ticker].info
                     if info and info.get("regularMarketPrice") is not None:
+                        eps = info.get("trailingEps")
+                        bvps = info.get("bookValue")
                         results[ticker] = {
                             "name": info.get("longName"),
                             "sector": info.get("sector"),
@@ -317,6 +338,9 @@ def get_stock_data_batch(
                             "beta": info.get("beta"),
                             "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
                             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                            "eps": eps,
+                            "book_value_per_share": bvps,
+                            "graham_number": calculate_graham_number(eps, bvps),
                         }
                     else:
                         failed_tickers.append(ticker)
@@ -463,6 +487,9 @@ def upsert_metrics(client: Client, company_id: str, financials: dict) -> bool:
             "gross_margin": financials.get("gross_margin"),
             "net_margin": financials.get("net_margin"),
             "dividend_yield": financials.get("dividend_yield"),
+            "eps": financials.get("eps"),
+            "book_value_per_share": financials.get("book_value_per_share"),
+            "graham_number": financials.get("graham_number"),
             "data_source": "yfinance",
         }
 
@@ -513,6 +540,7 @@ def collect_and_save(
     save_db: bool = True,
     universe: str = "sp500",
     batch_size: int = 30,
+    is_test: bool = False,
 ) -> dict:
     """
     Collect US stock data and save to Supabase and/or CSV.
@@ -649,6 +677,9 @@ def collect_and_save(
                         "beta": data.get("beta"),
                         "fifty_two_week_high": data.get("fifty_two_week_high"),
                         "fifty_two_week_low": data.get("fifty_two_week_low"),
+                        "eps": data.get("eps"),
+                        "book_value_per_share": data.get("book_value_per_share"),
+                        "graham_number": data.get("graham_number"),
                     }
                 )
 
@@ -671,7 +702,7 @@ def collect_and_save(
 
     # Save to CSV
     if save_csv:
-        save_to_csv(all_companies, all_metrics, all_prices)
+        save_to_csv(all_companies, all_metrics, all_prices, is_test=is_test)
 
     print(f"\nCollection complete: {stats}")
     return stats
@@ -681,9 +712,11 @@ def save_to_csv(
     companies: list[dict],
     metrics: list[dict],
     prices: list[dict],
+    is_test: bool = False,
 ) -> None:
     """Save collected data to CSV files for local storage."""
     today = date.today().strftime("%Y%m%d")
+    suffix = "_test" if is_test else ""
 
     # Ensure directories exist
     PRICES_DIR.mkdir(parents=True, exist_ok=True)
@@ -692,8 +725,8 @@ def save_to_csv(
     # Save companies (append to existing or create new)
     if companies:
         companies_df = pd.DataFrame(companies)
-        companies_file = DATA_DIR / "us_companies.csv"
-        if companies_file.exists():
+        companies_file = DATA_DIR / f"us_companies{suffix}.csv"
+        if not is_test and companies_file.exists():
             existing = pd.read_csv(companies_file)
             combined = pd.concat([existing, companies_df]).drop_duplicates(
                 subset=["ticker"], keep="last"
@@ -706,14 +739,14 @@ def save_to_csv(
     # Save metrics with date
     if metrics:
         metrics_df = pd.DataFrame(metrics)
-        metrics_file = FINANCIALS_DIR / f"us_metrics_{today}.csv"
+        metrics_file = FINANCIALS_DIR / f"us_metrics_{today}{suffix}.csv"
         metrics_df.to_csv(metrics_file, index=False)
         print(f"Saved {len(metrics)} metrics to {metrics_file}")
 
     # Save prices with date
     if prices:
         prices_df = pd.DataFrame(prices)
-        prices_file = PRICES_DIR / f"us_prices_{today}.csv"
+        prices_file = PRICES_DIR / f"us_prices_{today}{suffix}.csv"
         prices_df.to_csv(prices_file, index=False)
         print(f"Saved {len(prices)} prices to {prices_file}")
 
@@ -770,6 +803,7 @@ if __name__ == "__main__":
             delay=0.2,
             save_csv=True,
             save_db=not csv_only,
+            is_test=True,
         )
     elif "--list-tickers" in args:
         # Just list tickers without collecting

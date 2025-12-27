@@ -207,6 +207,26 @@ export default function StockDetailPage() {
                 {formatPercent(metrics.dividend_yield)}
               </p>
             </div>
+
+            {/* Graham Number */}
+            <div>
+              <MetricLabel label="EPS" glossaryKey="eps" />
+              <p className="text-lg font-bold text-slate-900">
+                {formatRatio(metrics.eps)}
+              </p>
+            </div>
+            <div>
+              <MetricLabel label="BPS" glossaryKey="book_value_per_share" />
+              <p className="text-lg font-bold text-slate-900">
+                {formatRatio(metrics.book_value_per_share)}
+              </p>
+            </div>
+            <div>
+              <MetricLabel label="Graham Number" glossaryKey="graham_number" />
+              <p className="text-lg font-bold text-violet-600">
+                {formatRatio(metrics.graham_number)}
+              </p>
+            </div>
           </div>
         </div>
       )}

@@ -22,7 +22,7 @@
 - [x] Vercel + Render 배포
 
 ### 예정
-- [ ] Graham Number 계산 추가
+- [x] Graham Number 계산 추가
 - [ ] 52주 최고/최저가 추가
 
 ---

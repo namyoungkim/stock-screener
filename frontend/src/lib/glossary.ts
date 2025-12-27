@@ -21,6 +21,12 @@ export const metricsGlossary: Record<string, string> = {
 
   // Market data
   market_cap: "시가총액. 주가 × 발행주식수",
+
+  // Graham Number
+  eps: "주당순이익(EPS). 순이익 ÷ 발행주식수",
+  book_value_per_share: "주당순자산(BPS). 순자산 ÷ 발행주식수",
+  graham_number:
+    "그레이엄 넘버. √(22.5 × EPS × BPS). 현재가보다 높으면 저평가 가능성",
 };
 
 // Table header labels to glossary key mapping
@@ -38,6 +44,9 @@ export const headerToGlossaryKey: Record<string, string> = {
   "Div Yield": "dividend_yield",
   "Dividend Yield": "dividend_yield",
   "Market Cap": "market_cap",
+  EPS: "eps",
+  BPS: "book_value_per_share",
+  "Graham Number": "graham_number",
 };
 
 // Preset strategies glossary (Korean explanations)

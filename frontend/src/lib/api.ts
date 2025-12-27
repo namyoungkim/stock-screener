@@ -25,6 +25,9 @@ export interface CompanyWithMetrics extends Company {
   debt_equity?: number;
   current_ratio?: number;
   dividend_yield?: number;
+  eps?: number;
+  book_value_per_share?: number;
+  graham_number?: number;
 }
 
 export interface MetricFilter {
@@ -67,6 +70,9 @@ export interface Metrics {
   debt_equity?: number;
   current_ratio?: number;
   dividend_yield?: number;
+  eps?: number;
+  book_value_per_share?: number;
+  graham_number?: number;
 }
 
 export interface Price {
