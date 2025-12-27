@@ -33,6 +33,7 @@ export interface CompanyWithMetrics extends Company {
   beta?: number;
   fifty_day_average?: number;
   two_hundred_day_average?: number;
+  peg_ratio?: number;
 }
 
 export interface MetricFilter {
@@ -83,6 +84,7 @@ export interface Metrics {
   beta?: number;
   fifty_day_average?: number;
   two_hundred_day_average?: number;
+  peg_ratio?: number;
 }
 
 export interface Price {

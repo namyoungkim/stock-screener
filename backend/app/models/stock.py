@@ -78,6 +78,9 @@ class CompanyWithMetrics(Company):
     fifty_day_average: float | None = None
     two_hundred_day_average: float | None = None
 
+    # PEG
+    peg_ratio: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -119,6 +122,9 @@ class Metrics(BaseModel):
     # Moving Averages
     fifty_day_average: float | None = None
     two_hundred_day_average: float | None = None
+
+    # PEG
+    peg_ratio: float | None = None
 
     data_source: str | None = None
 

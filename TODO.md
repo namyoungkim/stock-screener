@@ -185,9 +185,9 @@
 | ~~52주 최저~~ | `fifty_two_week_low` | ✅ 완료 |
 | ~~Beta~~ | `beta` | ✅ 완료 |
 
-### 옵션 1: yfinance 직접 제공 (권장 - 빠름)
+### 옵션 1: yfinance 직접 제공 (권장 - 빠름) ✅ 완료
 - ~~50일/200일 이동평균~~: `fiftyDayAverage`, `twoHundredDayAverage` ✅ 완료
-- PEG Ratio: `pegRatio`
+- ~~PEG Ratio~~: `trailingPegRatio` ✅ 완료
 - 수집 시간 거의 증가 없음
 
 ### 옵션 2: Phase 2 (타이밍 지표)

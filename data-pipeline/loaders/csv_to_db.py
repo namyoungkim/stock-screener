@@ -181,6 +181,7 @@ def load_metrics(
         "beta": "beta",
         "fifty_day_average": "fifty_day_average",
         "two_hundred_day_average": "two_hundred_day_average",
+        "peg_ratio": "peg_ratio",
         # Skipped: forward_pe
     }
 

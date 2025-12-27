@@ -5,6 +5,7 @@ export const metricsGlossary: Record<string, string> = {
   pb_ratio: "주가순자산비율(PBR). 주가 ÷ 주당순자산. 1 미만이면 자산가치보다 저평가",
   ps_ratio: "주가매출비율(PSR). 시총 ÷ 매출. 성장주 평가에 사용",
   ev_ebitda: "기업가치 ÷ 영업이익. 기업 인수 시 회수기간 추정에 활용",
+  peg_ratio: "PEG 비율. P/E ÷ 예상 성장률. 1 미만이면 성장 대비 저평가",
 
   // Profitability metrics
   roe: "자기자본이익률. 순이익 ÷ 자본. 높을수록 자본 효율이 좋음",
@@ -46,6 +47,7 @@ export const headerToGlossaryKey: Record<string, string> = {
   "P/B": "pb_ratio",
   "P/S": "ps_ratio",
   "EV/EBITDA": "ev_ebitda",
+  PEG: "peg_ratio",
   ROE: "roe",
   ROA: "roa",
   "Gross Margin": "gross_margin",

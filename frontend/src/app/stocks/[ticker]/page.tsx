@@ -241,6 +241,16 @@ export default function StockDetailPage() {
                 {formatRatio(metrics.ev_ebitda)}
               </p>
             </div>
+            <div>
+              <MetricLabel label="PEG" glossaryKey="peg_ratio" />
+              <p className={`text-lg font-bold ${
+                metrics.peg_ratio && metrics.peg_ratio < 1 ? "text-green-600" :
+                metrics.peg_ratio && metrics.peg_ratio > 2 ? "text-red-600" :
+                "text-slate-900"
+              }`}>
+                {formatRatio(metrics.peg_ratio)}
+              </p>
+            </div>
 
             {/* Profitability */}
             <div>
