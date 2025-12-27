@@ -6,11 +6,19 @@
 
 미국(S&P 500 + 400 + 600 + Russell 2000) 및 한국(KOSPI + KOSDAQ) 시장을 지원하는 가치투자 스크리닝 도구. FastAPI 백엔드, 데이터 수집 파이프라인, 디스코드 봇, Next.js 프론트엔드로 구성된 멀티 서비스 모노레포.
 
-## 상세 문서
+## 상세 문서 (자동 로드)
 
 - 실행 명령어: @.claude/rules/commands.md
 - 아키텍처 및 데이터 흐름: @.claude/rules/architecture.md
 - 개발 프로세스 및 배포: @.claude/rules/deployment.md
+
+## 관련 문서 (필요 시 참조)
+
+| 문서 | 용도 | 언제 참조 |
+|------|------|----------|
+| `README.md` | 프로젝트 소개 | 새 기여자 온보딩, GitHub 페이지 |
+| `ROADMAP.md` | 장기 로드맵 (Phase 1-3) | 다음 Phase 계획 시 |
+| `TODO.md` | 상세 작업 목록 | 구현할 기능 선택 시 |
 
 ## 환경 변수
 

@@ -1,6 +1,6 @@
 # TODO - 개선 필요 사항
 
-> 마지막 업데이트: 2025-12-26
+> 마지막 업데이트: 2025-12-27
 
 ## 1. 데이터 파이프라인
 
@@ -125,8 +125,8 @@
 
 ## 7. 인프라 및 배포
 
-- [ ] Vercel 배포 설정 (프론트엔드)
-- [ ] Railway 배포 설정 (백엔드, 봇)
+- [x] Vercel 배포 설정 (프론트엔드) - https://stock-screener-inky.vercel.app
+- [x] Render 배포 설정 (백엔드) - https://stock-screener-api-c0kc.onrender.com
 - [ ] 도메인 연결
 - [x] GitHub Actions 워크플로우 개선 (병렬 실행, 수동 트리거 옵션)
 - [x] Supabase CLI 설정 (`supabase/config.toml`)
@@ -157,6 +157,6 @@
 ### P3 - 낮음
 1. 다크모드
 2. i18n (한/영)
-3. 프로덕션 보안 강화
+3. 프로덕션 보안 강화 (CORS 제한)
 4. 성능 최적화
-5. 배포 (Vercel, Railway)
+5. ~~배포 (Vercel, Render)~~ ✅ 완료

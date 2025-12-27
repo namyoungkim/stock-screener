@@ -16,11 +16,10 @@
 - [x] Next.js 프론트엔드
 - [x] Preset 전략 (Graham, Buffett, Dividend, Deep Value)
 - [x] Tooltip UX (금융 용어 설명)
-
-### 진행 중
 - [x] 하이브리드 데이터 저장 전략
 - [x] 백업 자동화 (GitHub Actions)
-- [ ] 전체 데이터 수집 (S&P 500 + 400 + 600 + Russell 2000 + KOSPI/KOSDAQ)
+- [x] 전체 데이터 수집 (S&P 500 + 400 + 600 + Russell 2000 + KOSPI/KOSDAQ)
+- [x] Vercel + Render 배포
 
 ### 예정
 - [ ] Graham Number 계산 추가
@@ -106,8 +105,8 @@
 
 | 마일스톤 | 설명 | 상태 |
 |---------|------|------|
-| M1 | MVP 완성 (스크리닝 동작) | 진행 중 |
-| M2 | 전체 데이터 수집 완료 | 예정 |
-| M3 | 배포 (Vercel + Backend) | 예정 |
+| M1 | MVP 완성 (스크리닝 동작) | ✅ 완료 |
+| M2 | 전체 데이터 수집 완료 | ✅ 완료 |
+| M3 | 배포 (Vercel + Render) | ✅ 완료 |
 | M4 | Phase 2 지표 추가 | 예정 |
 | M5 | 알림 시스템 | 예정 |

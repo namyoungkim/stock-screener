@@ -17,7 +17,7 @@
 - **데이터베이스**: Supabase (PostgreSQL)
 - **봇**: discord.py
 - **데이터**: yfinance, pykrx, OpenDartReader
-- **배포**: Vercel, Railway
+- **배포**: Vercel (Frontend), Render (Backend)
 
 ## 프로젝트 구조
 
@@ -75,6 +75,11 @@ DART_API_KEY=your_dart_key
 # Discord
 DISCORD_BOT_TOKEN=your_discord_token
 ```
+
+## 배포 URL
+
+- **Frontend**: https://stock-screener-inky.vercel.app
+- **Backend API**: https://stock-screener-api-c0kc.onrender.com
 
 ## 라이선스
 
