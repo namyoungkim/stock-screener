@@ -77,8 +77,10 @@ export function StockTable({ stocks, isLoading }: StockTableProps) {
                   {stock.ticker}
                 </Link>
               </td>
-              <td className="px-4 py-4 text-gray-900 font-medium max-w-[200px]">
-                <div className="truncate" title={stock.name}>{stock.name}</div>
+              <td className="px-4 py-4 text-gray-900 font-medium">
+                <Tooltip content={stock.name} position="bottom">
+                  <div className="w-[180px] truncate cursor-default">{stock.name}</div>
+                </Tooltip>
               </td>
               <td className="whitespace-nowrap px-4 py-4">
                 <span
