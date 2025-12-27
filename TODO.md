@@ -49,8 +49,8 @@
 
 ### 적용 상태
 
-- [ ] Supabase SQL Editor에서 schema.sql 실행 필요
-- [ ] .env에 SUPABASE_URL, SUPABASE_KEY 설정 필요
+- [x] Supabase SQL Editor에서 schema.sql 실행 필요
+- [x] .env에 SUPABASE_URL, SUPABASE_KEY 설정 필요
 
 ---
 
