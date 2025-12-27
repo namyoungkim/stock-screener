@@ -35,6 +35,11 @@
   - 수집기: Typical Price × Volume 기반 MFI 계산
   - DB: `metrics` 테이블에 `mfi` 컬럼 추가
   - 프론트엔드: 20 이하 과매도(초록), 80 이상 과매수(빨강) 표시
+- [x] **Watchlist 기능 구현** - GitHub OAuth 인증 + 워치리스트
+  - 커밋: `b12ecbe`
+  - 백엔드: Supabase JWT 검증 (ES256/JWKS), Watchlist CRUD API
+  - 프론트엔드: GitHub OAuth 로그인, AuthContext, WatchlistButton, /watchlist 페이지
+  - UX 개선: 페이지네이션 추가, 컨테이너 너비 확장 (max-w-screen-xl)
 
 ---
 
@@ -115,9 +120,9 @@
 
 ### 추가 필요
 
-- [ ] 워치리스트 API (`/api/watchlist`)
+- [x] 워치리스트 API (`/api/watchlist`)
 - [ ] 알림 API (`/api/alerts`)
-- [ ] 사용자 인증 (Supabase Auth)
+- [x] 사용자 인증 (Supabase Auth)
 
 ---
 
@@ -152,8 +157,9 @@
 - [x] 스크리너 페이지 (메인)
 - [x] 종목 상세 페이지 (`/stocks/[ticker]`)
 - [x] StockTable, FilterPanel 컴포넌트
-- [ ] Supabase Auth 연동
-- [ ] 워치리스트 페이지
+- [x] Supabase Auth 연동 (GitHub OAuth)
+- [x] 워치리스트 페이지
+- [x] 페이지네이션 컴포넌트
 - [ ] 다크모드
 - [ ] 한/영 i18n
 
@@ -186,8 +192,8 @@
 4. 통합 테스트
 
 ### P2 - 중간
-1. Supabase Auth 연동
-2. 워치리스트 기능
+1. ~~Supabase Auth 연동~~ ✅ 완료
+2. ~~워치리스트 기능~~ ✅ 완료
 3. 알림 시스템
 
 ### P3 - 낮음
