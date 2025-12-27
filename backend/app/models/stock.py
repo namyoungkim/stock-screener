@@ -92,6 +92,12 @@ class CompanyWithMetrics(Company):
     macd_signal: float | None = None
     macd_histogram: float | None = None
 
+    # Bollinger Bands
+    bb_upper: float | None = None
+    bb_middle: float | None = None
+    bb_lower: float | None = None
+    bb_percent: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -147,6 +153,12 @@ class Metrics(BaseModel):
     macd: float | None = None
     macd_signal: float | None = None
     macd_histogram: float | None = None
+
+    # Bollinger Bands
+    bb_upper: float | None = None
+    bb_middle: float | None = None
+    bb_lower: float | None = None
+    bb_percent: float | None = None
 
     data_source: str | None = None
 

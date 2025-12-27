@@ -387,6 +387,41 @@ export default function StockDetailPage() {
                 {metrics.macd_histogram != null ? `${metrics.macd_histogram > 0 ? "+" : ""}${metrics.macd_histogram.toFixed(2)}` : "-"}
               </p>
             </div>
+
+            {/* Bollinger Bands */}
+            <div>
+              <MetricLabel label="BB Upper" glossaryKey="bb_upper" />
+              <p className="text-lg font-bold text-slate-900">
+                {metrics.bb_upper != null ? metrics.bb_upper.toLocaleString() : "-"}
+              </p>
+            </div>
+            <div>
+              <MetricLabel label="BB Middle" glossaryKey="bb_middle" />
+              <p className="text-lg font-bold text-slate-900">
+                {metrics.bb_middle != null ? metrics.bb_middle.toLocaleString() : "-"}
+              </p>
+            </div>
+            <div>
+              <MetricLabel label="BB Lower" glossaryKey="bb_lower" />
+              <p className="text-lg font-bold text-slate-900">
+                {metrics.bb_lower != null ? metrics.bb_lower.toLocaleString() : "-"}
+              </p>
+            </div>
+            <div>
+              <MetricLabel label="BB %" glossaryKey="bb_percent" />
+              <p className={`text-lg font-bold ${
+                metrics.bb_percent && metrics.bb_percent > 100 ? "text-red-600" :
+                metrics.bb_percent && metrics.bb_percent < 0 ? "text-green-600" :
+                "text-slate-900"
+              }`}>
+                {metrics.bb_percent != null ? `${metrics.bb_percent.toFixed(1)}%` : "-"}
+                {metrics.bb_percent != null && (
+                  <span className="ml-1 text-sm font-normal text-slate-500">
+                    {metrics.bb_percent > 100 ? "(Overbought)" : metrics.bb_percent < 0 ? "(Oversold)" : ""}
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
         </div>
       )}

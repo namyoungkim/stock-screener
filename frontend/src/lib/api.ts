@@ -39,6 +39,10 @@ export interface CompanyWithMetrics extends Company {
   macd?: number;
   macd_signal?: number;
   macd_histogram?: number;
+  bb_upper?: number;
+  bb_middle?: number;
+  bb_lower?: number;
+  bb_percent?: number;
 }
 
 export interface MetricFilter {
@@ -95,6 +99,10 @@ export interface Metrics {
   macd?: number;
   macd_signal?: number;
   macd_histogram?: number;
+  bb_upper?: number;
+  bb_middle?: number;
+  bb_lower?: number;
+  bb_percent?: number;
 }
 
 export interface Price {

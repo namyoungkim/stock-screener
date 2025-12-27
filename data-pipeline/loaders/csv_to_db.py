@@ -187,6 +187,10 @@ def load_metrics(
         "macd": "macd",
         "macd_signal": "macd_signal",
         "macd_histogram": "macd_histogram",
+        "bb_upper": "bb_upper",
+        "bb_middle": "bb_middle",
+        "bb_lower": "bb_lower",
+        "bb_percent": "bb_percent",
         # Skipped: forward_pe
     }
 

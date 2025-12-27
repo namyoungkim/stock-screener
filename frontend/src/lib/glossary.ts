@@ -46,6 +46,10 @@ export const metricsGlossary: Record<string, string> = {
   macd: "MACD(이동평균수렴확산). 12일 EMA - 26일 EMA. 추세 방향과 모멘텀 측정",
   macd_signal: "MACD 시그널선. MACD의 9일 EMA. MACD가 시그널 상향돌파 시 매수 신호",
   macd_histogram: "MACD 히스토그램. MACD - 시그널. 양수면 상승 모멘텀, 음수면 하락 모멘텀",
+  bb_upper: "볼린저 상단. 20일 SMA + 2×표준편차. 저항선 역할",
+  bb_middle: "볼린저 중심. 20일 단순이동평균(SMA)",
+  bb_lower: "볼린저 하단. 20일 SMA - 2×표준편차. 지지선 역할",
+  bb_percent: "볼린저 %B. 밴드 내 위치(%). 0% 이하 과매도, 100% 이상 과매수",
 };
 
 // Table header labels to glossary key mapping
@@ -77,6 +81,10 @@ export const headerToGlossaryKey: Record<string, string> = {
   MACD: "macd",
   Signal: "macd_signal",
   Histogram: "macd_histogram",
+  "BB Upper": "bb_upper",
+  "BB Middle": "bb_middle",
+  "BB Lower": "bb_lower",
+  "BB %": "bb_percent",
 };
 
 // Preset strategies glossary (Korean explanations)

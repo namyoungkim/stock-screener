@@ -156,6 +156,64 @@ def calculate_macd(
         return None
 
 
+def calculate_bollinger_bands(
+    ticker_symbol: str,
+    period: int = 20,
+    std_dev: float = 2.0,
+) -> dict[str, float | None] | None:
+    """
+    Calculate Bollinger Bands.
+
+    Args:
+        ticker_symbol: Stock ticker symbol
+        period: SMA period (default 20)
+        std_dev: Standard deviation multiplier (default 2.0)
+
+    Returns:
+        Dictionary with upper, middle, lower bands and %B indicator
+    """
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker(ticker_symbol)
+        hist = ticker.history(period="3mo")
+
+        if len(hist) < period:
+            return None
+
+        close = hist["Close"]
+
+        # Middle Band (SMA)
+        middle = close.rolling(window=period).mean()
+
+        # Standard Deviation
+        std = close.rolling(window=period).std()
+
+        # Upper and Lower Bands
+        upper = middle + (std_dev * std)
+        lower = middle - (std_dev * std)
+
+        # %B indicator: (Price - Lower) / (Upper - Lower)
+        current_price = close.iloc[-1]
+        upper_val = upper.iloc[-1]
+        lower_val = lower.iloc[-1]
+        middle_val = middle.iloc[-1]
+
+        if upper_val == lower_val:
+            percent_b = 0.5
+        else:
+            percent_b = (current_price - lower_val) / (upper_val - lower_val)
+
+        return {
+            "bb_upper": round(upper_val, 2),
+            "bb_middle": round(middle_val, 2),
+            "bb_lower": round(lower_val, 2),
+            "bb_percent": round(percent_b * 100, 2),  # As percentage
+        }
+    except Exception:
+        return None
+
+
 load_dotenv()
 
 # Data directory for CSV exports
@@ -397,6 +455,7 @@ def get_single_stock_info(
                     "rsi": calculate_rsi(ticker),
                     "volume_change": calculate_volume_change(ticker),
                     **(calculate_macd(ticker) or {}),
+                    **(calculate_bollinger_bands(ticker) or {}),
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -473,6 +532,7 @@ def get_stock_data_batch(
                             "rsi": calculate_rsi(ticker),
                             "volume_change": calculate_volume_change(ticker),
                             **(calculate_macd(ticker) or {}),
+                            **(calculate_bollinger_bands(ticker) or {}),
                         }
                     else:
                         failed_tickers.append(ticker)
@@ -633,6 +693,10 @@ def upsert_metrics(client: Client, company_id: str, financials: dict) -> bool:
             "macd": financials.get("macd"),
             "macd_signal": financials.get("macd_signal"),
             "macd_histogram": financials.get("macd_histogram"),
+            "bb_upper": financials.get("bb_upper"),
+            "bb_middle": financials.get("bb_middle"),
+            "bb_lower": financials.get("bb_lower"),
+            "bb_percent": financials.get("bb_percent"),
             "data_source": "yfinance",
         }
 
@@ -831,6 +895,10 @@ def collect_and_save(
                         "macd": data.get("macd"),
                         "macd_signal": data.get("macd_signal"),
                         "macd_histogram": data.get("macd_histogram"),
+                        "bb_upper": data.get("bb_upper"),
+                        "bb_middle": data.get("bb_middle"),
+                        "bb_lower": data.get("bb_lower"),
+                        "bb_percent": data.get("bb_percent"),
                     }
                 )
 
