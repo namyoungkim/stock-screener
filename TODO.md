@@ -2,6 +2,17 @@
 
 > 마지막 업데이트: 2025-12-27
 
+## 0. 최근 완료 (2025-12-27)
+
+- [x] **Graham Number 구현** - EPS, BPS, Graham Number 수집 및 표시
+  - 커밋: `ecdd2ea`
+  - 수집기: US/KR 모두 적용
+  - DB: `metrics` 테이블에 `eps`, `book_value_per_share`, `graham_number` 컬럼 추가
+  - 프론트엔드: 상세 페이지에서 표시
+- [x] **테스트 모드 개선** - `--test` 실행 시 CSV 파일에 `_test` 접미사 추가
+
+---
+
 ## 1. 데이터 파이프라인
 
 ### US 수집기 (`data-pipeline/collectors/us_stocks.py`)
@@ -160,3 +171,35 @@
 3. 프로덕션 보안 강화 (CORS 제한)
 4. 성능 최적화
 5. ~~배포 (Vercel, Render)~~ ✅ 완료
+
+---
+
+## 🔮 지표 확장 계획 (의사결정 필요)
+
+> 데이터 수집이 오래 걸리므로, 필요한 지표를 미리 설계하여 한 번에 수집하는 것이 효율적.
+
+### 현재 수집 중 (표시만 추가 필요)
+| 지표 | 필드명 | 작업 |
+|------|--------|------|
+| 52주 최고 | `fifty_two_week_high` | 프론트엔드 표시 |
+| 52주 최저 | `fifty_two_week_low` | 프론트엔드 표시 |
+| Beta | `beta` | 프론트엔드 표시 |
+
+### 옵션 1: yfinance 직접 제공 (권장 - 빠름)
+- 50일/200일 이동평균: `fiftyDayAverage`, `twoHundredDayAverage`
+- PEG Ratio: `pegRatio`
+- 수집 시간 거의 증가 없음
+
+### 옵션 2: Phase 2 (타이밍 지표)
+- RSI (14일) - 히스토리 30일 필요
+- 거래량 변화율 - 히스토리 필요
+- 수집 시간 증가
+
+### 옵션 3: Phase 3 전체 (고급 분석)
+- MACD, 볼린저 밴드, Money Flow Index
+- 히스토리 60일 필요
+- 수집 시간 대폭 증가
+
+### 결정 사항
+- [ ] 어떤 옵션으로 진행할지 결정
+- [ ] 데이터 수집 전 스키마 미리 설계
