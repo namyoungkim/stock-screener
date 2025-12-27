@@ -24,11 +24,11 @@ export default function WatchlistPage() {
   if (!authLoading && !user) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-16 text-center">
-        <Star className="mx-auto h-16 w-16 text-gray-300 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+        <Star className="mx-auto h-16 w-16 text-gray-300 dark:text-gray-600 mb-4" />
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
           Sign in to view your watchlist
         </h1>
-        <p className="text-gray-600 mb-6">
+        <p className="text-gray-600 dark:text-gray-400 mb-6">
           Track your favorite stocks and set price targets
         </p>
       </div>
@@ -51,19 +51,19 @@ export default function WatchlistPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">My Watchlist</h1>
-        <p className="mt-2 text-slate-600">
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white">My Watchlist</h1>
+        <p className="mt-2 text-slate-600 dark:text-slate-400">
           {items.length} {items.length === 1 ? "stock" : "stocks"} tracked
         </p>
       </div>
 
       {items.length === 0 ? (
-        <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
-          <Star className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-12 text-center">
+          <Star className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
             Your watchlist is empty
           </h2>
-          <p className="text-gray-600 mb-6">
+          <p className="text-gray-600 dark:text-gray-400 mb-6">
             Browse stocks and click the star icon to add them here
           </p>
           <Link
@@ -74,9 +74,9 @@ export default function WatchlistPage() {
           </Link>
         </div>
       ) : (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-slate-800">
+        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
+            <thead className="bg-slate-800 dark:bg-slate-900">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-white">
                   Stock
@@ -98,17 +98,17 @@ export default function WatchlistPage() {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
               {items.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
+                <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
                   <td className="px-4 py-4">
                     <Link
                       href={`/stocks/${item.ticker}?market=${item.market}`}
-                      className="font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                      className="font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
                     >
                       {item.ticker}
                     </Link>
-                    <p className="text-sm text-gray-500 truncate max-w-[200px]">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
                       {item.name}
                     </p>
                   </td>
@@ -116,10 +116,10 @@ export default function WatchlistPage() {
                     <span
                       className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
                         item.market === "US"
-                          ? "bg-blue-100 text-blue-800"
+                          ? "bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300"
                           : item.market === "KOSPI"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-purple-100 text-purple-800"
+                            ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300"
+                            : "bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300"
                       }`}
                     >
                       {item.market}
@@ -127,19 +127,19 @@ export default function WatchlistPage() {
                   </td>
                   <td className="px-4 py-4 text-right">
                     {item.target_price ? (
-                      <span className="font-medium text-gray-900">
+                      <span className="font-medium text-gray-900 dark:text-white">
                         ${item.target_price.toLocaleString()}
                       </span>
                     ) : (
-                      <span className="text-gray-400">-</span>
+                      <span className="text-gray-400 dark:text-gray-500">-</span>
                     )}
                   </td>
                   <td className="px-4 py-4">
-                    <p className="text-sm text-gray-600 truncate max-w-[200px]">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 truncate max-w-[200px]">
                       {item.notes || "-"}
                     </p>
                   </td>
-                  <td className="px-4 py-4 text-sm text-gray-500">
+                  <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">
                     {new Date(item.added_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-4 text-center">

@@ -11,6 +11,7 @@
 - 실행 명령어: @.claude/rules/commands.md
 - 아키텍처 및 데이터 흐름: @.claude/rules/architecture.md
 - 개발 프로세스 및 배포: @.claude/rules/deployment.md
+- 프론트엔드 스타일 가이드: @.claude/rules/frontend.md
 
 ## 관련 문서 (필요 시 참조)
 
