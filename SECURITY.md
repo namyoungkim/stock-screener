@@ -116,12 +116,40 @@ Authorization: Bearer <jwt_token>
 - CORS 도메인 제한
 - JWT 토큰 검증 (ES256/JWKS)
 - 인증 필요 엔드포인트 보호
+- Rate Limiting (slowapi)
 
 #### 향후 구현 예정
-- [ ] Rate Limiting (요청 횟수 제한)
 - [ ] API 키 노출 방지 (환경변수 검증)
 - [ ] 입력 검증 강화
 - [ ] 로깅 및 모니터링
+
+---
+
+## Rate Limiting
+
+### 개념
+
+Rate Limiting은 API 남용을 방지하기 위해 일정 시간 내 요청 횟수를 제한합니다.
+
+### 현재 설정
+
+`slowapi` 라이브러리 사용 (`backend/app/core/rate_limit.py`):
+
+| 엔드포인트 | 제한 | 설명 |
+|------------|------|------|
+| `/api/screen` | 30/minute | 스크리닝 (무거운 연산) |
+| `/api/stocks` | 100/minute | 종목 목록/상세 |
+| `/api/screen/presets` | 100/minute | 프리셋 조회 |
+
+### Rate Limit 초과 시
+
+```json
+{
+  "error": "Rate limit exceeded: 30 per 1 minute"
+}
+```
+
+HTTP 상태 코드: `429 Too Many Requests`
 
 ---
 

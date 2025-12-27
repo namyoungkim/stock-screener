@@ -1,8 +1,24 @@
 # TODO - 개선 필요 사항
 
-> 마지막 업데이트: 2025-12-27
+> 마지막 업데이트: 2025-12-28
 
-## 0. 최근 완료 (2025-12-27)
+## 0. 최근 완료 (2025-12-28)
+
+- [x] **Rate Limiting 구현** - API 요청 횟수 제한
+  - 커밋: `d4a1009`
+  - 라이브러리: slowapi
+  - 스크리닝: 30/minute, 일반 API: 100/minute
+- [x] **다크모드 구현** - Tailwind class 전략
+  - 커밋: `d4a1009`
+  - ThemeContext, ThemeToggle 컴포넌트
+  - 헤더에 🌙/☀️ 토글 버튼
+  - localStorage에 테마 저장
+- [x] **CORS 보안 강화** - 특정 도메인만 허용
+  - 커밋: `c857b5b`
+- [x] **문서화** - README, SECURITY.md 업데이트
+  - 커밋: `02f2c97`
+
+## 이전 완료 (2025-12-27)
 
 - [x] **Graham Number 구현** - EPS, BPS, Graham Number 수집 및 표시
   - 커밋: `ecdd2ea`

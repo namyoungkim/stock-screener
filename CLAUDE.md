@@ -40,9 +40,11 @@
 - Vercel + Render 배포
 - GitHub OAuth 인증 (Supabase Auth)
 - 워치리스트 기능 (추가/삭제/조회)
+- CORS 도메인 제한 (프로덕션 보안)
+- Rate Limiting (slowapi: 스크리닝 30/min, 일반 100/min)
+- 다크모드 (Tailwind class 전략, localStorage 저장)
 
-**미구현**: 알림 시스템, 디스코드 봇 워치리스트 연동
+**미구현**: 알림 시스템, 디스코드 봇 워치리스트 연동, i18n
 
 **코드 내 알려진 TODO**:
-- Rate limiting 미들웨어 추가
 - 입력 검증 강화
