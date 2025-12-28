@@ -112,6 +112,16 @@ class CollectionProgress:
         """Log final summary."""
         elapsed = (datetime.now() - self.start_time).total_seconds()
 
+        if self.total == 0:
+            self.logger.info(
+                f"\n{'='*60}\n"
+                f"{self.desc} Summary:\n"
+                f"  Total: 0 (no data collected)\n"
+                f"  Time: {elapsed:.1f}s\n"
+                f"{'='*60}"
+            )
+            return
+
         self.logger.info(
             f"\n{'='*60}\n"
             f"{self.desc} Summary:\n"
