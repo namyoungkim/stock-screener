@@ -4,7 +4,6 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "yfinance>=0.2.36",
-    "opendartreader>=0.2.1",
     "pykrx>=1.0.45",
     "requests>=2.31.0",
     "supabase>=2.3.4",
