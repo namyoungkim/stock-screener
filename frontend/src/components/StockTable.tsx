@@ -6,6 +6,7 @@ import { formatMarketCap, formatPercent, formatRatio } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { getMetricTooltip } from "@/lib/glossary";
 import { WatchlistButton } from "@/components/WatchlistButton";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 
 function MetricHeader({ label, align = "right" }: { label: string; align?: "left" | "right" }) {
   const tooltip = getMetricTooltip(label);
@@ -31,11 +32,7 @@ interface StockTableProps {
 
 export function StockTable({ stocks, isLoading }: StockTableProps) {
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-      </div>
-    );
+    return <SkeletonTable rows={10} columns={9} />;
   }
 
   if (stocks.length === 0) {
