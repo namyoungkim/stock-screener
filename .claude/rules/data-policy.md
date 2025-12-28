@@ -8,6 +8,32 @@
 | CSV 로컬 저장 | ✅ 구현됨 |
 | GitHub Artifacts 백업 | ✅ 구현됨 (30일 보관) |
 | Google Drive 백업 | ✅ 워크플로우 구현됨 (RCLONE_CONFIG 설정 필요) |
+| prices 자동 정리 | ✅ 구현됨 (1개월 이전 삭제) |
+
+---
+
+## Supabase 무료 티어 제한 (2025)
+
+| 항목 | 제한 |
+|------|------|
+| 데이터베이스 스토리지 | **500MB** |
+| 파일 스토리지 | 1GB |
+| 대역폭 | 10GB |
+| 월간 활성 사용자 (MAU) | 10,000명 |
+| 무료 프로젝트 | 2개 |
+| 비활성 시 | 자동 일시중지 |
+
+> 500MB 초과 시 읽기 전용 모드로 전환됩니다.
+
+### 예상 사용량
+
+| 테이블 | 예상 용량 | 비고 |
+|--------|----------|------|
+| companies | ~3MB | 마스터 데이터 |
+| metrics | ~6MB | 최신만 (upsert) |
+| prices | ~25MB | 1개월 유지 |
+| 인덱스 | ~15MB | 데이터의 30~50% |
+| **총계** | **~50MB** | 제한의 10% |
 
 ---
 
@@ -15,7 +41,7 @@
 
 | 저장소 | 용도 | 용량 | 비용 |
 |--------|------|------|------|
-| Supabase | 최신 데이터 (API 서빙) | ~100MB | 무료 |
+| Supabase | 최신 데이터 (API 서빙) | ~50MB | 무료 |
 | Google Drive | 히스토리 아카이브 | 15GB | 무료 |
 | GitHub | 코드만 (데이터 제외) | - | 무료 |
 
@@ -25,13 +51,14 @@
 
 API 서빙용 최신 데이터만 유지 (무료 티어 제한 대응)
 
-| 테이블 | 보관 정책 |
-|--------|----------|
-| companies | 전체 (마스터 데이터) |
-| metrics | 최신만 (덮어쓰기) |
-| prices | 최근 1개월 |
-| watchlist | 전체 (사용자 데이터) |
-| alerts | 전체 (사용자 데이터) |
+| 테이블 | 보관 정책 | 구현 |
+|--------|----------|------|
+| companies | 전체 (마스터 데이터) | ✅ |
+| metrics | 최신만 (덮어쓰기) | ✅ upsert |
+| prices | 최근 1개월 | ✅ backup.yml에서 자동 삭제 |
+| watchlist | 전체 (사용자 데이터) | ✅ |
+| alerts | 전체 (사용자 데이터) | ✅ |
+| user_presets | 전체 (사용자 데이터) | ✅ |
 
 ---
 
@@ -192,16 +219,44 @@ psql $DATABASE_URL < supabase_20250105.sql
 
 ## 데이터 정리 (Supabase 용량 관리)
 
-### 오래된 가격 데이터 삭제
+### 자동화 (backup.yml)
+
+prices 테이블은 backup.yml에서 자동으로 정리됩니다:
+- 데이터 수집 완료 후 자동 실행 (workflow_run 트리거)
+- 1개월 이전 데이터 삭제
+
+### 수동 정리 (필요 시)
 ```sql
 -- 1개월 이전 가격 데이터 삭제
 DELETE FROM prices
 WHERE date < NOW() - INTERVAL '1 month';
 ```
 
-### 자동화 (GitHub Actions)
-```yaml
-- name: Clean old prices
-  run: |
-    psql ${{ secrets.DATABASE_URL }} -c "DELETE FROM prices WHERE date < NOW() - INTERVAL '1 month';"
+---
+
+## 용량 확인 방법
+
+### Supabase 대시보드
+
+1. [Organization Usage](https://supabase.com/dashboard/org/_/usage) - 조직 전체 사용량
+2. Project Overview 페이지 - 프로젝트별 사용량
+
+### SQL 쿼리 (테이블별 용량)
+
+```sql
+SELECT
+    schemaname,
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) AS total_size,
+    pg_size_pretty(pg_relation_size(schemaname || '.' || tablename)) AS table_size,
+    pg_size_pretty(pg_indexes_size(schemaname || '.' || tablename)) AS index_size
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY pg_total_relation_size(schemaname || '.' || tablename) DESC;
+```
+
+### SQL 쿼리 (전체 데이터베이스)
+
+```sql
+SELECT pg_size_pretty(pg_database_size(current_database()));
 ```
