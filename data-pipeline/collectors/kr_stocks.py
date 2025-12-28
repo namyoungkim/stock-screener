@@ -1,648 +1,103 @@
 """
 Korean Stock Data Collector
 
-Collects financial data for Korean stocks using pykrx and OpenDartReader,
-and saves to Supabase.
+Collects financial data for Korean stocks using pykrx and yfinance.
 Supports hybrid storage: Supabase for latest data, CSV for history.
 
-Optimized for speed with:
-- Bulk history download using yf.download() (500 tickers per batch)
-- Batch yfinance calls (30 tickers at a time for stock info)
-- Pre-fetched pykrx market data (single API call for all stocks)
-- ThreadPoolExecutor for parallel DART processing
-- Technical indicators calculated from pre-fetched history data
+Data sources:
+- pykrx: prices, market cap, PER, PBR, EPS, BPS (bulk, fast)
+- yfinance: ROE, ROA, margins, ratios, technical indicators (bulk)
+
+Usage:
+    uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks
+    uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --csv-only
+    uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kospi
+    uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --test
+    uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --resume
 """
 
-import math
-import os
+import logging
 import random
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
-from pathlib import Path
-from typing import TYPE_CHECKING
 
-import OpenDartReader  # type: ignore[import-untyped]
 import pandas as pd
 import yfinance as yf
-from dotenv import load_dotenv
+from common.indicators import calculate_all_technicals, calculate_graham_number
+from common.logging import CollectionProgress
+from common.retry import RetryConfig, with_retry
 from pykrx import stock as pykrx  # type: ignore[import-untyped]
 from tqdm import tqdm
 
-from supabase import Client, create_client
+from .base import BaseCollector
 
 
-def calculate_graham_number(eps: float | None, bvps: float | None) -> float | None:
-    """
-    Calculate Graham Number = sqrt(22.5 * EPS * BVPS).
+class KRCollector(BaseCollector):
+    """Collector for Korean stock data using pykrx + yfinance."""
 
-    Only valid when both EPS and BVPS are positive.
-    """
-    if eps is None or bvps is None:
-        return None
-    if eps <= 0 or bvps <= 0:
-        return None
-    return math.sqrt(22.5 * eps * bvps)
+    MARKET = "KOSPI"  # Will be overridden per ticker
+    MARKET_PREFIX = "kr"
+    DATA_SOURCE = "yfinance+pykrx"
 
-
-# ============================================================
-# Technical Indicator Functions (Optimized - use pre-fetched history)
-# ============================================================
-
-
-def calculate_rsi_from_hist(hist: pd.DataFrame, period: int = 14) -> float | None:
-    """Calculate RSI from pre-fetched history DataFrame."""
-    try:
-        if hist.empty or len(hist) < period + 1:
-            return None
-
-        delta = hist["Close"].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-
-        if loss.iloc[-1] == 0:
-            return 100.0 if gain.iloc[-1] > 0 else 50.0
-
-        rs = gain.iloc[-1] / loss.iloc[-1]
-        rsi = 100 - (100 / (1 + rs))
-        return round(rsi, 2)
-    except Exception:
-        return None
-
-
-def calculate_volume_change_from_hist(
-    hist: pd.DataFrame, period: int = 20
-) -> float | None:
-    """Calculate volume change rate from pre-fetched history."""
-    try:
-        if hist.empty or len(hist) < period:
-            return None
-
-        avg_volume = hist["Volume"].iloc[-period:].mean()
-        current_volume = hist["Volume"].iloc[-1]
-
-        if avg_volume == 0:
-            return None
-
-        change_rate = ((current_volume / avg_volume) - 1) * 100
-        return round(change_rate, 2)
-    except Exception:
-        return None
-
-
-def calculate_macd_from_hist(
-    hist: pd.DataFrame,
-    fast: int = 12,
-    slow: int = 26,
-    signal: int = 9,
-) -> dict[str, float | None] | None:
-    """Calculate MACD from pre-fetched history."""
-    try:
-        if hist.empty or len(hist) < slow + signal:
-            return None
-
-        close = hist["Close"]
-        ema_fast = close.ewm(span=fast, adjust=False).mean()
-        ema_slow = close.ewm(span=slow, adjust=False).mean()
-        macd_line = ema_fast - ema_slow
-        signal_line = macd_line.ewm(span=signal, adjust=False).mean()
-        histogram = macd_line - signal_line
-
-        return {
-            "macd": round(macd_line.iloc[-1], 4),
-            "macd_signal": round(signal_line.iloc[-1], 4),
-            "macd_histogram": round(histogram.iloc[-1], 4),
-        }
-    except Exception:
-        return None
-
-
-def calculate_bollinger_from_hist(
-    hist: pd.DataFrame,
-    period: int = 20,
-    std_dev: float = 2.0,
-) -> dict[str, float | None] | None:
-    """Calculate Bollinger Bands from pre-fetched history."""
-    try:
-        if hist.empty or len(hist) < period:
-            return None
-
-        close = hist["Close"]
-        middle = close.rolling(window=period).mean()
-        std = close.rolling(window=period).std()
-        upper = middle + (std_dev * std)
-        lower = middle - (std_dev * std)
-
-        current_price = close.iloc[-1]
-        upper_val = upper.iloc[-1]
-        lower_val = lower.iloc[-1]
-        middle_val = middle.iloc[-1]
-
-        if upper_val == lower_val:
-            percent_b = 0.5
-        else:
-            percent_b = (current_price - lower_val) / (upper_val - lower_val)
-
-        return {
-            "bb_upper": round(upper_val, 2),
-            "bb_middle": round(middle_val, 2),
-            "bb_lower": round(lower_val, 2),
-            "bb_percent": round(percent_b * 100, 2),
-        }
-    except Exception:
-        return None
-
-
-def calculate_mfi_from_hist(hist: pd.DataFrame, period: int = 14) -> float | None:
-    """Calculate Money Flow Index from pre-fetched history."""
-    try:
-        if hist.empty or len(hist) < period + 1:
-            return None
-
-        typical_price = (hist["High"] + hist["Low"] + hist["Close"]) / 3
-        raw_money_flow = typical_price * hist["Volume"]
-        tp_diff = typical_price.diff()
-
-        positive_flow = raw_money_flow.where(tp_diff > 0, 0)
-        negative_flow = raw_money_flow.where(tp_diff < 0, 0)
-
-        positive_mf = positive_flow.rolling(window=period).sum()
-        negative_mf = negative_flow.rolling(window=period).sum()
-
-        mf_ratio = positive_mf / negative_mf.replace(0, float("inf"))
-        mfi = 100 - (100 / (1 + mf_ratio))
-
-        return round(mfi.iloc[-1], 2)
-    except Exception:
-        return None
-
-
-def calculate_all_technicals(hist: pd.DataFrame) -> dict:
-    """Calculate all technical indicators from a single history DataFrame."""
-    return {
-        "rsi": calculate_rsi_from_hist(hist),
-        "volume_change": calculate_volume_change_from_hist(hist),
-        **(calculate_macd_from_hist(hist) or {}),
-        **(calculate_bollinger_from_hist(hist) or {}),
-        "mfi": calculate_mfi_from_hist(hist),
-    }
-
-
-if TYPE_CHECKING:
-    from OpenDartReader.dart import OpenDartReader as OpenDartReaderType
-
-load_dotenv()
-
-DART_API_KEY = os.getenv("DART_API_KEY")
-
-# Data directory for CSV exports
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
-PRICES_DIR = DATA_DIR / "prices"
-FINANCIALS_DIR = DATA_DIR / "financials"
-
-
-def get_supabase_client() -> Client:
-    """Initialize and return Supabase client."""
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
-
-    if not url or not key:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set")
-
-    return create_client(url, key)
-
-
-def get_dart_reader() -> "OpenDartReaderType | None":
-    """Get OpenDartReader instance. Returns None if API key not set."""
-    if not DART_API_KEY:
-        print("Warning: DART_API_KEY not set. Financial statements will be skipped.")
-        return None
-    return OpenDartReader(DART_API_KEY)  # type: ignore[call-non-callable]
-
-
-def get_market_data_bulk(target_date: str | None = None) -> tuple[pd.DataFrame, str]:
-    """
-    Fetch all market data in bulk (single API call).
-
-    get_market_cap returns: 종가, 시가총액, 거래량, 거래대금, 상장주식수
-
-    Returns:
-        Tuple of (market_df, trading_date) for all stocks.
-    """
-    # Find the most recent trading day with actual data (not weekend/holiday)
-    for i in range(7):
-        day = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
-        market_df = pykrx.get_market_cap(day)
-        # Check if data has actual values (not all zeros)
-        if not market_df.empty and market_df["시가총액"].sum() > 0:
-            target_date = day
-            break
-    else:
-        return pd.DataFrame(), ""
-
-    print(f"Fetched bulk market data for {len(market_df)} stocks (date: {target_date})")
-    return market_df, target_date
-
-
-def get_single_yfinance_metrics(
-    yf_ticker: str,
-    max_retries: int = 3,
-    base_delay: float = 1.0,
-    max_delay: float = 60.0,
-) -> dict | None:
-    """
-    Fetch yfinance metrics for a single ticker with exponential backoff.
-
-    Optimized: fetches history once for all technical indicators.
-
-    Args:
-        yf_ticker: Yahoo Finance ticker (e.g., "005930.KS")
-        max_retries: Maximum number of retry attempts
-        base_delay: Initial delay in seconds
-        max_delay: Maximum delay cap in seconds
-    """
-    for attempt in range(max_retries + 1):
-        try:
-            stock = yf.Ticker(yf_ticker)
-            info = stock.info
-            if info and info.get("regularMarketPrice") is not None:
-                eps = info.get("trailingEps")
-                bvps = info.get("bookValue")
-
-                # Fetch history once for all technical indicators (OPTIMIZED)
-                hist = stock.history(period="3mo")
-                technicals = calculate_all_technicals(hist)
-
-                return {
-                    "gross_margin": info.get("grossMargins"),
-                    "ev_ebitda": info.get("enterpriseToEbitda"),
-                    "dividend_yield": info.get("dividendYield"),
-                    "forward_pe": info.get("forwardPE"),
-                    "beta": info.get("beta"),
-                    "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
-                    "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-                    "fifty_day_average": info.get("fiftyDayAverage"),
-                    "two_hundred_day_average": info.get("twoHundredDayAverage"),
-                    "peg_ratio": info.get("trailingPegRatio"),
-                    "trailing_pe": info.get("trailingPE"),
-                    "price_to_book": info.get("priceToBook"),
-                    "eps": eps,
-                    "book_value_per_share": bvps,
-                    "graham_number": calculate_graham_number(eps, bvps),
-                    **technicals,
-                }
-            # No valid data, but not an error - don't retry
-            return None
-        except Exception:
-            if attempt < max_retries:
-                # Exponential backoff with jitter
-                delay = min(base_delay * (2**attempt) + random.uniform(0, 1), max_delay)
-                time.sleep(delay)
-            # Last attempt failed
-    return None
-
-
-def get_yfinance_metrics_batch(
-    tickers: list[str],
-    markets: dict[str, str],
-    batch_size: int = 30,
-    with_fallback: bool = True,
-    delay: float = 0.3,
-    history_data: dict[str, pd.DataFrame] | None = None,
-) -> dict[str, dict]:
-    """
-    Fetch yfinance metrics for multiple tickers in batches.
-
-    Optimized: uses pre-fetched bulk history data for technical indicators.
-
-    Args:
-        tickers: List of KRX tickers (e.g., ["005930", "000660"])
-        markets: Dict mapping ticker to market ("KOSPI" or "KOSDAQ")
-        batch_size: Number of tickers per batch
-        with_fallback: If True, retry failed tickers individually
-        delay: Delay between individual fallback calls
-        history_data: Pre-fetched historical data from get_history_bulk_kr()
-
-    Returns:
-        Dict mapping ticker to metrics dict.
-    """
-    results: dict[str, dict] = {}
-    failed_tickers: list[tuple[str, str]] = []  # (yf_ticker, krx_ticker)
-
-    # Convert to yfinance format
-    yf_tickers = []
-    ticker_map = {}  # yf_ticker -> krx_ticker
-    for ticker in tickers:
-        market = markets.get(ticker, "KOSPI")
-        suffix = ".KS" if market == "KOSPI" else ".KQ"
-        yf_ticker = f"{ticker}{suffix}"
-        yf_tickers.append(yf_ticker)
-        ticker_map[yf_ticker] = ticker
-
-    # Process in batches
-    for i in range(0, len(yf_tickers), batch_size):
-        batch = yf_tickers[i : i + batch_size]
-        try:
-            # Use yf.Tickers for batch processing
-            tickers_obj = yf.Tickers(" ".join(batch))
-
-            for yf_ticker in batch:
-                try:
-                    stock = tickers_obj.tickers[yf_ticker]
-                    info = stock.info
-                    if info and info.get("regularMarketPrice") is not None:
-                        krx_ticker = ticker_map[yf_ticker]
-                        eps = info.get("trailingEps")
-                        bvps = info.get("bookValue")
-
-                        # Use pre-fetched history if available, otherwise fetch
-                        if history_data and krx_ticker in history_data:
-                            hist = history_data[krx_ticker]
-                        else:
-                            hist = stock.history(period="3mo")
-                        technicals = calculate_all_technicals(hist)
-
-                        results[krx_ticker] = {
-                            "gross_margin": info.get("grossMargins"),
-                            "ev_ebitda": info.get("enterpriseToEbitda"),
-                            "dividend_yield": info.get("dividendYield"),
-                            "forward_pe": info.get("forwardPE"),
-                            "beta": info.get("beta"),
-                            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
-                            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-                            "fifty_day_average": info.get("fiftyDayAverage"),
-                            "two_hundred_day_average": info.get("twoHundredDayAverage"),
-                            "peg_ratio": info.get("trailingPegRatio"),
-                            "trailing_pe": info.get("trailingPE"),
-                            "price_to_book": info.get("priceToBook"),
-                            "eps": eps,
-                            "book_value_per_share": bvps,
-                            "graham_number": calculate_graham_number(eps, bvps),
-                            **technicals,
-                        }
-                    else:
-                        failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
-                except Exception:
-                    failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
-        except Exception as e:
-            print(f"Batch error: {e}")
-            for yf_ticker in batch:
-                failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
-
-    # Fallback: retry failed tickers individually with exponential backoff
-    if with_fallback and failed_tickers:
-        print(f"  Retrying {len(failed_tickers)} failed tickers individually...")
-        consecutive_failures = 0
-        base_delay = 0.5
-
-        for yf_ticker, krx_ticker in tqdm(
-            failed_tickers, desc="  Fallback", leave=False
-        ):
-            data = get_single_yfinance_metrics(yf_ticker)
-            if data:
-                results[krx_ticker] = data
-                consecutive_failures = 0  # Reset on success
-            else:
-                consecutive_failures += 1
-
-            # Adaptive delay: increase if seeing consecutive failures
-            if consecutive_failures >= 3:
-                current_delay = min(
-                    base_delay * (2 ** (consecutive_failures - 2)), 30.0
-                )
-                current_delay += random.uniform(0, 1)  # Jitter
-            else:
-                current_delay = base_delay
-
-            time.sleep(current_delay)
-
-    return results
-
-
-def get_history_bulk_kr(
-    tickers: list[str],
-    markets: dict[str, str],
-    period: str = "3mo",
-    batch_size: int = 500,
-) -> dict[str, pd.DataFrame]:
-    """
-    Fetch historical data for all KR tickers in bulk using yf.download.
-
-    This is much faster than individual .history() calls:
-    - Individual: ~2,800 HTTP requests
-    - Bulk: ~6 HTTP requests (500 tickers per batch)
-
-    Args:
-        tickers: List of KRX tickers (e.g., ["005930", "000660"])
-        markets: Dict mapping ticker to market ("KOSPI" or "KOSDAQ")
-        period: Historical period (default 3mo for technicals)
-        batch_size: Number of tickers per download batch
-
-    Returns:
-        Dict mapping KRX ticker to DataFrame with OHLCV data.
-    """
-    results: dict[str, pd.DataFrame] = {}
-
-    # Convert to yfinance format
-    yf_tickers = []
-    ticker_map = {}  # yf_ticker -> krx_ticker
-    for ticker in tickers:
-        market = markets.get(ticker, "KOSPI")
-        suffix = ".KS" if market == "KOSPI" else ".KQ"
-        yf_ticker = f"{ticker}{suffix}"
-        yf_tickers.append(yf_ticker)
-        ticker_map[yf_ticker] = ticker
-
-    print(f"Downloading {period} history for {len(tickers)} KR tickers in bulk...")
-
-    for i in tqdm(
-        range(0, len(yf_tickers), batch_size), desc="Downloading history", leave=False
+    def __init__(
+        self,
+        market: str = "ALL",
+        save_db: bool = True,
+        save_csv: bool = True,
+        log_level: int = logging.INFO,
     ):
-        batch = yf_tickers[i : i + batch_size]
-        try:
-            # Download all tickers at once
-            df = yf.download(
-                batch,
-                period=period,
-                group_by="ticker",
-                progress=False,
-                threads=True,
-            )
+        """
+        Initialize KR stock collector.
 
-            if df.empty:
-                continue
+        Args:
+            market: "KOSPI", "KOSDAQ", or "ALL"
+            save_db: Whether to save to Supabase
+            save_csv: Whether to save to CSV files
+            log_level: Logging level
+        """
+        super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level)
+        self.market = market
+        self._ticker_markets: dict[str, str] = {}
+        self._ticker_names: dict[str, str] = {}
+        self._fundamentals: dict[str, dict] = {}  # PER, PBR, EPS, BPS from pykrx
 
-            # Extract each ticker's data
-            if len(batch) == 1:
-                # Single ticker: no multi-level columns
-                krx_ticker = ticker_map[batch[0]]
-                results[krx_ticker] = df
-            else:
-                for yf_ticker in batch:
-                    try:
-                        if yf_ticker in df.columns.get_level_values(0):
-                            ticker_df = df[yf_ticker].dropna(how="all")
-                            if not ticker_df.empty:
-                                krx_ticker = ticker_map[yf_ticker]
-                                results[krx_ticker] = ticker_df
-                    except Exception:
-                        pass
+    def get_tickers(self) -> list[str]:
+        """Get list of KRX tickers based on market setting."""
+        today = datetime.now().strftime("%Y%m%d")
+        tickers_data = []
 
-            # Small delay between batches
-            time.sleep(0.5)
+        if self.market in ("KOSPI", "ALL"):
+            kospi_tickers = pykrx.get_market_ticker_list(today, market="KOSPI")
+            for ticker in kospi_tickers:
+                name = pykrx.get_market_ticker_name(ticker)
+                tickers_data.append({"ticker": ticker, "name": name, "market": "KOSPI"})
 
-        except Exception as e:
-            print(f"History batch error: {e}")
-            continue
+        if self.market in ("KOSDAQ", "ALL"):
+            kosdaq_tickers = pykrx.get_market_ticker_list(today, market="KOSDAQ")
+            for ticker in kosdaq_tickers:
+                name = pykrx.get_market_ticker_name(ticker)
+                tickers_data.append({"ticker": ticker, "name": name, "market": "KOSDAQ"})
 
-    print(f"Downloaded history for {len(results)} KR tickers")
-    return results
+        # Build mappings
+        for item in tickers_data:
+            self._ticker_markets[item["ticker"]] = item["market"]
+            self._ticker_names[item["ticker"]] = item["name"]
 
+        tickers = [item["ticker"] for item in tickers_data]
+        self.logger.info(f"Found {len(tickers)} {self.market} tickers")
+        return tickers
 
-def get_index_constituents() -> dict[str, set[str]]:
-    """
-    Get constituents of major Korean indices using pykrx.
-
-    Returns:
-        Dictionary mapping index name to set of tickers.
-        Includes: KOSPI200, KOSDAQ150
-    """
-    today = datetime.now().strftime("%Y%m%d")
-    indices: dict[str, set[str]] = {}
-
-    try:
-        # KOSPI200 (코스피200)
-        kospi200 = pykrx.get_index_portfolio_deposit_file("1028", today)
-        if kospi200 is not None and len(kospi200) > 0:
-            indices["KOSPI200"] = set(kospi200)
-            print(f"Fetched {len(indices['KOSPI200'])} KOSPI200 constituents")
-    except Exception as e:
-        print(f"Warning: Could not fetch KOSPI200: {e}")
-
-    try:
-        # KOSDAQ150 (코스닥150)
-        kosdaq150 = pykrx.get_index_portfolio_deposit_file("2203", today)
-        if kosdaq150 is not None and len(kosdaq150) > 0:
-            indices["KOSDAQ150"] = set(kosdaq150)
-            print(f"Fetched {len(indices['KOSDAQ150'])} KOSDAQ150 constituents")
-    except Exception as e:
-        print(f"Warning: Could not fetch KOSDAQ150: {e}")
-
-    return indices
-
-
-def get_krx_tickers(market: str = "ALL") -> pd.DataFrame:
-    """
-    Get KRX (KOSPI + KOSDAQ) tickers using pykrx.
-
-    Args:
-        market: "KOSPI", "KOSDAQ", or "ALL" for both.
-
-    Returns:
-        DataFrame with columns: ticker, name, market
-    """
-    today = datetime.now().strftime("%Y%m%d")
-
-    tickers_data = []
-
-    if market in ("KOSPI", "ALL"):
-        kospi_tickers = pykrx.get_market_ticker_list(today, market="KOSPI")
-        for ticker in kospi_tickers:
-            name = pykrx.get_market_ticker_name(ticker)
-            tickers_data.append({"ticker": ticker, "name": name, "market": "KOSPI"})
-
-    if market in ("KOSDAQ", "ALL"):
-        kosdaq_tickers = pykrx.get_market_ticker_list(today, market="KOSDAQ")
-        for ticker in kosdaq_tickers:
-            name = pykrx.get_market_ticker_name(ticker)
-            tickers_data.append({"ticker": ticker, "name": name, "market": "KOSDAQ"})
-
-    return pd.DataFrame(tickers_data)
-
-
-def get_stock_info(ticker: str, name: str, market: str) -> dict:
-    """Get stock info from pykrx."""
-    try:
-        market_cap = None
-        volume = None
-
-        # Try recent days to find market cap (handles weekends/holidays)
-        for i in range(7):
-            day = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
-            df = pykrx.get_market_cap(day)
-
-            if not df.empty and ticker in df.index:
-                cap = df.loc[ticker, "시가총액"]
-                vol = df.loc[ticker, "거래량"]
-                if cap > 0:
-                    market_cap = int(cap)
-                    volume = int(vol) if vol > 0 else None
-                    break
-
-        return {
-            "ticker": ticker,
-            "name": name,
-            "market": market,
-            "market_cap": market_cap,
-            "volume": volume,
-            "currency": "KRW",
-        }
-    except Exception as e:
-        print(f"Error fetching info for {ticker}: {e}")
-        return {
-            "ticker": ticker,
-            "name": name,
-            "market": market,
-            "market_cap": None,
-            "volume": None,
-            "currency": "KRW",
-        }
-
-
-def get_stock_price(ticker: str) -> dict | None:
-    """Get latest stock price from pykrx."""
-    today = datetime.now()
-    start = (today - timedelta(days=7)).strftime("%Y%m%d")
-    end = today.strftime("%Y%m%d")
-
-    try:
-        df = pykrx.get_market_ohlcv(start, end, ticker)
-
-        if df.empty:
-            return None
-
-        latest = df.iloc[-1]
-        latest_date = df.index[-1]
-
-        return {
-            "date": latest_date.strftime("%Y-%m-%d"),
-            "open": int(latest["시가"]) if pd.notna(latest["시가"]) else None,
-            "high": int(latest["고가"]) if pd.notna(latest["고가"]) else None,
-            "low": int(latest["저가"]) if pd.notna(latest["저가"]) else None,
-            "close": int(latest["종가"]) if pd.notna(latest["종가"]) else None,
-            "volume": int(latest["거래량"]) if pd.notna(latest["거래량"]) else None,
-        }
-    except Exception as e:
-        print(f"Error fetching price for {ticker}: {e}")
-        return None
-
-
-def get_yfinance_metrics(ticker: str, market: str) -> dict | None:
-    """
-    Get additional metrics from yfinance for Korean stocks.
-
-    Args:
-        ticker: KRX ticker (e.g., "005930")
-        market: "KOSPI" or "KOSDAQ"
-
-    Returns:
-        Dictionary with yfinance metrics, or None if failed.
-    """
-    try:
-        # Convert to yfinance format: 005930 -> 005930.KS (KOSPI) or .KQ (KOSDAQ)
+    def fetch_stock_info(self, ticker: str) -> dict | None:
+        """Fetch stock information for a single ticker."""
+        market = self._ticker_markets.get(ticker, "KOSPI")
         suffix = ".KS" if market == "KOSPI" else ".KQ"
         yf_ticker = f"{ticker}{suffix}"
 
+        return self._fetch_yfinance_metrics(yf_ticker, ticker)
+
+    @with_retry(RetryConfig(max_retries=3, base_delay=1.0, max_delay=60.0))
+    def _fetch_yfinance_metrics(self, yf_ticker: str, krx_ticker: str) -> dict | None:
+        """Fetch yfinance metrics with retry."""
         stock = yf.Ticker(yf_ticker)
         info = stock.info
 
@@ -651,678 +106,501 @@ def get_yfinance_metrics(ticker: str, market: str) -> dict | None:
 
         eps = info.get("trailingEps")
         bvps = info.get("bookValue")
+
         return {
-            "gross_margin": info.get("grossMargins"),
-            "ev_ebitda": info.get("enterpriseToEbitda"),
-            "dividend_yield": info.get("dividendYield"),
+            "name": self._ticker_names.get(krx_ticker, ""),
+            "market": self._ticker_markets.get(krx_ticker, "KOSPI"),
+            "currency": "KRW",
+            # Valuation from yfinance
+            "ps_ratio": info.get("priceToSalesTrailing12Months"),
             "forward_pe": info.get("forwardPE"),
+            "peg_ratio": info.get("trailingPegRatio"),
+            "ev_ebitda": info.get("enterpriseToEbitda"),
+            # Profitability
+            "roe": info.get("returnOnEquity"),
+            "roa": info.get("returnOnAssets"),
+            "gross_margin": info.get("grossMargins"),
+            "net_margin": info.get("profitMargins"),
+            # Financial health
+            "debt_equity": info.get("debtToEquity"),
+            "current_ratio": info.get("currentRatio"),
+            # Other
+            "dividend_yield": info.get("dividendYield"),
             "beta": info.get("beta"),
             "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-            "trailing_pe": info.get("trailingPE"),
-            "price_to_book": info.get("priceToBook"),
+            "fifty_day_average": info.get("fiftyDayAverage"),
+            "two_hundred_day_average": info.get("twoHundredDayAverage"),
             "eps": eps,
             "book_value_per_share": bvps,
             "graham_number": calculate_graham_number(eps, bvps),
         }
-    except Exception as e:
-        print(f"Error fetching yfinance metrics for {ticker}: {e}")
-        return None
 
-
-def get_corp_code(dart: "OpenDartReaderType", ticker: str) -> str | None:
-    """Get DART corp_code from stock ticker."""
-    try:
-        # OpenDartReader has corp_codes property
-        corp_list = dart.corp_codes
-
-        if corp_list is None or corp_list.empty:
-            return None
-
-        # Find by stock_code
-        match = corp_list[corp_list["stock_code"] == ticker]
-
-        if match.empty:
-            return None
-
-        return match.iloc[0]["corp_code"]
-    except Exception as e:
-        print(f"Error finding corp_code for {ticker}: {e}")
-        return None
-
-
-def get_financial_statements(
-    dart: "OpenDartReaderType", corp_code: str, year: int
-) -> dict | None:
-    """Get financial statements from DART."""
-    try:
-        # Get consolidated financial statements (연결재무제표)
-        fs = dart.finstate(corp_code, year, reprt_code="11011")  # 사업보고서
-
-        if fs is None or fs.empty:
-            # Try individual financial statements
-            fs = dart.finstate(corp_code, year)
-
-        if fs is None or fs.empty:
-            return None
-
-        # DART finstate returns DataFrame with various account items
-        # Extract key metrics by account name
-        def get_amount(account_names: list[str]) -> float | None:
-            for name in account_names:
-                matches = fs[fs["account_nm"].str.contains(name, na=False, regex=False)]
-                if not matches.empty:
-                    # Get the first match, prefer 'thstrm_amount' (당기)
-                    val = matches.iloc[0].get("thstrm_amount")
-                    if pd.notna(val):
-                        # Remove commas and convert to float
-                        if isinstance(val, str):
-                            val = val.replace(",", "")
-                        return float(val)
-            return None
-
-        return {
-            "corp_code": corp_code,
-            "year": year,
-            "revenue": get_amount(["매출액", "영업수익", "수익(매출액)"]),
-            "gross_profit": get_amount(["매출총이익", "매출 총이익"]),
-            "operating_income": get_amount(["영업이익", "영업손익"]),
-            "net_income": get_amount(["당기순이익", "분기순이익", "반기순이익"]),
-            "total_assets": get_amount(["자산총계", "자산 총계"]),
-            "current_assets": get_amount(["유동자산", "유동 자산"]),
-            "total_liabilities": get_amount(["부채총계", "부채 총계"]),
-            "current_liabilities": get_amount(["유동부채", "유동 부채"]),
-            "total_equity": get_amount(["자본총계", "자본 총계"]),
-        }
-    except Exception as e:
-        print(f"Error fetching financials for {corp_code}: {e}")
-        return None
-
-
-def calculate_metrics(
-    financials: dict, stock_info: dict, price: dict | None
-) -> dict | None:
-    """Calculate investment metrics from financial data."""
-    try:
-        market_cap = stock_info.get("market_cap")
-        if not market_cap or market_cap <= 0:
-            return None
-
-        revenue = financials.get("revenue")
-        gross_profit = financials.get("gross_profit")
-        net_income = financials.get("net_income")
-        total_equity = financials.get("total_equity")
-        total_assets = financials.get("total_assets")
-        current_assets = financials.get("current_assets")
-        total_liabilities = financials.get("total_liabilities")
-        current_liabilities = financials.get("current_liabilities")
-
-        metrics = {}
-
-        # P/E Ratio
-        if net_income and net_income > 0:
-            metrics["pe_ratio"] = market_cap / net_income
-
-        # P/B Ratio
-        if total_equity and total_equity > 0:
-            metrics["pb_ratio"] = market_cap / total_equity
-
-        # P/S Ratio
-        if revenue and revenue > 0:
-            metrics["ps_ratio"] = market_cap / revenue
-
-        # ROE
-        if total_equity and total_equity > 0 and net_income:
-            metrics["roe"] = net_income / total_equity
-
-        # ROA
-        if total_assets and total_assets > 0 and net_income:
-            metrics["roa"] = net_income / total_assets
-
-        # Debt/Equity
-        if total_equity and total_equity > 0 and total_liabilities:
-            metrics["debt_equity"] = total_liabilities / total_equity
-
-        # Net Margin
-        if revenue and revenue > 0 and net_income:
-            metrics["net_margin"] = net_income / revenue
-
-        # Gross Margin
-        if revenue and revenue > 0 and gross_profit:
-            metrics["gross_margin"] = gross_profit / revenue
-
-        # Current Ratio
-        if current_liabilities and current_liabilities > 0 and current_assets:
-            metrics["current_ratio"] = current_assets / current_liabilities
-
-        return metrics if metrics else None
-    except Exception as e:
-        print(f"Error calculating metrics: {e}")
-        return None
-
-
-def upsert_company(
-    client: Client, stock_info: dict, corp_code: str | None
-) -> str | None:
-    """Insert or update company in Supabase, return company ID."""
-    try:
-        market_type = stock_info["market"]  # "KOSPI" or "KOSDAQ"
-
-        data = {
-            "ticker": stock_info["ticker"],
-            "corp_code": corp_code,
-            "name": stock_info["name"],
-            "market": market_type,
-            "currency": "KRW",
-            "is_active": True,
-        }
-
-        result = (
-            client.table("companies")
-            .upsert(data, on_conflict="ticker,market")
-            .execute()
-        )
-
-        if result.data:
-            return result.data[0]["id"]
-        return None
-    except Exception as e:
-        print(f"Error upserting company {stock_info['ticker']}: {e}")
-        return None
-
-
-def upsert_financials(
-    client: Client, company_id: str, financials: dict, year: int
-) -> bool:
-    """Insert or update financials in Supabase."""
-    try:
-        data = {
-            "company_id": company_id,
-            "fiscal_year": year,
-            "quarter": "FY",
-            "revenue": financials.get("revenue"),
-            "operating_income": financials.get("operating_income"),
-            "net_income": financials.get("net_income"),
-            "total_assets": financials.get("total_assets"),
-            "total_liabilities": financials.get("total_liabilities"),
-            "total_equity": financials.get("total_equity"),
-            "data_source": "dart",
-        }
-
-        client.table("financials").upsert(
-            data, on_conflict="company_id,fiscal_year,quarter"
-        ).execute()
-        return True
-    except Exception as e:
-        print(f"Error upserting financials for company {company_id}: {e}")
-        return False
-
-
-def upsert_metrics(client: Client, company_id: str, metrics: dict) -> bool:
-    """Insert or update metrics in Supabase."""
-    try:
-        today = date.today().isoformat()
-
-        data = {
-            "company_id": company_id,
-            "date": today,
-            "pe_ratio": metrics.get("pe_ratio"),
-            "pb_ratio": metrics.get("pb_ratio"),
-            "ps_ratio": metrics.get("ps_ratio"),
-            "roe": metrics.get("roe"),
-            "roa": metrics.get("roa"),
-            "debt_equity": metrics.get("debt_equity"),
-            "net_margin": metrics.get("net_margin"),
-            "eps": metrics.get("eps"),
-            "book_value_per_share": metrics.get("book_value_per_share"),
-            "graham_number": metrics.get("graham_number"),
-            # Technical indicators
-            "rsi": metrics.get("rsi"),
-            "mfi": metrics.get("mfi"),
-            "macd": metrics.get("macd"),
-            "macd_signal": metrics.get("macd_signal"),
-            "macd_histogram": metrics.get("macd_histogram"),
-            "bb_upper": metrics.get("bb_upper"),
-            "bb_middle": metrics.get("bb_middle"),
-            "bb_lower": metrics.get("bb_lower"),
-            "bb_percent": metrics.get("bb_percent"),
-            "volume_change": metrics.get("volume_change"),
-            # Additional metrics from yfinance
-            "fifty_two_week_high": metrics.get("fifty_two_week_high"),
-            "fifty_two_week_low": metrics.get("fifty_two_week_low"),
-            "fifty_day_average": metrics.get("fifty_day_average"),
-            "two_hundred_day_average": metrics.get("two_hundred_day_average"),
-            "peg_ratio": metrics.get("peg_ratio"),
-            "beta": metrics.get("beta"),
-            "data_source": "calculated",
-        }
-
-        client.table("metrics").upsert(data, on_conflict="company_id,date").execute()
-        return True
-    except Exception as e:
-        print(f"Error upserting metrics for company {company_id}: {e}")
-        return False
-
-
-def upsert_price(
-    client: Client, company_id: str, price: dict, market_cap: int | None
-) -> bool:
-    """Insert or update price in Supabase."""
-    try:
-        data = {
-            "company_id": company_id,
-            "date": price["date"],
-            "open": price.get("open"),
-            "high": price.get("high"),
-            "low": price.get("low"),
-            "close": price.get("close"),
-            "volume": price.get("volume"),
-            "market_cap": market_cap,
-        }
-
-        client.table("prices").upsert(data, on_conflict="company_id,date").execute()
-        return True
-    except Exception as e:
-        print(f"Error upserting price for company {company_id}: {e}")
-        return False
-
-
-def save_to_csv(
-    companies: list[dict],
-    metrics: list[dict],
-    prices: list[dict],
-    is_test: bool = False,
-) -> None:
-    """Save collected data to CSV files for local storage."""
-    today = date.today().strftime("%Y%m%d")
-    suffix = "_test" if is_test else ""
-
-    # Ensure directories exist
-    PRICES_DIR.mkdir(parents=True, exist_ok=True)
-    FINANCIALS_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Save companies (append to existing or create new)
-    if companies:
-        companies_df = pd.DataFrame(companies)
-        companies_file = DATA_DIR / f"kr_companies{suffix}.csv"
-        if not is_test and companies_file.exists():
-            existing = pd.read_csv(companies_file)
-            combined = pd.concat([existing, companies_df]).drop_duplicates(
-                subset=["ticker"], keep="last"
-            )
-            combined.to_csv(companies_file, index=False)
-        else:
-            companies_df.to_csv(companies_file, index=False)
-        print(f"Saved {len(companies)} companies to {companies_file}")
-
-    # Save metrics with date
-    if metrics:
-        metrics_df = pd.DataFrame(metrics)
-        metrics_file = FINANCIALS_DIR / f"kr_metrics_{today}{suffix}.csv"
-        metrics_df.to_csv(metrics_file, index=False)
-        print(f"Saved {len(metrics)} metrics to {metrics_file}")
-
-    # Save prices with date
-    if prices:
-        prices_df = pd.DataFrame(prices)
-        prices_file = PRICES_DIR / f"kr_prices_{today}{suffix}.csv"
-        prices_df.to_csv(prices_file, index=False)
-        print(f"Saved {len(prices)} prices to {prices_file}")
-
-
-def _process_dart_ticker(
-    dart: "OpenDartReaderType",
-    ticker: str,
-    fiscal_year: int,
-    market_cap: int | None,
-    price: dict | None,
-) -> tuple[str, dict | None, dict | None]:
-    """Process a single ticker's DART data (for parallel execution)."""
-    corp_code = get_corp_code(dart, ticker)
-    if not corp_code:
-        return ticker, None, None
-
-    financials = get_financial_statements(dart, corp_code, fiscal_year)
-    if not financials:
-        return ticker, None, None
-
-    # Build stock_info for metrics calculation
-    stock_info = {"market_cap": market_cap}
-    metrics = calculate_metrics(financials, stock_info, price)
-
-    return ticker, financials, metrics
-
-
-def collect_and_save(
-    market: str = "ALL",
-    tickers: list[str] | None = None,
-    delay: float = 0.1,
-    fiscal_year: int | None = None,
-    limit: int | None = None,
-    save_csv: bool = True,
-    save_db: bool = True,
-    max_workers: int = 4,
-    is_test: bool = False,
-) -> dict:
-    """
-    Collect Korean stock data and save to Supabase and/or CSV.
-
-    Optimized version with:
-    - Bulk pykrx data fetching (single API call for all stocks)
-    - Batch yfinance calls (50 tickers at a time)
-    - Parallel DART processing with ThreadPoolExecutor
-
-    Args:
-        market: "KOSPI", "KOSDAQ", or "ALL" for both.
-        tickers: List of specific tickers to collect. If None, collects all.
-        delay: Delay between API calls in seconds (reduced due to batching).
-        fiscal_year: Year for financial statements. Defaults to last year.
-        limit: Maximum number of stocks to process (for testing).
-        save_csv: Whether to save data to CSV files.
-        save_db: Whether to save data to Supabase.
-        max_workers: Number of parallel workers for DART processing.
-
-    Returns:
-        Dictionary with success/failure counts.
-    """
-    client = None
-    if save_db:
-        client = get_supabase_client()
-
-    dart = get_dart_reader()
-
-    if fiscal_year is None:
-        fiscal_year = datetime.now().year - 1
-
-    # === PHASE 1: Fetch bulk data ===
-    print("Phase 1: Fetching bulk market data...")
-    market_df, bulk_date = get_market_data_bulk()
-
-    if market_df.empty:
-        print("Error: Could not fetch market data")
-        return {"success": 0, "failed": 0, "skipped": 0}
-
-    # Format trading date
-    trading_date = (
-        f"{bulk_date[:4]}-{bulk_date[4:6]}-{bulk_date[6:8]}"
-        if bulk_date
-        else date.today().isoformat()
-    )
-
-    # Fetch index constituents
-    print("Fetching index constituents...")
-    index_members = get_index_constituents()
-
-    # Get tickers
-    print(f"Fetching {market} tickers...")
-    df = get_krx_tickers(market)
-
-    if tickers:
-        df = df[df["ticker"].isin(tickers)]
-
-    if limit:
-        df = df.head(limit)
-
-    print(f"Found {len(df)} tickers")
-
-    # Build ticker -> market mapping
-    ticker_markets = dict(zip(df["ticker"], df["market"], strict=True))
-    ticker_names = dict(zip(df["ticker"], df["name"], strict=True))
-    all_tickers = df["ticker"].tolist()
-
-    # === PHASE 1.5: Bulk download history for technical indicators ===
-    print("\nPhase 1.5: Bulk downloading 3-month history for technicals...")
-    history_data = get_history_bulk_kr(all_tickers, ticker_markets, period="3mo")
-    print(f"Downloaded history for {len(history_data)} tickers")
-
-    # === PHASE 2: Batch yfinance metrics ===
-    print("\nPhase 2: Fetching yfinance metrics in batches...")
-    yf_metrics_all = get_yfinance_metrics_batch(
-        all_tickers,
-        ticker_markets,
-        batch_size=30,
-        with_fallback=True,
-        delay=0.3,
-        history_data=history_data,
-    )
-    print(f"Fetched yfinance metrics for {len(yf_metrics_all)} stocks")
-
-    # === PHASE 3: Process DART data in parallel ===
-    print(f"\nPhase 3: Processing DART data with {max_workers} workers...")
-    dart_results: dict[str, tuple[dict | None, dict | None]] = {}
-
-    if dart:
-        # Prepare data for parallel processing
-        tasks = []
-        for ticker in all_tickers:
-            market_cap = None
-            close_price = None
-            if ticker in market_df.index:
-                market_cap = int(market_df.loc[ticker, "시가총액"])
-                close_price = int(market_df.loc[ticker, "종가"])
-
-            price = (
-                {"date": trading_date, "close": close_price} if close_price else None
-            )
-            tasks.append((ticker, market_cap, price))
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    _process_dart_ticker, dart, ticker, fiscal_year, market_cap, price
-                ): ticker
-                for ticker, market_cap, price in tasks
-            }
-
-            for future in tqdm(
-                as_completed(futures), total=len(futures), desc="DART processing"
-            ):
-                try:
-                    ticker, financials, metrics = future.result()
-                    dart_results[ticker] = (financials, metrics)
-                except Exception as e:
-                    ticker = futures[future]
-                    print(f"Error processing {ticker}: {e}")
-                    dart_results[ticker] = (None, None)
-                time.sleep(delay)  # Small delay to avoid rate limiting
-
-    # === PHASE 4: Combine all data ===
-    print("\nPhase 4: Combining data and saving...")
-    stats = {"success": 0, "failed": 0, "skipped": 0}
-
-    all_companies: list[dict] = []
-    all_metrics: list[dict] = []
-    all_prices: list[dict] = []
-
-    for ticker in tqdm(all_tickers, desc="Combining data"):
-        try:
-            name = ticker_names.get(ticker, "")
-            mkt = ticker_markets.get(ticker, "KOSPI")
-
-            # Get market cap, volume, and close price from bulk data
-            market_cap = None
-            volume = None
-            close_price = None
+    def _fetch_pykrx_fundamentals(self, trading_date: str) -> dict[str, dict]:
+        """Fetch PER, PBR, EPS, BPS from pykrx for all stocks."""
+        results: dict[str, dict] = {}
+
+        for market_name in ["KOSPI", "KOSDAQ"]:
+            if self.market != "ALL" and self.market != market_name:
+                continue
+
+            try:
+                df = pykrx.get_market_fundamental(trading_date, market=market_name)
+                if df.empty:
+                    continue
+
+                for ticker in df.index:
+                    row = df.loc[ticker]
+                    per = row.get("PER", 0)
+                    pbr = row.get("PBR", 0)
+                    eps = row.get("EPS", 0)
+                    bps = row.get("BPS", 0)
+
+                    results[ticker] = {
+                        "pe_ratio": per if per != 0 else None,
+                        "pb_ratio": pbr if pbr != 0 else None,
+                        "eps": eps if eps != 0 else None,
+                        "book_value_per_share": bps if bps != 0 else None,
+                    }
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch {market_name} fundamentals: {e}")
+
+        return results
+
+    def fetch_prices_batch(self, tickers: list[str]) -> dict[str, dict]:
+        """Fetch price data and fundamentals from pykrx bulk market data."""
+        results: dict[str, dict] = {}
+
+        # Find the most recent trading day
+        market_df = None
+        trading_date = None
+
+        for i in range(7):
+            day = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+            df = pykrx.get_market_cap(day)
+            if not df.empty and df["시가총액"].sum() > 0:
+                market_df = df
+                trading_date = day
+                break
+
+        if market_df is None or trading_date is None:
+            self.logger.error("Could not fetch market data")
+            return results
+
+        self.logger.info(f"Fetched bulk market data for {len(market_df)} stocks")
+
+        # Fetch fundamentals (PER, PBR, EPS, BPS)
+        self._fundamentals = self._fetch_pykrx_fundamentals(trading_date)
+        self.logger.info(f"Fetched fundamentals for {len(self._fundamentals)} stocks")
+
+        formatted_date = f"{trading_date[:4]}-{trading_date[4:6]}-{trading_date[6:8]}"
+
+        for ticker in tickers:
             if ticker in market_df.index:
                 row = market_df.loc[ticker]
-                market_cap = int(row["시가총액"])
-                volume = int(row["거래량"])
-                close_price = int(row["종가"])
-
-            # Build price data (only close available from bulk, no OHLC)
-            price_data = None
-            if close_price:
-                price_data = {
-                    "date": trading_date,
-                    "open": None,  # Not available in bulk
-                    "high": None,
-                    "low": None,
-                    "close": close_price,
-                    "volume": volume,
+                results[ticker] = {
+                    "date": formatted_date,
+                    "close": int(row["종가"]) if pd.notna(row["종가"]) else None,
+                    "volume": int(row["거래량"]) if pd.notna(row["거래량"]) else None,
+                    "market_cap": int(row["시가총액"]) if pd.notna(row["시가총액"]) else None,
                 }
 
-            # Get DART metrics
-            financials, dart_metrics = dart_results.get(ticker, (None, None))
+        return results
 
-            # Get yfinance metrics
-            yf_metrics = yf_metrics_all.get(ticker, {})
+    def fetch_history_bulk(
+        self,
+        tickers: list[str],
+        period: str = "3mo",
+        batch_size: int = 500,
+    ) -> dict[str, pd.DataFrame]:
+        """Fetch historical data for all KR tickers in bulk using yf.download."""
+        results: dict[str, pd.DataFrame] = {}
 
-            # Save to database
-            if save_db and client:
-                stock_info = {
-                    "ticker": ticker,
+        # Convert to yfinance format
+        yf_tickers = []
+        ticker_map = {}
+        for ticker in tickers:
+            market = self._ticker_markets.get(ticker, "KOSPI")
+            suffix = ".KS" if market == "KOSPI" else ".KQ"
+            yf_ticker = f"{ticker}{suffix}"
+            yf_tickers.append(yf_ticker)
+            ticker_map[yf_ticker] = ticker
+
+        self.logger.info(f"Downloading {period} history for {len(tickers)} KR tickers...")
+
+        for i in tqdm(range(0, len(yf_tickers), batch_size), desc="Downloading history", leave=False):
+            batch = yf_tickers[i : i + batch_size]
+            try:
+                df = yf.download(
+                    batch,
+                    period=period,
+                    group_by="ticker",
+                    progress=False,
+                    threads=True,
+                )
+
+                if df.empty:
+                    continue
+
+                if len(batch) == 1:
+                    krx_ticker = ticker_map[batch[0]]
+                    results[krx_ticker] = df
+                else:
+                    for yf_ticker in batch:
+                        try:
+                            if yf_ticker in df.columns.get_level_values(0):
+                                ticker_df = df[yf_ticker].dropna(how="all")
+                                if not ticker_df.empty:
+                                    krx_ticker = ticker_map[yf_ticker]
+                                    results[krx_ticker] = ticker_df
+                        except Exception:
+                            pass
+
+                time.sleep(0.5)
+
+            except Exception as e:
+                self.logger.error(f"History batch error: {e}")
+                continue
+
+        self.logger.info(f"Downloaded history for {len(results)} KR tickers")
+        return results
+
+    def fetch_yfinance_batch(
+        self,
+        tickers: list[str],
+        history_data: dict[str, pd.DataFrame] | None = None,
+        batch_size: int = 30,
+    ) -> dict[str, dict]:
+        """Fetch yfinance metrics for multiple tickers in batches."""
+        results: dict[str, dict] = {}
+        failed_tickers: list[tuple[str, str]] = []
+
+        # Convert to yfinance format
+        yf_tickers = []
+        ticker_map = {}
+        for ticker in tickers:
+            market = self._ticker_markets.get(ticker, "KOSPI")
+            suffix = ".KS" if market == "KOSPI" else ".KQ"
+            yf_ticker = f"{ticker}{suffix}"
+            yf_tickers.append(yf_ticker)
+            ticker_map[yf_ticker] = ticker
+
+        for i in tqdm(range(0, len(yf_tickers), batch_size), desc="yfinance batch", leave=False):
+            batch = yf_tickers[i : i + batch_size]
+            try:
+                tickers_obj = yf.Tickers(" ".join(batch))
+
+                for yf_ticker in batch:
+                    try:
+                        stock = tickers_obj.tickers[yf_ticker]
+                        info = stock.info
+
+                        if info and info.get("regularMarketPrice") is not None:
+                            krx_ticker = ticker_map[yf_ticker]
+                            eps = info.get("trailingEps")
+                            bvps = info.get("bookValue")
+
+                            # Get technicals from pre-fetched history
+                            hist = history_data.get(krx_ticker) if history_data else None
+                            if hist is None or hist.empty:
+                                hist = stock.history(period="3mo")
+                            technicals = calculate_all_technicals(hist)
+
+                            results[krx_ticker] = {
+                                "name": self._ticker_names.get(krx_ticker, ""),
+                                "market": self._ticker_markets.get(krx_ticker, "KOSPI"),
+                                "currency": "KRW",
+                                # Valuation from yfinance
+                                "ps_ratio": info.get("priceToSalesTrailing12Months"),
+                                "forward_pe": info.get("forwardPE"),
+                                "peg_ratio": info.get("trailingPegRatio"),
+                                "ev_ebitda": info.get("enterpriseToEbitda"),
+                                # Profitability
+                                "roe": info.get("returnOnEquity"),
+                                "roa": info.get("returnOnAssets"),
+                                "gross_margin": info.get("grossMargins"),
+                                "net_margin": info.get("profitMargins"),
+                                # Financial health
+                                "debt_equity": info.get("debtToEquity"),
+                                "current_ratio": info.get("currentRatio"),
+                                # Other
+                                "dividend_yield": info.get("dividendYield"),
+                                "beta": info.get("beta"),
+                                "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                                "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                                "fifty_day_average": info.get("fiftyDayAverage"),
+                                "two_hundred_day_average": info.get("twoHundredDayAverage"),
+                                "eps": eps,
+                                "book_value_per_share": bvps,
+                                "graham_number": calculate_graham_number(eps, bvps),
+                                **technicals,
+                            }
+                        else:
+                            failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
+                    except Exception:
+                        failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
+            except Exception as e:
+                self.logger.warning(f"Batch error: {e}")
+                for yf_ticker in batch:
+                    failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
+
+            time.sleep(0.3)
+
+        # Retry failed tickers
+        if failed_tickers:
+            self.logger.info(f"Retrying {len(failed_tickers)} failed tickers...")
+            for yf_ticker, krx_ticker in tqdm(failed_tickers, desc="Fallback", leave=False):
+                try:
+                    data = self._fetch_yfinance_metrics(yf_ticker, krx_ticker)
+                    if data:
+                        hist = history_data.get(krx_ticker) if history_data else None
+                        if hist is not None and not hist.empty:
+                            technicals = calculate_all_technicals(hist)
+                            data.update(technicals)
+                        results[krx_ticker] = data
+                except Exception:
+                    pass
+                time.sleep(0.5 + random.uniform(0, 0.5))
+
+        return results
+
+    def collect(
+        self,
+        tickers: list[str] | None = None,
+        resume: bool = False,
+        batch_size: int = 30,
+        is_test: bool = False,
+    ) -> dict:
+        """
+        Collect Korean stock data with optimized batch processing.
+
+        Phases:
+        1. Fetch prices + fundamentals from pykrx (bulk, ~2s)
+        2. Download history for technical indicators (bulk, ~2min)
+        3. Fetch yfinance metrics (bulk, ~3min)
+        4. Combine and save
+        """
+        # Get tickers if not provided
+        if tickers is None:
+            tickers = self.get_tickers()
+
+        # Resume: skip already collected tickers
+        if resume:
+            completed = self.storage.load_completed_tickers()
+            original_count = len(tickers)
+            tickers = [t for t in tickers if t not in completed]
+            self.logger.info(
+                f"Resume mode: Skipping {original_count - len(tickers)} already collected. "
+                f"{len(tickers)} remaining."
+            )
+
+        if not tickers:
+            self.logger.info("No tickers to collect")
+            return {"total": 0, "success": 0, "failed": 0, "skipped": 0}
+
+        # Phase 1: Fetch prices + fundamentals from pykrx
+        self.logger.info("Phase 1: Fetching prices and fundamentals from pykrx...")
+        prices_all = self.fetch_prices_batch(tickers)
+        valid_tickers = list(prices_all.keys())
+        self.logger.info(f"Found {len(valid_tickers)} tickers with valid prices")
+
+        # Phase 2: Bulk download history
+        self.logger.info("Phase 2: Downloading history for technical indicators...")
+        history_data = self.fetch_history_bulk(valid_tickers, period="3mo", batch_size=500)
+
+        # Phase 3: Batch yfinance metrics
+        self.logger.info("Phase 3: Fetching yfinance metrics in batches...")
+        yf_metrics_all = self.fetch_yfinance_batch(
+            valid_tickers,
+            history_data=history_data,
+            batch_size=batch_size,
+        )
+        self.logger.info(f"Fetched yfinance metrics for {len(yf_metrics_all)} stocks")
+
+        # Phase 4: Combine and save
+        self.logger.info("Phase 4: Combining data and saving...")
+        progress = CollectionProgress(
+            total=len(valid_tickers),
+            logger=self.logger,
+            desc="Processing",
+        )
+
+        all_companies: list[dict] = []
+        all_metrics: list[dict] = []
+        all_prices: list[dict] = []
+
+        for ticker in valid_tickers:
+            try:
+                name = self._ticker_names.get(ticker, "")
+                mkt = self._ticker_markets.get(ticker, "KOSPI")
+                price_data = prices_all.get(ticker, {})
+                market_cap = price_data.get("market_cap")
+
+                # Get pykrx fundamentals (PER, PBR, EPS, BPS)
+                pykrx_data = self._fundamentals.get(ticker, {})
+
+                # Get yfinance metrics
+                yf_metrics = yf_metrics_all.get(ticker, {})
+
+                # Combine metrics: pykrx first, then yfinance (yfinance overwrites if available)
+                combined_metrics = {
                     "name": name,
                     "market": mkt,
                     "market_cap": market_cap,
-                    "volume": volume,
-                    "currency": "KRW",
                 }
-                corp_code = get_corp_code(dart, ticker) if dart else None
-                company_id = upsert_company(client, stock_info, corp_code)
-                if company_id:
-                    if price_data:
-                        upsert_price(client, company_id, price_data, market_cap)
-                    if financials:
-                        upsert_financials(client, company_id, financials, fiscal_year)
-                    if dart_metrics:
-                        upsert_metrics(client, company_id, dart_metrics)
 
-            # Collect for CSV
-            if save_csv:
-                # Company data
-                indices = []
-                if ticker in index_members.get("KOSPI200", set()):
-                    indices.append("KOSPI200")
-                if ticker in index_members.get("KOSDAQ150", set()):
-                    indices.append("KOSDAQ150")
+                # Add pykrx data (PER, PBR, EPS, BPS)
+                if pykrx_data:
+                    combined_metrics.update(pykrx_data)
 
-                all_companies.append(
-                    {
+                # Add yfinance data (overwrites eps/bvps if available)
+                if yf_metrics:
+                    for key, value in yf_metrics.items():
+                        if value is not None:
+                            combined_metrics[key] = value
+
+                # Validate metrics
+                validated = self.validator.validate(combined_metrics, ticker)
+
+                # Save to database
+                if self.save_db and self.client:
+                    company_id = self.storage.upsert_company(
+                        ticker=ticker,
+                        name=name,
+                        market=mkt,
+                        currency="KRW",
+                    )
+                    if company_id:
+                        self.storage.upsert_metrics(
+                            company_id=company_id,
+                            metrics=validated,
+                            data_source=self.DATA_SOURCE,
+                        )
+                        self.storage.upsert_price(
+                            company_id=company_id,
+                            price_data=price_data,
+                            market_cap=market_cap,
+                        )
+
+                # Collect for CSV
+                if self.save_csv:
+                    all_companies.append({
                         "ticker": ticker,
                         "name": name,
                         "market": mkt,
                         "currency": "KRW",
-                        "market_cap": market_cap,
-                        "indices": ",".join(indices) if indices else None,
-                    }
-                )
-
-                # Price data
-                if price_data:
-                    all_prices.append(
-                        {
+                    })
+                    all_metrics.append({
+                        "ticker": ticker,
+                        "date": price_data.get("date", date.today().isoformat()),
+                        "market": mkt,
+                        **{k: v for k, v in validated.items() if k not in ["name", "market", "currency"]},
+                    })
+                    if price_data:
+                        all_prices.append({
                             "ticker": ticker,
                             **price_data,
-                            "market_cap": market_cap,
-                        }
-                    )
+                        })
 
-                # Metrics data (combine DART + yfinance)
-                metrics_data = {
-                    "ticker": ticker,
-                    "date": trading_date,
-                    "market": mkt,
-                }
-                if dart_metrics:
-                    metrics_data.update(dart_metrics)
-                if yf_metrics:
-                    for key, value in yf_metrics.items():
-                        if value is not None:
-                            metrics_data[key] = value
-                all_metrics.append(metrics_data)
+                progress.update(success=True)
 
-            stats["success"] += 1
+            except Exception as e:
+                self.logger.error(f"Error processing {ticker}: {e}")
+                self.retry_queue.add_failed(ticker, str(e))
+                progress.update(success=False)
 
-        except Exception as e:
-            print(f"Error combining {ticker}: {e}")
-            stats["failed"] += 1
+            progress.log_progress(interval=100)
 
-    # Save to CSV
-    if save_csv:
-        save_to_csv(all_companies, all_metrics, all_prices, is_test=is_test)
+        # Save to CSV
+        if self.save_csv:
+            self.storage.save_to_csv(
+                companies=all_companies,
+                metrics=all_metrics,
+                prices=all_prices,
+                is_test=is_test,
+            )
 
-    print(f"\nCollection complete: {stats}")
-    return stats
+        progress.log_summary()
 
+        # Log validation summary
+        validation_summary = self.validator.get_summary()
+        if validation_summary["with_warnings"] > 0:
+            self.logger.warning(f"Validation summary: {validation_summary}")
 
-def dry_run_test(tickers: list[str] | None = None) -> None:
-    """Test data collection without saving to database (no DART API needed)."""
-    if tickers is None:
-        tickers = ["005930", "000660", "035720"]  # 삼성전자, SK하이닉스, 카카오
+        # Save failed items
+        if self.retry_queue.count > 0:
+            from common.config import DATA_DIR
 
-    print(f"Dry run test with {len(tickers)} tickers (pykrx only)...\n")
+            failed_file = DATA_DIR / f"{self.MARKET_PREFIX}_failed_tickers.json"
+            self.retry_queue.save_path = failed_file
+            self.retry_queue.save_to_file()
 
-    # Get ticker names
-    for ticker in tickers:
-        print(f"=== {ticker} ===")
-
-        try:
-            name = pykrx.get_market_ticker_name(ticker)
-            print(f"Name: {name}")
-
-            # Determine market
-            today = datetime.now().strftime("%Y%m%d")
-            kospi_list = pykrx.get_market_ticker_list(today, market="KOSPI")
-            market = "KOSPI" if ticker in kospi_list else "KOSDAQ"
-            print(f"Market: {market}")
-
-            # Get stock info
-            stock_info = get_stock_info(ticker, name, market)
-            if stock_info.get("market_cap"):
-                print(f"Market Cap: {stock_info['market_cap']:,} KRW")
-
-            # Get price
-            price = get_stock_price(ticker)
-            if price:
-                print(f"Date: {price['date']}")
-                print(
-                    f"Close: {price['close']:,} KRW"
-                    if price.get("close")
-                    else "Close: N/A"
-                )
-                print(
-                    f"Volume: {price['volume']:,}"
-                    if price.get("volume")
-                    else "Volume: N/A"
-                )
-
-        except Exception as e:
-            print(f"Error: {e}")
-
-        print()
+        return progress.get_stats()
 
 
-if __name__ == "__main__":
+# ============================================================
+# CLI Entry Point
+# ============================================================
+
+
+def main():
+    """Main entry point for CLI."""
     import sys
 
     args = sys.argv[1:]
     csv_only = "--csv-only" in args
+    resume = "--resume" in args
+    is_test = "--test" in args
+    log_level = logging.DEBUG if "--verbose" in args else logging.INFO
+
+    # Determine market
+    if "--kospi" in args:
+        market = "KOSPI"
+    elif "--kosdaq" in args:
+        market = "KOSDAQ"
+    else:
+        market = "ALL"
 
     if "--dry-run" in args:
-        # Dry run: test data collection without database
-        dry_run_test()
-    elif "--test" in args:
-        # Test mode: only a few tickers
-        test_tickers = ["005930", "000660", "035720"]  # 삼성전자, SK하이닉스, 카카오
-        print(f"Running in test mode (csv_only={csv_only})...")
-        collect_and_save(
-            tickers=test_tickers,
-            delay=0.2,
-            save_csv=True,
-            save_db=not csv_only,
+        print("Dry run test with 3 tickers...")
+        test_tickers = ["005930", "000660", "035720"]
+        for ticker in test_tickers:
+            name = pykrx.get_market_ticker_name(ticker)
+            print(f"\n=== {ticker} ({name}) ===")
+        return
+
+    if "--list-tickers" in args:
+        collector = KRCollector(market=market, save_db=False, save_csv=False)
+        tickers = collector.get_tickers()
+        print(f"\nTotal: {len(tickers)} tickers")
+        for t in tickers[:20]:
+            print(f"  {t}: {collector._ticker_names.get(t, '')} ({collector._ticker_markets.get(t, '')})")
+        return
+
+    # Create collector
+    collector = KRCollector(
+        market=market,
+        save_db=not csv_only,
+        save_csv=True,
+        log_level=log_level,
+    )
+
+    if is_test:
+        print("Running in test mode (3 tickers)...")
+        stats = collector.collect(
+            tickers=["005930", "000660", "035720"],
             is_test=True,
         )
-    elif "--kospi" in args:
-        print(f"Running KOSPI collection (csv_only={csv_only})...")
-        collect_and_save(market="KOSPI", save_csv=True, save_db=not csv_only)
-    elif "--kosdaq" in args:
-        print(f"Running KOSDAQ collection (csv_only={csv_only})...")
-        collect_and_save(market="KOSDAQ", save_csv=True, save_db=not csv_only)
-    elif csv_only:
-        # CSV only: save to files without database
-        print("Running full KRX collection (CSV only)...")
-        collect_and_save(save_csv=True, save_db=False)
     else:
-        # Full collection: both database and CSV
-        print("Running full KRX (KOSPI + KOSDAQ) collection...")
-        collect_and_save(save_csv=True, save_db=True)
+        if market == "ALL":
+            print("Running full KRX (KOSPI + KOSDAQ) collection...")
+        else:
+            print(f"Running {market} collection...")
+
+        stats = collector.collect(resume=resume)
+
+    print(f"\nCollection complete: {stats}")
+
+
+if __name__ == "__main__":
+    main()

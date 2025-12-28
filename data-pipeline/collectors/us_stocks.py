@@ -4,298 +4,41 @@ US Stock Data Collector
 Collects financial data for US stocks using yfinance and saves to Supabase.
 Supports hybrid storage: Supabase for latest data, CSV for history.
 
-Optimized for speed with:
-- Bulk history download using yf.download() (500 tickers per batch)
-- Batch yfinance calls (50 tickers at a time for stock info)
-- Technical indicators calculated from pre-fetched history data
+Usage:
+    uv run --package stock-screener-data-pipeline python -m collectors.us_stocks
+    uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only
+    uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --sp500
+    uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test
+    uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --resume
 """
 
-import math
-import os
+import logging
 import random
 import time
 from datetime import date
-from pathlib import Path
+from io import StringIO
 
 import pandas as pd
+import requests
 import yfinance as yf
-from dotenv import load_dotenv
+from common.indicators import calculate_all_technicals, calculate_graham_number
+from common.retry import RetryConfig, with_retry
 from tqdm import tqdm
 
-from supabase import Client, create_client
-
-
-def calculate_graham_number(eps: float | None, bvps: float | None) -> float | None:
-    """
-    Calculate Graham Number = sqrt(22.5 * EPS * BVPS).
-
-    Only valid when both EPS and BVPS are positive.
-    """
-    if eps is None or bvps is None:
-        return None
-    if eps <= 0 or bvps <= 0:
-        return None
-    return math.sqrt(22.5 * eps * bvps)
-
+from .base import BaseCollector
 
 # ============================================================
-# Technical Indicator Functions (Optimized - use pre-fetched history)
+# Ticker Source Functions
 # ============================================================
-
-
-def calculate_rsi_from_hist(hist: pd.DataFrame, period: int = 14) -> float | None:
-    """
-    Calculate RSI from pre-fetched history DataFrame.
-
-    Args:
-        hist: DataFrame with 'Close' column (from yf.Ticker.history())
-        period: RSI period (default 14 days)
-
-    Returns:
-        RSI value (0-100) or None if calculation fails
-    """
-    try:
-        if hist.empty or len(hist) < period + 1:
-            return None
-
-        delta = hist["Close"].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-
-        if loss.iloc[-1] == 0:
-            return 100.0 if gain.iloc[-1] > 0 else 50.0
-
-        rs = gain.iloc[-1] / loss.iloc[-1]
-        rsi = 100 - (100 / (1 + rs))
-        return round(rsi, 2)
-    except Exception:
-        return None
-
-
-def calculate_volume_change_from_hist(
-    hist: pd.DataFrame, period: int = 20
-) -> float | None:
-    """
-    Calculate volume change rate from pre-fetched history.
-
-    Args:
-        hist: DataFrame with 'Volume' column
-        period: Period for average volume (default 20 days)
-
-    Returns:
-        Volume change rate as percentage or None if calculation fails
-    """
-    try:
-        if hist.empty or len(hist) < period:
-            return None
-
-        avg_volume = hist["Volume"].iloc[-period:].mean()
-        current_volume = hist["Volume"].iloc[-1]
-
-        if avg_volume == 0:
-            return None
-
-        change_rate = ((current_volume / avg_volume) - 1) * 100
-        return round(change_rate, 2)
-    except Exception:
-        return None
-
-
-def calculate_macd_from_hist(
-    hist: pd.DataFrame,
-    fast: int = 12,
-    slow: int = 26,
-    signal: int = 9,
-) -> dict[str, float | None] | None:
-    """
-    Calculate MACD from pre-fetched history.
-
-    Args:
-        hist: DataFrame with 'Close' column
-        fast: Fast EMA period (default 12)
-        slow: Slow EMA period (default 26)
-        signal: Signal line EMA period (default 9)
-
-    Returns:
-        Dictionary with macd, signal, histogram values or None
-    """
-    try:
-        if hist.empty or len(hist) < slow + signal:
-            return None
-
-        close = hist["Close"]
-
-        # Calculate EMAs
-        ema_fast = close.ewm(span=fast, adjust=False).mean()
-        ema_slow = close.ewm(span=slow, adjust=False).mean()
-
-        # MACD Line
-        macd_line = ema_fast - ema_slow
-
-        # Signal Line (9-day EMA of MACD)
-        signal_line = macd_line.ewm(span=signal, adjust=False).mean()
-
-        # Histogram
-        histogram = macd_line - signal_line
-
-        return {
-            "macd": round(macd_line.iloc[-1], 4),
-            "macd_signal": round(signal_line.iloc[-1], 4),
-            "macd_histogram": round(histogram.iloc[-1], 4),
-        }
-    except Exception:
-        return None
-
-
-def calculate_bollinger_from_hist(
-    hist: pd.DataFrame,
-    period: int = 20,
-    std_dev: float = 2.0,
-) -> dict[str, float | None] | None:
-    """
-    Calculate Bollinger Bands from pre-fetched history.
-
-    Args:
-        hist: DataFrame with 'Close' column
-        period: SMA period (default 20)
-        std_dev: Standard deviation multiplier (default 2.0)
-
-    Returns:
-        Dictionary with upper, middle, lower bands and %B indicator
-    """
-    try:
-        if hist.empty or len(hist) < period:
-            return None
-
-        close = hist["Close"]
-
-        # Middle Band (SMA)
-        middle = close.rolling(window=period).mean()
-
-        # Standard Deviation
-        std = close.rolling(window=period).std()
-
-        # Upper and Lower Bands
-        upper = middle + (std_dev * std)
-        lower = middle - (std_dev * std)
-
-        # %B indicator: (Price - Lower) / (Upper - Lower)
-        current_price = close.iloc[-1]
-        upper_val = upper.iloc[-1]
-        lower_val = lower.iloc[-1]
-        middle_val = middle.iloc[-1]
-
-        if upper_val == lower_val:
-            percent_b = 0.5
-        else:
-            percent_b = (current_price - lower_val) / (upper_val - lower_val)
-
-        return {
-            "bb_upper": round(upper_val, 2),
-            "bb_middle": round(middle_val, 2),
-            "bb_lower": round(lower_val, 2),
-            "bb_percent": round(percent_b * 100, 2),  # As percentage
-        }
-    except Exception:
-        return None
-
-
-def calculate_mfi_from_hist(hist: pd.DataFrame, period: int = 14) -> float | None:
-    """
-    Calculate Money Flow Index from pre-fetched history.
-
-    Args:
-        hist: DataFrame with 'High', 'Low', 'Close', 'Volume' columns
-        period: MFI period (default 14 days)
-
-    Returns:
-        MFI value (0-100) or None if calculation fails
-    """
-    try:
-        if hist.empty or len(hist) < period + 1:
-            return None
-
-        # Typical Price = (High + Low + Close) / 3
-        typical_price = (hist["High"] + hist["Low"] + hist["Close"]) / 3
-
-        # Raw Money Flow = Typical Price x Volume
-        raw_money_flow = typical_price * hist["Volume"]
-
-        # Determine positive/negative money flow
-        tp_diff = typical_price.diff()
-
-        positive_flow = raw_money_flow.where(tp_diff > 0, 0)
-        negative_flow = raw_money_flow.where(tp_diff < 0, 0)
-
-        # Sum over period
-        positive_mf = positive_flow.rolling(window=period).sum()
-        negative_mf = negative_flow.rolling(window=period).sum()
-
-        # Money Flow Ratio
-        mf_ratio = positive_mf / negative_mf.replace(0, float("inf"))
-
-        # MFI = 100 - (100 / (1 + MFR))
-        mfi = 100 - (100 / (1 + mf_ratio))
-
-        return round(mfi.iloc[-1], 2)
-    except Exception:
-        return None
-
-
-def calculate_all_technicals(hist: pd.DataFrame) -> dict:
-    """
-    Calculate all technical indicators from a single history DataFrame.
-
-    This is the optimized function that avoids multiple API calls.
-
-    Args:
-        hist: DataFrame from yf.Ticker.history(period="3mo")
-
-    Returns:
-        Dictionary with all technical indicator values
-    """
-    return {
-        "rsi": calculate_rsi_from_hist(hist),
-        "volume_change": calculate_volume_change_from_hist(hist),
-        **(calculate_macd_from_hist(hist) or {}),
-        **(calculate_bollinger_from_hist(hist) or {}),
-        "mfi": calculate_mfi_from_hist(hist),
-    }
-
-
-load_dotenv()
-
-# Data directory for CSV exports
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
-PRICES_DIR = DATA_DIR / "prices"
-FINANCIALS_DIR = DATA_DIR / "financials"
-
-
-def get_supabase_client() -> Client:
-    """Initialize and return Supabase client."""
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
-
-    if not url or not key:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set")
-
-    return create_client(url, key)
 
 
 def _fetch_wiki_tickers(url: str, index_name: str) -> list[str]:
     """Fetch tickers from Wikipedia table."""
-    from io import StringIO
-
-    import requests
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
     response = requests.get(url, headers=headers)
     tables = pd.read_html(StringIO(response.text))
     df = tables[0]
 
-    # Column name might be 'Symbol' or 'Ticker'
     col = "Symbol" if "Symbol" in df.columns else "Ticker"
     tickers = df[col].str.replace(".", "-").tolist()
     print(f"Fetched {len(tickers)} {index_name} tickers")
@@ -341,29 +84,19 @@ def get_sp600_tickers() -> list[str]:
 def get_russell2000_tickers() -> list[str]:
     """Get Russell 2000 tickers from iShares IWM ETF holdings."""
     try:
-        # iShares Russell 2000 ETF holdings
         url = "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund"
         df = pd.read_csv(url, skiprows=9)
 
-        # Filter to stocks only (exclude cash, futures, etc.)
         if "Asset Class" in df.columns:
             df = df[df["Asset Class"] == "Equity"]
 
         tickers = df["Ticker"].dropna().str.strip().tolist()
-        # Clean up tickers
         tickers = [t for t in tickers if t and isinstance(t, str) and len(t) <= 5]
         print(f"Fetched {len(tickers)} Russell 2000 tickers")
         return tickers
     except Exception as e:
-        print(f"Error fetching Russell 2000 from iShares: {e}")
-        # Fallback: try alternative source
-        try:
-            # Alternative: use a static list or another source
-            print("Trying alternative source for Russell 2000...")
-            # For now, return empty - will implement alternative later
-            return []
-        except Exception:
-            return []
+        print(f"Error fetching Russell 2000: {e}")
+        return []
 
 
 def get_all_us_tickers() -> dict[str, list[str]]:
@@ -372,28 +105,22 @@ def get_all_us_tickers() -> dict[str, list[str]]:
 
     Returns:
         Dictionary mapping ticker to list of indices it belongs to.
-        Example: {"AAPL": ["SP500"], "ACAD": ["SP600", "RUSSELL2000"]}
     """
     print("Fetching all US index tickers...")
 
-    # Fetch from all indices
     sp500 = set(get_sp500_tickers())
     sp400 = set(get_sp400_tickers())
     sp600 = set(get_sp600_tickers())
     russell2000 = set(get_russell2000_tickers())
 
-    # Build membership dictionary
     all_tickers: dict[str, list[str]] = {}
 
     for ticker in sp500:
         all_tickers.setdefault(ticker, []).append("SP500")
-
     for ticker in sp400:
         all_tickers.setdefault(ticker, []).append("SP400")
-
     for ticker in sp600:
         all_tickers.setdefault(ticker, []).append("SP600")
-
     for ticker in russell2000:
         all_tickers.setdefault(ticker, []).append("RUSSELL2000")
 
@@ -406,34 +133,73 @@ def get_all_us_tickers() -> dict[str, list[str]]:
     return all_tickers
 
 
-def get_stock_info(ticker: str) -> dict | None:
-    """Get stock info using yfinance."""
-    try:
+# ============================================================
+# US Stock Collector Class
+# ============================================================
+
+
+class USCollector(BaseCollector):
+    """Collector for US stock data."""
+
+    MARKET = "US"
+    MARKET_PREFIX = "us"
+    DATA_SOURCE = "yfinance"
+
+    def __init__(
+        self,
+        universe: str = "full",
+        save_db: bool = True,
+        save_csv: bool = True,
+        log_level: int = logging.INFO,
+    ):
+        """
+        Initialize US stock collector.
+
+        Args:
+            universe: "sp500" or "full" (S&P 500+400+600 + Russell 2000)
+            save_db: Whether to save to Supabase
+            save_csv: Whether to save to CSV files
+            log_level: Logging level
+        """
+        super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level)
+        self.universe = universe
+        self._ticker_membership: dict[str, list[str]] = {}
+
+    def get_tickers(self) -> list[str]:
+        """Get list of US tickers based on universe setting."""
+        if self.universe == "sp500":
+            tickers = get_sp500_tickers()
+            self._ticker_membership = {t: ["SP500"] for t in tickers}
+        else:
+            self._ticker_membership = get_all_us_tickers()
+            tickers = list(self._ticker_membership.keys())
+
+        return tickers
+
+    def fetch_stock_info(self, ticker: str) -> dict | None:
+        """Fetch stock information for a single ticker with retry."""
+        return self._fetch_single_stock_info(ticker)
+
+    @with_retry(RetryConfig(max_retries=3, base_delay=1.0, max_delay=60.0))
+    def _fetch_single_stock_info(self, ticker: str) -> dict | None:
+        """Internal method with retry decorator."""
         stock = yf.Ticker(ticker)
         info = stock.info
 
+        if not info or info.get("regularMarketPrice") is None:
+            return None
+
+        eps = info.get("trailingEps")
+        bvps = info.get("bookValue")
+
         return {
-            "ticker": ticker,
             "name": info.get("longName"),
             "sector": info.get("sector"),
             "industry": info.get("industry"),
             "market_cap": info.get("marketCap"),
             "currency": info.get("currency", "USD"),
-        }
-    except Exception as e:
-        print(f"Error fetching {ticker}: {e}")
-        return None
-
-
-def get_financials(ticker: str) -> dict | None:
-    """Get financial data using yfinance."""
-    try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-
-        return {
-            "ticker": ticker,
             "pe_ratio": info.get("trailingPE"),
+            "forward_pe": info.get("forwardPE"),
             "pb_ratio": info.get("priceToBook"),
             "ps_ratio": info.get("priceToSalesTrailing12Months"),
             "ev_ebitda": info.get("enterpriseToEbitda"),
@@ -445,745 +211,419 @@ def get_financials(ticker: str) -> dict | None:
             "net_margin": info.get("profitMargins"),
             "fcf": info.get("freeCashflow"),
             "dividend_yield": info.get("dividendYield"),
+            "beta": info.get("beta"),
+            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "fifty_day_average": info.get("fiftyDayAverage"),
+            "two_hundred_day_average": info.get("twoHundredDayAverage"),
+            "peg_ratio": info.get("trailingPegRatio"),
+            "eps": eps,
+            "book_value_per_share": bvps,
+            "graham_number": calculate_graham_number(eps, bvps),
         }
-    except Exception as e:
-        print(f"Error fetching financials for {ticker}: {e}")
-        return None
 
+    def fetch_prices_batch(self, tickers: list[str]) -> dict[str, dict]:
+        """Fetch price data for multiple tickers using yf.download."""
+        results: dict[str, dict] = {}
 
-def get_single_stock_info(
-    ticker: str,
-    max_retries: int = 3,
-    base_delay: float = 1.0,
-    max_delay: float = 60.0,
-) -> dict | None:
-    """
-    Fetch info for a single ticker with exponential backoff.
-
-    Optimized: fetches history once and reuses for all technical indicators.
-
-    Args:
-        ticker: Stock ticker symbol
-        max_retries: Maximum number of retry attempts
-        base_delay: Initial delay in seconds
-        max_delay: Maximum delay cap in seconds
-    """
-    for attempt in range(max_retries + 1):
         try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            if info and info.get("regularMarketPrice") is not None:
-                eps = info.get("trailingEps")
-                bvps = info.get("bookValue")
-
-                # Fetch history once for all technical indicators (OPTIMIZED)
-                hist = stock.history(period="3mo")
-                technicals = calculate_all_technicals(hist)
-
-                return {
-                    "name": info.get("longName"),
-                    "sector": info.get("sector"),
-                    "industry": info.get("industry"),
-                    "market_cap": info.get("marketCap"),
-                    "currency": info.get("currency", "USD"),
-                    "pe_ratio": info.get("trailingPE"),
-                    "forward_pe": info.get("forwardPE"),
-                    "pb_ratio": info.get("priceToBook"),
-                    "ps_ratio": info.get("priceToSalesTrailing12Months"),
-                    "ev_ebitda": info.get("enterpriseToEbitda"),
-                    "roe": info.get("returnOnEquity"),
-                    "roa": info.get("returnOnAssets"),
-                    "debt_equity": info.get("debtToEquity"),
-                    "current_ratio": info.get("currentRatio"),
-                    "gross_margin": info.get("grossMargins"),
-                    "net_margin": info.get("profitMargins"),
-                    "fcf": info.get("freeCashflow"),
-                    "dividend_yield": info.get("dividendYield"),
-                    "beta": info.get("beta"),
-                    "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
-                    "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-                    "fifty_day_average": info.get("fiftyDayAverage"),
-                    "two_hundred_day_average": info.get("twoHundredDayAverage"),
-                    "peg_ratio": info.get("trailingPegRatio"),
-                    "eps": eps,
-                    "book_value_per_share": bvps,
-                    "graham_number": calculate_graham_number(eps, bvps),
-                    **technicals,
-                }
-            # No valid data, but not an error - don't retry
-            return None
-        except Exception:
-            if attempt < max_retries:
-                # Exponential backoff with jitter
-                delay = min(base_delay * (2**attempt) + random.uniform(0, 1), max_delay)
-                time.sleep(delay)
-            # Last attempt failed
-    return None
-
-
-def get_stock_data_batch(
-    tickers: list[str],
-    batch_size: int = 50,
-    with_fallback: bool = True,
-    delay: float = 0.5,
-    history_data: dict[str, pd.DataFrame] | None = None,
-) -> dict[str, dict]:
-    """
-    Fetch stock info and financials for multiple tickers in batches.
-
-    Optimized: uses pre-fetched bulk history data for technical indicators.
-
-    Args:
-        tickers: List of ticker symbols
-        batch_size: Number of tickers per batch
-        with_fallback: If True, retry failed tickers individually
-        delay: Delay between individual fallback calls
-        history_data: Pre-fetched historical data from get_history_bulk()
-
-    Returns:
-        Dict mapping ticker to combined stock info and financials dict.
-    """
-    results: dict[str, dict] = {}
-    failed_tickers: list[str] = []
-
-    for i in range(0, len(tickers), batch_size):
-        batch = tickers[i : i + batch_size]
-        try:
-            # Use yf.Tickers for batch processing
-            tickers_obj = yf.Tickers(" ".join(batch))
-
-            for ticker in batch:
-                try:
-                    stock = tickers_obj.tickers[ticker]
-                    info = stock.info
-                    if info and info.get("regularMarketPrice") is not None:
-                        eps = info.get("trailingEps")
-                        bvps = info.get("bookValue")
-
-                        # Use pre-fetched history if available, otherwise fetch
-                        if history_data and ticker in history_data:
-                            hist = history_data[ticker]
-                        else:
-                            hist = stock.history(period="3mo")
-                        technicals = calculate_all_technicals(hist)
-
-                        results[ticker] = {
-                            "name": info.get("longName"),
-                            "sector": info.get("sector"),
-                            "industry": info.get("industry"),
-                            "market_cap": info.get("marketCap"),
-                            "currency": info.get("currency", "USD"),
-                            "pe_ratio": info.get("trailingPE"),
-                            "forward_pe": info.get("forwardPE"),
-                            "pb_ratio": info.get("priceToBook"),
-                            "ps_ratio": info.get("priceToSalesTrailing12Months"),
-                            "ev_ebitda": info.get("enterpriseToEbitda"),
-                            "roe": info.get("returnOnEquity"),
-                            "roa": info.get("returnOnAssets"),
-                            "debt_equity": info.get("debtToEquity"),
-                            "current_ratio": info.get("currentRatio"),
-                            "gross_margin": info.get("grossMargins"),
-                            "net_margin": info.get("profitMargins"),
-                            "fcf": info.get("freeCashflow"),
-                            "dividend_yield": info.get("dividendYield"),
-                            "beta": info.get("beta"),
-                            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
-                            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-                            "fifty_day_average": info.get("fiftyDayAverage"),
-                            "two_hundred_day_average": info.get("twoHundredDayAverage"),
-                            "peg_ratio": info.get("trailingPegRatio"),
-                            "eps": eps,
-                            "book_value_per_share": bvps,
-                            "graham_number": calculate_graham_number(eps, bvps),
-                            **technicals,
-                        }
-                    else:
-                        failed_tickers.append(ticker)
-                except Exception:
-                    failed_tickers.append(ticker)
-        except Exception as e:
-            print(f"Batch error: {e}")
-            failed_tickers.extend(batch)
-
-    # Fallback: retry failed tickers individually with exponential backoff
-    if with_fallback and failed_tickers:
-        print(f"  Retrying {len(failed_tickers)} failed tickers individually...")
-        consecutive_failures = 0
-        base_delay = 0.5
-
-        for ticker in tqdm(failed_tickers, desc="  Fallback", leave=False):
-            data = get_single_stock_info(ticker)
-            if data:
-                results[ticker] = data
-                consecutive_failures = 0  # Reset on success
-            else:
-                consecutive_failures += 1
-
-            # Adaptive delay: increase if seeing consecutive failures
-            if consecutive_failures >= 3:
-                current_delay = min(
-                    base_delay * (2 ** (consecutive_failures - 2)), 30.0
-                )
-                current_delay += random.uniform(0, 1)  # Jitter
-            else:
-                current_delay = base_delay
-
-            time.sleep(current_delay)
-
-    return results
-
-
-def get_prices_batch(tickers: list[str]) -> dict[str, dict]:
-    """
-    Fetch price data for multiple tickers using yf.download.
-
-    Args:
-        tickers: List of ticker symbols
-
-    Returns:
-        Dict mapping ticker to price dict.
-    """
-    results: dict[str, dict] = {}
-
-    try:
-        # Download all prices at once
-        df = yf.download(tickers, period="1d", group_by="ticker", progress=False)
-
-        if df.empty:
-            return results
-
-        today = date.today().isoformat()
-
-        for ticker in tickers:
-            try:
-                if len(tickers) == 1:
-                    # Single ticker: no multi-level columns
-                    row = df.iloc[-1]
-                else:
-                    # Multiple tickers: access by ticker name
-                    if ticker not in df.columns.get_level_values(0):
-                        continue
-                    row = df[ticker].iloc[-1]
-
-                if pd.notna(row.get("Close")):
-                    results[ticker] = {
-                        "date": today,
-                        "open": float(row["Open"])
-                        if pd.notna(row.get("Open"))
-                        else None,
-                        "high": float(row["High"])
-                        if pd.notna(row.get("High"))
-                        else None,
-                        "low": float(row["Low"]) if pd.notna(row.get("Low")) else None,
-                        "close": float(row["Close"])
-                        if pd.notna(row.get("Close"))
-                        else None,
-                        "volume": int(row["Volume"])
-                        if pd.notna(row.get("Volume"))
-                        else None,
-                    }
-            except Exception:
-                pass
-
-    except Exception as e:
-        print(f"Price batch error: {e}")
-
-    return results
-
-
-def get_history_bulk(
-    tickers: list[str],
-    period: str = "3mo",
-    batch_size: int = 500,
-) -> dict[str, pd.DataFrame]:
-    """
-    Fetch historical data for all tickers in bulk using yf.download.
-
-    This is much faster than individual .history() calls:
-    - Individual: ~2,800 HTTP requests
-    - Bulk: ~6 HTTP requests (500 tickers per batch)
-
-    Args:
-        tickers: List of ticker symbols
-        period: Historical period (default 3mo for technicals)
-        batch_size: Number of tickers per download batch
-
-    Returns:
-        Dict mapping ticker to DataFrame with OHLCV data.
-    """
-    results: dict[str, pd.DataFrame] = {}
-
-    print(f"Downloading {period} history for {len(tickers)} tickers in bulk...")
-
-    for i in tqdm(
-        range(0, len(tickers), batch_size), desc="Downloading history", leave=False
-    ):
-        batch = tickers[i : i + batch_size]
-        try:
-            # Download all tickers at once
-            df = yf.download(
-                batch,
-                period=period,
-                group_by="ticker",
-                progress=False,
-                threads=True,
-            )
+            df = yf.download(tickers, period="1d", group_by="ticker", progress=False)
 
             if df.empty:
+                return results
+
+            today = date.today().isoformat()
+
+            for ticker in tickers:
+                try:
+                    if len(tickers) == 1:
+                        row = df.iloc[-1]
+                    else:
+                        if ticker not in df.columns.get_level_values(0):
+                            continue
+                        row = df[ticker].iloc[-1]
+
+                    if pd.notna(row.get("Close")):
+                        results[ticker] = {
+                            "date": today,
+                            "open": float(row["Open"]) if pd.notna(row.get("Open")) else None,
+                            "high": float(row["High"]) if pd.notna(row.get("High")) else None,
+                            "low": float(row["Low"]) if pd.notna(row.get("Low")) else None,
+                            "close": float(row["Close"]) if pd.notna(row.get("Close")) else None,
+                            "volume": int(row["Volume"]) if pd.notna(row.get("Volume")) else None,
+                        }
+                except Exception:
+                    pass
+
+        except Exception as e:
+            self.logger.error(f"Price batch error: {e}")
+
+        return results
+
+    def fetch_history_bulk(
+        self,
+        tickers: list[str],
+        period: str = "3mo",
+        batch_size: int = 500,
+    ) -> dict[str, pd.DataFrame]:
+        """Fetch historical data for all tickers in bulk using yf.download."""
+        results: dict[str, pd.DataFrame] = {}
+
+        self.logger.info(f"Downloading {period} history for {len(tickers)} tickers in bulk...")
+
+        for i in tqdm(range(0, len(tickers), batch_size), desc="Downloading history", leave=False):
+            batch = tickers[i : i + batch_size]
+            try:
+                df = yf.download(
+                    batch,
+                    period=period,
+                    group_by="ticker",
+                    progress=False,
+                    threads=True,
+                )
+
+                if df.empty:
+                    continue
+
+                if len(batch) == 1:
+                    results[batch[0]] = df
+                else:
+                    for ticker in batch:
+                        try:
+                            if ticker in df.columns.get_level_values(0):
+                                ticker_df = df[ticker].dropna(how="all")
+                                if not ticker_df.empty:
+                                    results[ticker] = ticker_df
+                        except Exception:
+                            pass
+
+                time.sleep(0.5)
+
+            except Exception as e:
+                self.logger.error(f"History batch error: {e}")
                 continue
 
-            # Extract each ticker's data
-            if len(batch) == 1:
-                # Single ticker: no multi-level columns
-                results[batch[0]] = df
-            else:
+        self.logger.info(f"Downloaded history for {len(results)} tickers")
+        return results
+
+    def fetch_stock_data_batch(
+        self,
+        tickers: list[str],
+        history_data: dict[str, pd.DataFrame] | None = None,
+        batch_size: int = 50,
+    ) -> dict[str, dict]:
+        """
+        Fetch stock info for multiple tickers in batches.
+
+        Uses yf.Tickers for batch processing with fallback for failed tickers.
+        """
+        results: dict[str, dict] = {}
+        failed_tickers: list[str] = []
+
+        for i in tqdm(range(0, len(tickers), batch_size), desc="Fetching stock data", leave=False):
+            batch = tickers[i : i + batch_size]
+            try:
+                tickers_obj = yf.Tickers(" ".join(batch))
+
                 for ticker in batch:
                     try:
-                        if ticker in df.columns.get_level_values(0):
-                            ticker_df = df[ticker].dropna(how="all")
-                            if not ticker_df.empty:
-                                results[ticker] = ticker_df
+                        stock = tickers_obj.tickers[ticker]
+                        info = stock.info
+
+                        if info and info.get("regularMarketPrice") is not None:
+                            eps = info.get("trailingEps")
+                            bvps = info.get("bookValue")
+
+                            # Use pre-fetched history if available
+                            hist = history_data.get(ticker) if history_data else None
+                            if hist is None or hist.empty:
+                                hist = stock.history(period="3mo")
+                            technicals = calculate_all_technicals(hist)
+
+                            results[ticker] = {
+                                "name": info.get("longName"),
+                                "sector": info.get("sector"),
+                                "industry": info.get("industry"),
+                                "market_cap": info.get("marketCap"),
+                                "currency": info.get("currency", "USD"),
+                                "pe_ratio": info.get("trailingPE"),
+                                "forward_pe": info.get("forwardPE"),
+                                "pb_ratio": info.get("priceToBook"),
+                                "ps_ratio": info.get("priceToSalesTrailing12Months"),
+                                "ev_ebitda": info.get("enterpriseToEbitda"),
+                                "roe": info.get("returnOnEquity"),
+                                "roa": info.get("returnOnAssets"),
+                                "debt_equity": info.get("debtToEquity"),
+                                "current_ratio": info.get("currentRatio"),
+                                "gross_margin": info.get("grossMargins"),
+                                "net_margin": info.get("profitMargins"),
+                                "fcf": info.get("freeCashflow"),
+                                "dividend_yield": info.get("dividendYield"),
+                                "beta": info.get("beta"),
+                                "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                                "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                                "fifty_day_average": info.get("fiftyDayAverage"),
+                                "two_hundred_day_average": info.get("twoHundredDayAverage"),
+                                "peg_ratio": info.get("trailingPegRatio"),
+                                "eps": eps,
+                                "book_value_per_share": bvps,
+                                "graham_number": calculate_graham_number(eps, bvps),
+                                **technicals,
+                            }
+                        else:
+                            failed_tickers.append(ticker)
                     except Exception:
-                        pass
+                        failed_tickers.append(ticker)
 
-            # Small delay between batches to be nice to API
-            time.sleep(0.5)
+            except Exception as e:
+                self.logger.warning(f"Batch error: {e}")
+                failed_tickers.extend(batch)
 
-        except Exception as e:
-            print(f"History batch error: {e}")
-            continue
+            time.sleep(0.3)
 
-    print(f"Downloaded history for {len(results)} tickers")
-    return results
+        # Retry failed tickers with exponential backoff
+        if failed_tickers:
+            self.logger.info(f"Retrying {len(failed_tickers)} failed tickers...")
+            consecutive_failures = 0
+            base_delay = 0.5
 
+            for ticker in tqdm(failed_tickers, desc="Fallback", leave=False):
+                try:
+                    data = self._fetch_single_stock_info(ticker)
+                    if data:
+                        # Get technicals from history
+                        hist = history_data.get(ticker) if history_data else None
+                        if hist is not None and not hist.empty:
+                            technicals = calculate_all_technicals(hist)
+                            data.update(technicals)
+                        results[ticker] = data
+                        consecutive_failures = 0
+                    else:
+                        consecutive_failures += 1
+                except Exception:
+                    consecutive_failures += 1
 
-def upsert_company(
-    client: Client, stock_info: dict, index_membership: list[str] | None = None
-) -> str | None:
-    """Insert or update company in Supabase, return company ID."""
-    try:
-        data = {
-            "ticker": stock_info["ticker"],
-            "name": stock_info["name"],
-            "market": "US",
-            "sector": stock_info.get("sector"),
-            "industry": stock_info.get("industry"),
-            "currency": stock_info.get("currency", "USD"),
-            "is_active": True,
-        }
+                # Adaptive delay
+                if consecutive_failures >= 3:
+                    current_delay = min(base_delay * (2 ** (consecutive_failures - 2)), 30.0)
+                    current_delay += random.uniform(0, 1)
+                else:
+                    current_delay = base_delay
+                time.sleep(current_delay)
 
-        # Note: index_membership stored in separate tracking for now
-        # Could add a column later if needed
+        return results
 
-        result = (
-            client.table("companies")
-            .upsert(data, on_conflict="ticker,market")
-            .execute()
-        )
+    def collect(
+        self,
+        tickers: list[str] | None = None,
+        resume: bool = False,
+        batch_size: int = 50,
+        is_test: bool = False,
+    ) -> dict:
+        """
+        Override collect to use optimized batch fetching.
 
-        if result.data:
-            return result.data[0]["id"]
-        return None
-    except Exception as e:
-        print(f"Error upserting company {stock_info['ticker']}: {e}")
-        return None
+        This version uses batch processing for stock data fetching
+        which is significantly faster than individual calls.
+        """
+        # Get tickers if not provided
+        if tickers is None:
+            tickers = self.get_tickers()
+            self.logger.info(f"Found {len(tickers)} tickers to collect")
 
+        # Resume: skip already collected tickers
+        if resume:
+            completed = self.storage.load_completed_tickers()
+            original_count = len(tickers)
+            tickers = [t for t in tickers if t not in completed]
+            self.logger.info(
+                f"Resume mode: Skipping {original_count - len(tickers)} already collected. "
+                f"{len(tickers)} remaining."
+            )
 
-def upsert_metrics(client: Client, company_id: str, financials: dict) -> bool:
-    """Insert or update metrics in Supabase."""
-    try:
-        today = date.today().isoformat()
+        if not tickers:
+            self.logger.info("No tickers to collect")
+            return {"total": 0, "success": 0, "failed": 0, "skipped": 0}
 
-        data = {
-            "company_id": company_id,
-            "date": today,
-            "pe_ratio": financials.get("pe_ratio"),
-            "pb_ratio": financials.get("pb_ratio"),
-            "ps_ratio": financials.get("ps_ratio"),
-            "ev_ebitda": financials.get("ev_ebitda"),
-            "roe": financials.get("roe"),
-            "roa": financials.get("roa"),
-            "debt_equity": financials.get("debt_equity"),
-            "current_ratio": financials.get("current_ratio"),
-            "gross_margin": financials.get("gross_margin"),
-            "net_margin": financials.get("net_margin"),
-            "dividend_yield": financials.get("dividend_yield"),
-            "eps": financials.get("eps"),
-            "book_value_per_share": financials.get("book_value_per_share"),
-            "graham_number": financials.get("graham_number"),
-            "fifty_two_week_high": financials.get("fifty_two_week_high"),
-            "fifty_two_week_low": financials.get("fifty_two_week_low"),
-            "fifty_day_average": financials.get("fifty_day_average"),
-            "two_hundred_day_average": financials.get("two_hundred_day_average"),
-            "peg_ratio": financials.get("peg_ratio"),
-            "beta": financials.get("beta"),
-            "rsi": financials.get("rsi"),
-            "volume_change": financials.get("volume_change"),
-            "macd": financials.get("macd"),
-            "macd_signal": financials.get("macd_signal"),
-            "macd_histogram": financials.get("macd_histogram"),
-            "bb_upper": financials.get("bb_upper"),
-            "bb_middle": financials.get("bb_middle"),
-            "bb_lower": financials.get("bb_lower"),
-            "bb_percent": financials.get("bb_percent"),
-            "mfi": financials.get("mfi"),
-            "data_source": "yfinance",
-        }
+        # Phase 1: Fetch prices
+        self.logger.info("Phase 1: Fetching prices for all tickers...")
+        prices_all = self.fetch_prices_batch(tickers)
+        valid_tickers = list(prices_all.keys())
+        self.logger.info(f"Found {len(valid_tickers)} tickers with valid prices")
 
-        client.table("metrics").upsert(data, on_conflict="company_id,date").execute()
-        return True
-    except Exception as e:
-        print(f"Error upserting metrics for company {company_id}: {e}")
-        return False
+        # Phase 2: Bulk download history
+        self.logger.info("Phase 2: Downloading history for technical indicators...")
+        history_data = self.fetch_history_bulk(valid_tickers, period="3mo", batch_size=500)
 
-
-def upsert_price(client: Client, company_id: str, stock_info: dict) -> bool:
-    """Insert or update price/market_cap in Supabase."""
-    try:
-        today = date.today().isoformat()
-
-        # Get current price
-        stock = yf.Ticker(stock_info["ticker"])
-        hist = stock.history(period="1d")
-
-        if hist.empty:
-            return False
-
-        latest = hist.iloc[-1]
-
-        data = {
-            "company_id": company_id,
-            "date": today,
-            "open": float(latest["Open"]) if pd.notna(latest["Open"]) else None,
-            "high": float(latest["High"]) if pd.notna(latest["High"]) else None,
-            "low": float(latest["Low"]) if pd.notna(latest["Low"]) else None,
-            "close": float(latest["Close"]) if pd.notna(latest["Close"]) else None,
-            "volume": int(latest["Volume"]) if pd.notna(latest["Volume"]) else None,
-            "market_cap": stock_info.get("market_cap"),
-        }
-
-        client.table("prices").upsert(data, on_conflict="company_id,date").execute()
-        return True
-    except Exception as e:
-        print(f"Error upserting price for company {company_id}: {e}")
-        return False
-
-
-def collect_and_save(
-    tickers: list[str] | None = None,
-    ticker_membership: dict[str, list[str]] | None = None,
-    delay: float = 1.0,
-    save_csv: bool = True,
-    save_db: bool = True,
-    universe: str = "sp500",
-    batch_size: int = 30,
-    is_test: bool = False,
-) -> dict:
-    """
-    Collect US stock data and save to Supabase and/or CSV.
-
-    Optimized version with:
-    - Batch yfinance calls (50 tickers at a time)
-    - Bulk price download using yf.download
-
-    Args:
-        tickers: List of tickers to collect. If None, uses universe param.
-        ticker_membership: Dict mapping ticker to index membership list.
-        delay: Delay between batches in seconds (reduced due to batching).
-        save_csv: Whether to save data to CSV files.
-        save_db: Whether to save data to Supabase.
-        universe: Which universe to collect: "sp500", "full" (all indices).
-        batch_size: Number of tickers per batch.
-
-    Returns:
-        Dictionary with success/failure counts.
-    """
-    client = None
-    if save_db:
-        client = get_supabase_client()
-
-    # Determine tickers to collect
-    if tickers is None:
-        if universe == "full":
-            print("Fetching full US universe (S&P 500 + 400 + 600 + Russell 2000)...")
-            ticker_membership = get_all_us_tickers()
-            tickers = list(ticker_membership.keys())
-        else:
-            print("Fetching S&P 500 tickers...")
-            tickers = get_sp500_tickers()
-            ticker_membership = {t: ["SP500"] for t in tickers}
-
-        print(f"Found {len(tickers)} unique tickers")
-
-    if ticker_membership is None:
-        ticker_membership = {t: [] for t in tickers}
-
-    # === PHASE 1: Batch fetch prices FIRST (more reliable) ===
-    print("\nPhase 1: Fetching prices for all tickers...")
-    prices_all = get_prices_batch(tickers)
-    valid_tickers = list(prices_all.keys())
-    print(
-        f"Found {len(valid_tickers)} tickers with valid prices (out of {len(tickers)})"
-    )
-
-    # === PHASE 1.5: Bulk download history for technical indicators ===
-    print("\nPhase 1.5: Bulk downloading 3-month history for technicals...")
-    history_data = get_history_bulk(valid_tickers, period="3mo", batch_size=500)
-    print(f"Downloaded history for {len(history_data)} tickers")
-
-    # === PHASE 2: Fetch stock info only for valid tickers ===
-    print(f"\nPhase 2: Fetching stock data in batches of {batch_size}...")
-    stock_data_all: dict[str, dict] = {}
-
-    for i in tqdm(range(0, len(valid_tickers), batch_size), desc="Fetching stock data"):
-        batch = valid_tickers[i : i + batch_size]
-        batch_data = get_stock_data_batch(
-            batch,
-            batch_size=len(batch),
-            with_fallback=True,
-            delay=0.3,
+        # Phase 3: Batch fetch stock data
+        self.logger.info(f"Phase 3: Fetching stock data in batches of {batch_size}...")
+        stock_data_all = self.fetch_stock_data_batch(
+            valid_tickers,
             history_data=history_data,
+            batch_size=batch_size,
         )
-        stock_data_all.update(batch_data)
-        time.sleep(delay)
+        self.logger.info(f"Fetched data for {len(stock_data_all)} stocks")
 
-    print(f"Fetched data for {len(stock_data_all)} stocks")
+        # Phase 4: Process and save
+        self.logger.info("Phase 4: Processing and saving...")
 
-    # === PHASE 3: Combine and save ===
-    print("\nPhase 3: Combining data and saving...")
-    no_price_count = len(tickers) - len(valid_tickers)
-    stats = {"success": 0, "failed": 0, "no_price": no_price_count, "no_info": 0}
+        from common.logging import CollectionProgress
 
-    all_companies: list[dict] = []
-    all_metrics: list[dict] = []
-    all_prices: list[dict] = []
+        progress = CollectionProgress(
+            total=len(valid_tickers),
+            logger=self.logger,
+            desc="Processing",
+        )
 
-    for ticker in tqdm(valid_tickers, desc="Processing"):
-        try:
-            data = stock_data_all.get(ticker)
-            if not data or not data.get("name"):
-                stats["no_info"] += 1
-                continue
+        all_companies: list[dict] = []
+        all_metrics: list[dict] = []
+        all_prices: list[dict] = []
 
-            membership = ticker_membership.get(ticker, [])
-            company_id = None
+        for ticker in valid_tickers:
+            try:
+                data = stock_data_all.get(ticker)
+                if not data or not data.get("name"):
+                    progress.update(skipped=True)
+                    continue
 
-            # Save to database
-            if save_db and client:
-                stock_info = {
-                    "ticker": ticker,
-                    "name": data.get("name"),
-                    "sector": data.get("sector"),
-                    "industry": data.get("industry"),
-                    "market_cap": data.get("market_cap"),
-                    "currency": data.get("currency", "USD"),
-                }
-                company_id = upsert_company(client, stock_info, membership)
-                if company_id:
-                    upsert_metrics(client, company_id, data)
+                # Validate metrics
+                validated = self.validator.validate(data, ticker)
+
+                # Save to database
+                if self.save_db and self.client:
+                    company_id = self.storage.upsert_company(
+                        ticker=ticker,
+                        name=validated.get("name", ""),
+                        market=self.MARKET,
+                        sector=validated.get("sector"),
+                        industry=validated.get("industry"),
+                        currency=validated.get("currency", "USD"),
+                    )
+                    if company_id:
+                        self.storage.upsert_metrics(
+                            company_id=company_id,
+                            metrics=validated,
+                            data_source=self.DATA_SOURCE,
+                        )
+                        if ticker in prices_all:
+                            self.storage.upsert_price(
+                                company_id=company_id,
+                                price_data=prices_all[ticker],
+                                market_cap=validated.get("market_cap"),
+                            )
+
+                # Collect for CSV
+                if self.save_csv:
+                    all_companies.append(self._build_company_record(ticker, validated))
+                    all_metrics.append(self._build_metrics_record(ticker, validated))
                     if ticker in prices_all:
-                        upsert_price(
-                            client,
-                            company_id,
-                            {"ticker": ticker, "market_cap": data.get("market_cap")},
+                        all_prices.append(
+                            self._build_price_record(ticker, prices_all[ticker], validated)
                         )
 
-            # Collect for CSV
-            if save_csv:
-                all_companies.append(
-                    {
-                        "ticker": ticker,
-                        "name": data.get("name"),
-                        "market": "US",
-                        "sector": data.get("sector"),
-                        "industry": data.get("industry"),
-                        "currency": data.get("currency", "USD"),
-                        "market_cap": data.get("market_cap"),
-                        "index_membership": ",".join(membership),
-                    }
-                )
+                progress.update(success=True)
 
-                # Metrics
-                all_metrics.append(
-                    {
-                        "ticker": ticker,
-                        "date": date.today().isoformat(),
-                        "pe_ratio": data.get("pe_ratio"),
-                        "forward_pe": data.get("forward_pe"),
-                        "pb_ratio": data.get("pb_ratio"),
-                        "ps_ratio": data.get("ps_ratio"),
-                        "ev_ebitda": data.get("ev_ebitda"),
-                        "roe": data.get("roe"),
-                        "roa": data.get("roa"),
-                        "debt_equity": data.get("debt_equity"),
-                        "current_ratio": data.get("current_ratio"),
-                        "gross_margin": data.get("gross_margin"),
-                        "net_margin": data.get("net_margin"),
-                        "dividend_yield": data.get("dividend_yield"),
-                        "beta": data.get("beta"),
-                        "fifty_two_week_high": data.get("fifty_two_week_high"),
-                        "fifty_two_week_low": data.get("fifty_two_week_low"),
-                        "fifty_day_average": data.get("fifty_day_average"),
-                        "two_hundred_day_average": data.get("two_hundred_day_average"),
-                        "peg_ratio": data.get("peg_ratio"),
-                        "eps": data.get("eps"),
-                        "book_value_per_share": data.get("book_value_per_share"),
-                        "graham_number": data.get("graham_number"),
-                        "rsi": data.get("rsi"),
-                        "volume_change": data.get("volume_change"),
-                        "macd": data.get("macd"),
-                        "macd_signal": data.get("macd_signal"),
-                        "macd_histogram": data.get("macd_histogram"),
-                        "bb_upper": data.get("bb_upper"),
-                        "bb_middle": data.get("bb_middle"),
-                        "bb_lower": data.get("bb_lower"),
-                        "bb_percent": data.get("bb_percent"),
-                        "mfi": data.get("mfi"),
-                    }
-                )
+            except Exception as e:
+                self.logger.error(f"Error processing {ticker}: {e}")
+                self.retry_queue.add_failed(ticker, str(e))
+                progress.update(success=False)
 
-                # Prices
-                if ticker in prices_all:
-                    price = prices_all[ticker]
-                    all_prices.append(
-                        {
-                            "ticker": ticker,
-                            **price,
-                            "market_cap": data.get("market_cap"),
-                        }
-                    )
+            progress.log_progress(interval=100)
 
-            stats["success"] += 1
-
-        except Exception as e:
-            print(f"Error processing {ticker}: {e}")
-            stats["failed"] += 1
-
-    # Save to CSV
-    if save_csv:
-        save_to_csv(all_companies, all_metrics, all_prices, is_test=is_test)
-
-    print(f"\nCollection complete: {stats}")
-    return stats
-
-
-def save_to_csv(
-    companies: list[dict],
-    metrics: list[dict],
-    prices: list[dict],
-    is_test: bool = False,
-) -> None:
-    """Save collected data to CSV files for local storage."""
-    today = date.today().strftime("%Y%m%d")
-    suffix = "_test" if is_test else ""
-
-    # Ensure directories exist
-    PRICES_DIR.mkdir(parents=True, exist_ok=True)
-    FINANCIALS_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Save companies (append to existing or create new)
-    if companies:
-        companies_df = pd.DataFrame(companies)
-        companies_file = DATA_DIR / f"us_companies{suffix}.csv"
-        if not is_test and companies_file.exists():
-            existing = pd.read_csv(companies_file)
-            combined = pd.concat([existing, companies_df]).drop_duplicates(
-                subset=["ticker"], keep="last"
-            )
-            combined.to_csv(companies_file, index=False)
-        else:
-            companies_df.to_csv(companies_file, index=False)
-        print(f"Saved {len(companies)} companies to {companies_file}")
-
-    # Save metrics with date
-    if metrics:
-        metrics_df = pd.DataFrame(metrics)
-        metrics_file = FINANCIALS_DIR / f"us_metrics_{today}{suffix}.csv"
-        metrics_df.to_csv(metrics_file, index=False)
-        print(f"Saved {len(metrics)} metrics to {metrics_file}")
-
-    # Save prices with date
-    if prices:
-        prices_df = pd.DataFrame(prices)
-        prices_file = PRICES_DIR / f"us_prices_{today}{suffix}.csv"
-        prices_df.to_csv(prices_file, index=False)
-        print(f"Saved {len(prices)} prices to {prices_file}")
-
-
-def dry_run_test(tickers: list[str] | None = None) -> None:
-    """Test data collection without saving to database."""
-    if tickers is None:
-        tickers = ["AAPL", "MSFT", "GOOGL"]
-
-    print(f"Dry run test with {len(tickers)} tickers...\n")
-
-    for ticker in tickers:
-        print(f"=== {ticker} ===")
-
-        # Get stock info
-        stock_info = get_stock_info(ticker)
-        if stock_info:
-            print(f"Name: {stock_info.get('name')}")
-            print(f"Sector: {stock_info.get('sector')}")
-            print(f"Industry: {stock_info.get('industry')}")
-            print(
-                f"Market Cap: {stock_info.get('market_cap'):,}"
-                if stock_info.get("market_cap")
-                else "Market Cap: N/A"
+        # Save to CSV
+        if self.save_csv:
+            self.storage.save_to_csv(
+                companies=all_companies,
+                metrics=all_metrics,
+                prices=all_prices,
+                is_test=is_test,
             )
 
-        # Get financials
-        financials = get_financials(ticker)
-        if financials:
-            print(f"P/E: {financials.get('pe_ratio')}")
-            print(f"P/B: {financials.get('pb_ratio')}")
-            print(f"ROE: {financials.get('roe')}")
-            print(f"Dividend Yield: {financials.get('dividend_yield')}")
+        progress.log_summary()
 
-        print()
+        # Log validation summary
+        validation_summary = self.validator.get_summary()
+        if validation_summary["with_warnings"] > 0:
+            self.logger.warning(f"Validation summary: {validation_summary}")
+
+        # Save failed items
+        if self.retry_queue.count > 0:
+            from common.config import DATA_DIR
+
+            failed_file = DATA_DIR / f"{self.MARKET_PREFIX}_failed_tickers.json"
+            self.retry_queue.save_path = failed_file
+            self.retry_queue.save_to_file()
+
+        return progress.get_stats()
 
 
-if __name__ == "__main__":
+# ============================================================
+# CLI Entry Point
+# ============================================================
+
+
+def main():
+    """Main entry point for CLI."""
     import sys
 
     args = sys.argv[1:]
     csv_only = "--csv-only" in args
     sp500_only = "--sp500" in args
+    resume = "--resume" in args
+    is_test = "--test" in args
+    log_level = logging.DEBUG if "--verbose" in args else logging.INFO
 
     if "--dry-run" in args:
-        # Dry run: test data collection without database
-        dry_run_test()
-    elif "--test" in args:
-        # Test mode: only a few tickers
-        test_tickers = ["AAPL", "MSFT", "GOOGL"]
-        print(f"Running in test mode (csv_only={csv_only})...")
-        collect_and_save(
-            tickers=test_tickers,
-            delay=0.2,
-            save_csv=True,
-            save_db=not csv_only,
-            is_test=True,
-        )
-    elif "--list-tickers" in args:
-        # Just list tickers without collecting
+        # Dry run: test without saving
+        print("Dry run test with 3 tickers...")
+        collector = USCollector(universe="sp500", save_db=False, save_csv=False)
+        for ticker in ["AAPL", "MSFT", "GOOGL"]:
+            info = collector.fetch_stock_info(ticker)
+            if info:
+                print(f"\n=== {ticker} ===")
+                print(f"Name: {info.get('name')}")
+                print(f"P/E: {info.get('pe_ratio')}")
+                print(f"ROE: {info.get('roe')}")
+        return
+
+    if "--list-tickers" in args:
         if sp500_only:
             tickers = get_sp500_tickers()
+            print(f"\nTotal: {len(tickers)} tickers")
         else:
-            tickers = get_all_us_tickers()
+            ticker_membership = get_all_us_tickers()
             print("\nSample tickers with membership:")
-            for t, m in list(tickers.items())[:20]:
+            for t, m in list(ticker_membership.items())[:20]:
                 print(f"  {t}: {m}")
-    elif sp500_only:
-        # S&P 500 only
-        print("Running S&P 500 collection...")
-        collect_and_save(
-            save_csv=True,
-            save_db=not csv_only,
-            universe="sp500",
+        return
+
+    # Create collector
+    universe = "sp500" if sp500_only else "full"
+    collector = USCollector(
+        universe=universe,
+        save_db=not csv_only,
+        save_csv=True,
+        log_level=log_level,
+    )
+
+    if is_test:
+        print("Running in test mode (3 tickers)...")
+        stats = collector.collect(
+            tickers=["AAPL", "MSFT", "GOOGL"],
+            is_test=True,
         )
     else:
-        # Default: Full universe (S&P 500 + 400 + 600 + Russell 2000)
-        print("Running FULL US universe collection...")
-        print("S&P 500 + 400 + 600 + Russell 2000 (~2,800 stocks)")
-        print("This will take 3-4 hours. Press Ctrl+C to cancel.\n")
-        collect_and_save(save_csv=True, save_db=not csv_only, universe="full")
+        if universe == "full":
+            print("Running FULL US universe collection...")
+            print("S&P 500 + 400 + 600 + Russell 2000 (~2,800 stocks)")
+            print("This will take 3-4 hours. Press Ctrl+C to cancel.\n")
+        else:
+            print("Running S&P 500 collection...")
+
+        stats = collector.collect(resume=resume)
+
+    print(f"\nCollection complete: {stats}")
+
+
+if __name__ == "__main__":
+    main()

@@ -4,6 +4,17 @@
 
 ## 0. 최근 완료 (2025-12-28)
 
+- [x] **데이터 파이프라인 리팩토링** - 공통 모듈 추출 및 코드 최적화
+  - `common/` 패키지 생성 (config, logging, retry, indicators, storage)
+  - `collectors/base.py` - BaseCollector 추상 클래스
+  - `processors/validators.py` - MetricsValidator 데이터 검증
+  - 코드 47% 감소 (us_stocks: 1,190→632줄, kr_stocks: 1,329→607줄)
+  - `--resume` 플래그 추가 (중단된 수집 이어서 실행)
+- [x] **KR 수집기 DART 제거** - pykrx + yfinance로 완전 대체
+  - 수집 시간: ~45분 → ~5분 (DART API 호출 제거)
+  - pykrx: PER, PBR, EPS, BPS (벌크 다운로드)
+  - yfinance: ROE, ROA, Margins, D/E, Current Ratio
+  - DART_API_KEY 더 이상 필요 없음
 - [x] **문서 구조 개선** - 문서 통합 및 간결화
   - 커밋: `86ea589`
   - `value-investing-screener-roadmap.md` 삭제 (역할 완료)
@@ -98,21 +109,29 @@
 - [x] Rate limiting 대응 (sleep, 재시도 로직)
 - [x] `--dry-run` 모드 추가 (DB 없이 테스트)
 - [x] 진행률 로깅 개선
-- [ ] 배치 처리 (실패 시 이어서 수집)
-- [ ] 데이터 검증 (null 체크, 이상치 필터링)
+- [x] 배치 처리 (실패 시 이어서 수집) - `--resume` 플래그
+- [x] 데이터 검증 (null 체크, 이상치 필터링) - MetricsValidator
 
 ### KR 수집기 (`data-pipeline/collectors/kr_stocks.py`)
 
 - [x] `get_krx_tickers()` 구현 (pykrx 활용)
-- [x] corp_code 조회 로직 구현 (종목코드 → DART corp_code 매핑)
-- [x] `get_financial_statements()` 실제 데이터 추출 로직 구현
+- [x] ~~corp_code 조회 로직 구현~~ (DART 제거됨)
+- [x] ~~`get_financial_statements()` 실제 데이터 추출 로직 구현~~ (DART 제거됨)
+- [x] pykrx 펀더멘탈 데이터 (PER, PBR, EPS, BPS)
+- [x] yfinance 재무 지표 (ROE, ROA, Margins, D/E, Current Ratio)
 - [x] Supabase 저장 로직 구현
 - [x] `--dry-run` 모드 추가 (DB 없이 테스트)
 
 ### 공통
 
-- [ ] `data-pipeline/collectors/base.py` - 공통 저장/에러 처리 모듈
-- [ ] `data-pipeline/processors/` - 데이터 정제 로직
+- [x] `data-pipeline/collectors/base.py` - BaseCollector 추상 클래스
+- [x] `data-pipeline/common/` - 공통 모듈 패키지
+  - `config.py` - 설정 상수
+  - `logging.py` - 로거 + CollectionProgress
+  - `retry.py` - @with_retry 데코레이터, RetryQueue
+  - `indicators.py` - 기술적 지표 계산 함수
+  - `storage.py` - StorageManager (Supabase + CSV)
+- [x] `data-pipeline/processors/validators.py` - MetricsValidator 데이터 검증
 
 ---
 
