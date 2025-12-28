@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api import alerts, screen, stocks, watchlist
+from app.api import alerts, screen, stocks, user_presets, watchlist
 from app.core.config import settings
 from app.core.rate_limit import limiter
 
@@ -34,6 +34,7 @@ app.include_router(stocks.router, prefix="/api")
 app.include_router(screen.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
+app.include_router(user_presets.router, prefix="/api/user-presets", tags=["user-presets"])
 
 
 @app.get("/")

@@ -183,6 +183,34 @@ export interface AlertUpdateData {
   is_active?: boolean;
 }
 
+// User Preset types
+export interface UserPreset {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  filters: MetricFilter[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserPresetResponse {
+  total: number;
+  items: UserPreset[];
+}
+
+export interface UserPresetCreateData {
+  name: string;
+  description?: string;
+  filters: MetricFilter[];
+}
+
+export interface UserPresetUpdateData {
+  name?: string;
+  description?: string;
+  filters?: MetricFilter[];
+}
+
 async function fetchApi<T>(
   endpoint: string,
   options?: RequestInit & { token?: string }
@@ -326,4 +354,38 @@ export const api = {
 
   getAlertsForCompany: (token: string, companyId: string) =>
     fetchApi<AlertItem[]>(`/api/alerts/company/${companyId}`, { token }),
+
+  // User Presets (requires auth)
+  getUserPresets: (token: string, params?: { limit?: number; offset?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.offset) searchParams.set("offset", String(params.offset));
+    const query = searchParams.toString();
+    return fetchApi<UserPresetResponse>(
+      `/api/user-presets${query ? `?${query}` : ""}`,
+      { token }
+    );
+  },
+
+  createUserPreset: (token: string, data: UserPresetCreateData) =>
+    fetchApi<{ success: boolean; item: UserPreset }>("/api/user-presets", {
+      method: "POST",
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  getUserPreset: (token: string, presetId: string) =>
+    fetchApi<UserPreset>(`/api/user-presets/${presetId}`, { token }),
+
+  updateUserPreset: (token: string, presetId: string, data: UserPresetUpdateData) =>
+    fetchApi<{ success: boolean; item: UserPreset }>(
+      `/api/user-presets/${presetId}`,
+      { method: "PATCH", body: JSON.stringify(data), token }
+    ),
+
+  deleteUserPreset: (token: string, presetId: string) =>
+    fetchApi<{ success: boolean; message: string }>(
+      `/api/user-presets/${presetId}`,
+      { method: "DELETE", token }
+    ),
 };

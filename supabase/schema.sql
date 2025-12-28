@@ -454,3 +454,44 @@ LEFT JOIN LATERAL (
 WHERE c.is_active = true;
 
 COMMENT ON VIEW company_latest_metrics IS '최신 지표가 포함된 회사 정보 (스크리닝용)';
+
+-- =============================================
+-- 사용자 프리셋 테이블
+-- =============================================
+
+CREATE TABLE user_presets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    filters JSONB NOT NULL,  -- MetricFilter[] 배열: [{metric, operator, value}, ...]
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT unique_user_preset_name UNIQUE (user_id, name)
+);
+
+COMMENT ON TABLE user_presets IS '사용자 정의 스크리닝 프리셋';
+COMMENT ON COLUMN user_presets.filters IS 'MetricFilter 배열 (JSON): [{metric: string, operator: string, value: number}]';
+
+-- 인덱스
+CREATE INDEX idx_user_presets_user_id ON user_presets(user_id);
+
+-- RLS 정책
+ALTER TABLE user_presets ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own presets" ON user_presets
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create own presets" ON user_presets
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own presets" ON user_presets
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own presets" ON user_presets
+    FOR DELETE USING (auth.uid() = user_id);
+
+-- updated_at 트리거
+CREATE TRIGGER update_user_presets_updated_at
+    BEFORE UPDATE ON user_presets
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
