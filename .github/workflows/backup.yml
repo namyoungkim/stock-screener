@@ -9,6 +9,8 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
+    env:
+      HAS_RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG != '' }}
 
     steps:
       - name: Checkout repository
@@ -78,7 +80,7 @@ jobs:
       # ============================================================
 
       - name: Setup rclone
-        if: ${{ env.RCLONE_CONFIG != '' }}
+        if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
         env:
           RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
         run: |
@@ -87,7 +89,7 @@ jobs:
           echo "$RCLONE_CONFIG" > ~/.config/rclone/rclone.conf
 
       - name: Upload to Google Drive
-        if: ${{ env.RCLONE_CONFIG != '' }}
+        if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
         env:
           RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
         run: |
@@ -111,7 +113,7 @@ jobs:
           echo "Google Drive backup complete!"
 
       - name: Cleanup old backups (keep 4 weeks rolling)
-        if: ${{ env.RCLONE_CONFIG != '' }}
+        if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
         env:
           RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
         run: |

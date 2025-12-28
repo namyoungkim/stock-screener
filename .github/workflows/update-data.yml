@@ -2,8 +2,9 @@ name: Update Stock Data
 
 on:
   schedule:
-    # Run every Sunday at 00:00 UTC (09:00 KST)
-    - cron: '0 0 * * 0'
+    # Run every weekday at 00:00 UTC (09:00 KST)
+    # Note: Collectors handle market holidays gracefully (skip if no data)
+    - cron: '0 0 * * 1-5'
   workflow_dispatch:
     inputs:
       market:
@@ -81,8 +82,6 @@ jobs:
 
       - name: Run Korean stock collector
         id: kr_collector
-        env:
-          DART_API_KEY: ${{ secrets.DART_API_KEY }}
         run: |
           if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
             uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --test
