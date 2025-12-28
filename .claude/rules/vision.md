@@ -21,7 +21,7 @@ AI Agent: "AAPL 현재 P/E 28.5로 역사적 평균(25) 대비 고평가 상태�
 
 | 단계 | 설명 | 기술 | 상태 |
 |------|------|------|------|
-| 1. 데이터 수집 | US/KR 종목 지표 | yfinance, DART | ✅ |
+| 1. 데이터 수집 | US/KR 종목 지표 | yfinance, pykrx | ✅ |
 | 2. 스크리닝 | 조건 기반 필터링 | FastAPI, Supabase | ✅ |
 | 3. 모니터링 | 워치리스트 + 알림 | Discord Bot | 🔄 |
 | 4. RAG 구축 | 임베딩 + 검색 | pgvector, Claude | 예정 |

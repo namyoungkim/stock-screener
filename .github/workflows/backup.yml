@@ -1,9 +1,9 @@
-name: Weekly Backup
+name: Daily Backup
 
 on:
   schedule:
-    # Every Sunday at 00:00 UTC
-    - cron: '0 0 * * 0'
+    # Every weekday at 00:00 UTC (after data collection)
+    - cron: '0 1 * * 1-5'
   workflow_dispatch:  # Manual trigger
 
 jobs:

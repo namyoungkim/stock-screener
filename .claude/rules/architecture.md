@@ -49,8 +49,8 @@ stock-screener/
 - 저장: Supabase + CSV
 
 **자동화**:
-- GitHub Actions가 매주 일요일 00:00 UTC에 수집기 실행
-- 매주 Supabase 데이터를 CSV로 백업
+- GitHub Actions가 평일 매일 00:00 UTC에 수집기 실행 (휴장일은 gracefully 스킵)
+- 평일 매일 01:00 UTC에 Supabase 데이터를 백업
 
 ## 수집 지표
 

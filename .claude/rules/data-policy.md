@@ -59,9 +59,9 @@ gdrive:stock-screener-backup/
 
 | 데이터 | 주기 | 보관 기간 | 방식 |
 |--------|------|----------|------|
-| 일별 가격 | 매일 | 무기한 | CSV → Google Drive |
-| 재무제표 | 분기 | 무기한 | CSV → Google Drive |
-| Supabase 전체 | 주 1회 | 4주 롤링 | pg_dump → Google Drive |
+| 일별 가격 | 평일 매일 | 무기한 | CSV → Google Drive |
+| 재무제표 | 평일 매일 | 무기한 | CSV → Google Drive |
+| Supabase 전체 | 평일 매일 | 4주 롤링 | 스냅샷 → Google Drive |
 
 ---
 
