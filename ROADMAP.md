@@ -23,7 +23,7 @@
 | # | 설명 | 상태 |
 |---|------|------|
 | M1-M6 | MVP ~ 워치리스트 | ✅ |
-| M7 | 알림 시스템 | 예정 |
+| M7 | 알림 시스템 | ✅ |
 | M8 | RAG 인프라 | 예정 |
 | M9 | AI 종목 분석 | 예정 |
 | M10 | 채팅 AI 에이전트 | 예정 |
@@ -37,7 +37,7 @@
 | Backend | FastAPI, Python 3.11+ |
 | Frontend | Next.js 14, TailwindCSS |
 | Database | Supabase (PostgreSQL) |
-| Data | yfinance, pykrx, OpenDartReader |
+| Data | yfinance, pykrx |
 | AI (예정) | Claude API, pgvector |
 
 ---
