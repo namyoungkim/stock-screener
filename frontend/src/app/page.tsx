@@ -105,7 +105,7 @@ function HomeContent() {
   const totalPages = Math.ceil((stocksData?.total ?? 0) / ITEMS_PER_PAGE);
 
   return (
-    <div className="mx-auto max-w-screen-xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-screen-2xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Stock Screener</h1>
         <p className="mt-2 text-slate-600 dark:text-slate-400">
@@ -113,7 +113,7 @@ function HomeContent() {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-4">
+      <div className="grid gap-6 lg:grid-cols-5">
         {/* Filters */}
         <div className="lg:col-span-1">
           <FilterPanel
@@ -130,7 +130,7 @@ function HomeContent() {
         </div>
 
         {/* Results */}
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-4">
           <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
             <div className="border-b border-gray-200 dark:border-slate-700 px-4 py-3 bg-slate-50 dark:bg-slate-700">
               <div className="flex items-center justify-between">
@@ -178,7 +178,7 @@ function HomeContent() {
 export default function Home() {
   return (
     <Suspense fallback={
-      <div className="mx-auto max-w-screen-xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-screen-2xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex items-center justify-center py-16">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
         </div>
