@@ -20,8 +20,9 @@ from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
-from supabase import Client, create_client
 from tqdm import tqdm
+
+from supabase import Client, create_client
 
 
 def safe_float(value: float | None) -> float | None:

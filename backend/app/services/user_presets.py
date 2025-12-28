@@ -1,6 +1,5 @@
 """User presets service."""
 
-import json
 
 from app.models.stock import MetricFilter
 from app.models.user_preset import (

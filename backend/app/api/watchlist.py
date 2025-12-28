@@ -1,7 +1,6 @@
 """Watchlist API routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from supabase import Client
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
@@ -13,6 +12,7 @@ from app.models.watchlist import (
     WatchlistResponse,
 )
 from app.services import watchlist as watchlist_service
+from supabase import Client
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 

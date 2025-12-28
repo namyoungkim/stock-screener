@@ -55,7 +55,7 @@ async def create_user_preset(
             raise HTTPException(
                 status_code=400,
                 detail="A preset with this name already exists",
-            )
+            ) from e
         raise
 
 
@@ -99,7 +99,7 @@ async def update_user_preset(
             raise HTTPException(
                 status_code=400,
                 detail="A preset with this name already exists",
-            )
+            ) from e
         raise
 
 

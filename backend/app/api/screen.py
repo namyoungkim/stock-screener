@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Request
 
 from app.core.database import get_db
-from app.core.rate_limit import limiter, RATE_LIMITS
+from app.core.rate_limit import RATE_LIMITS, limiter
 from app.models.stock import (
     PresetStrategy,
     ScreenRequest,

@@ -239,7 +239,7 @@ def calculate_mfi(ticker_symbol: str, period: int = 14) -> float | None:
         # Typical Price = (High + Low + Close) / 3
         typical_price = (hist["High"] + hist["Low"] + hist["Close"]) / 3
 
-        # Raw Money Flow = Typical Price × Volume
+        # Raw Money Flow = Typical Price x Volume
         raw_money_flow = typical_price * hist["Volume"]
 
         # Determine positive/negative money flow

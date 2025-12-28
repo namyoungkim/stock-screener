@@ -1,12 +1,11 @@
 """Watchlist service."""
 
-from supabase import Client
-
 from app.models.watchlist import (
     WatchlistItem,
     WatchlistItemCreate,
     WatchlistItemUpdate,
 )
+from supabase import Client
 
 
 async def get_user_watchlist(

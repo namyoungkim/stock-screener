@@ -1,10 +1,10 @@
 """Backend API tests."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi.testclient import TestClient
+from unittest.mock import MagicMock, patch
 
+import pytest
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture

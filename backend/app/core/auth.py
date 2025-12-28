@@ -85,13 +85,13 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token: {e!s}",
-        )
+        ) from e
     except httpx.HTTPError as e:
         logger.error(f"Failed to fetch JWKS: {e!s}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to verify token",
-        )
+        ) from e
 
 
 async def get_optional_user(
