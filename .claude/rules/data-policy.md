@@ -71,52 +71,96 @@ gdrive:stock-screener-backup/
 - **rclone**: Google Drive 연동 CLI
 - **GitHub Actions**: 스케줄 실행
 
-### Google Drive 설정 가이드
+### Google Drive 설정 가이드 (OAuth 인증)
 
-#### 1. Google Cloud 서비스 계정 생성
+> **참고**: 개인 Google 계정에서는 Service Account가 동작하지 않으므로 OAuth 인증을 사용합니다.
+
+#### 1. Google Cloud 프로젝트 설정
 
 1. [Google Cloud Console](https://console.cloud.google.com/) 접속
 2. 새 프로젝트 생성 또는 기존 프로젝트 선택
-3. **APIs & Services > Credentials** 이동
-4. **Create Credentials > Service Account** 클릭
-5. 서비스 계정 이름 입력 후 생성
-6. **Keys** 탭에서 **Add Key > Create new key > JSON** 선택
-7. JSON 키 파일 다운로드
+3. **APIs & Services > Library** 이동
+4. "Google Drive API" 검색 후 **Enable** 클릭
 
-#### 2. Google Drive API 활성화
+#### 2. OAuth 동의 화면 설정
 
-1. **APIs & Services > Library** 이동
-2. "Google Drive API" 검색
-3. **Enable** 클릭
+1. **APIs & Services > OAuth consent screen** 이동
+2. User Type: **External** 선택
+3. 앱 이름, 이메일 등 필수 정보 입력
+4. Scopes: 기본값 유지 (추가 불필요)
+5. Test users: 본인 이메일 추가
+6. **PUBLISH APP** 클릭하여 Production 모드로 전환 (토큰 만료 방지)
 
-#### 3. Drive 폴더 공유
+#### 3. OAuth 클라이언트 ID 생성
+
+1. **APIs & Services > Credentials** 이동
+2. **+ CREATE CREDENTIALS > OAuth client ID** 클릭
+3. Application type: **Desktop app**
+4. Name: `rclone`
+5. **Authorized redirect URIs**에 추가: `http://127.0.0.1:53682/`
+6. **CREATE** 클릭
+7. Client ID와 Client Secret 복사
+
+#### 4. 로컬에서 rclone 설정
+
+```bash
+# rclone 설치 (macOS)
+brew install rclone
+
+# 설정 시작
+rclone config
+```
+
+대화형 설정:
+```
+n                           # 새 리모트 생성
+gdrive                      # 이름
+drive                       # Google Drive 선택
+[Client ID 붙여넣기]
+[Client Secret 붙여넣기]
+1                           # Full access
+Enter                       # service_account_file 비움
+n                           # 고급 설정 스킵
+y                           # 자동 설정 (브라우저 열림)
+→ 브라우저에서 Google 로그인 후 허용
+n                           # 팀 드라이브 아님
+y                           # 설정 확인
+q                           # 종료
+```
+
+#### 5. root_folder_id 추가
 
 1. Google Drive에서 `stock-screener-backup` 폴더 생성
-2. 폴더 우클릭 > **Share**
-3. 서비스 계정 이메일 추가 (형식: `xxx@xxx.iam.gserviceaccount.com`)
-4. **Editor** 권한 부여
-
-#### 4. rclone.conf 생성
-
-```ini
-[gdrive]
-type = drive
-scope = drive
-service_account_file_contents = <JSON 키 파일 내용 (한 줄로)>
-root_folder_id = <Drive 폴더 ID (URL에서 추출)>
-```
-
-**팁**: JSON을 한 줄로 변환하려면:
+2. 폴더 URL에서 ID 복사: `https://drive.google.com/drive/folders/[폴더ID]`
+3. rclone 설정에 추가:
 ```bash
-cat credentials.json | jq -c .
+rclone config
+# e (edit) > gdrive 선택 > root_folder_id 항목에 폴더 ID 입력
 ```
 
-#### 5. GitHub Secret 설정
+#### 6. 연결 테스트
 
-1. Repository **Settings > Secrets and variables > Actions**
-2. **New repository secret** 클릭
-3. Name: `RCLONE_CONFIG`
-4. Value: 위에서 생성한 rclone.conf 내용 전체 붙여넣기
+```bash
+# 연결 확인
+rclone lsd gdrive:
+
+# 테스트 업로드
+echo "test" > /tmp/test.txt
+rclone copy /tmp/test.txt gdrive:
+rclone ls gdrive:
+```
+
+#### 7. GitHub Secret 설정
+
+1. 설정 파일 내용 확인:
+```bash
+cat ~/.config/rclone/rclone.conf
+```
+
+2. Repository **Settings > Secrets and variables > Actions**
+3. **New repository secret** 클릭
+4. Name: `RCLONE_CONFIG`
+5. Value: rclone.conf 내용 전체 붙여넣기 (token 포함)
 
 ### 워크플로우
 
