@@ -134,9 +134,10 @@ class BaseCollector(ABC):
         self,
         tickers: list[str] | None = None,
         resume: bool = False,
-        batch_size: int = 50,
+        batch_size: int = 10,
         is_test: bool = False,
         check_rate_limit_first: bool = True,
+        auto_retry: bool = True,
     ) -> dict:
         """
         Main collection method.
@@ -147,6 +148,7 @@ class BaseCollector(ABC):
             batch_size: Number of tickers per batch
             is_test: If True, append "_test" to CSV filenames
             check_rate_limit_first: If True, check rate limit before starting
+            auto_retry: If True, retry missing tickers after quality check
 
         Returns:
             Dictionary with collection statistics
@@ -313,6 +315,40 @@ class BaseCollector(ABC):
                 prices=all_prices,
                 is_test=is_test,
             )
+
+            # Quality check and auto-retry (only for full collection, not test mode)
+            if not is_test and len(all_metrics) > 0:
+                import pandas as pd
+                from processors.quality_check import DataQualityChecker
+
+                checker = DataQualityChecker()
+                collected_tickers = [r["ticker"] for r in all_metrics]
+                metrics_df = pd.DataFrame(all_metrics)
+
+                report = checker.check(
+                    market=self.MARKET,
+                    collected_tickers=collected_tickers,
+                    metrics_df=metrics_df,
+                )
+                checker.print_report(report)
+
+                # Auto-retry missing tickers
+                if auto_retry and report.missing_count > 0 and report.missing_count <= 100:
+                    self.logger.info(
+                        f"Auto-retrying {report.missing_count} missing tickers..."
+                    )
+                    retry_result = self.collect(
+                        tickers=report.missing_tickers,
+                        check_rate_limit_first=False,
+                        auto_retry=False,  # Prevent infinite loop
+                        is_test=is_test,
+                    )
+
+                    # Merge retry results if any were collected
+                    if retry_result.get("success", 0) > 0:
+                        self.logger.info(
+                            f"Retry collected {retry_result['success']} additional tickers"
+                        )
 
         # Log summary
         progress.log_summary()

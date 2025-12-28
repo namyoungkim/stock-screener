@@ -66,8 +66,11 @@ API 서빙용 최신 데이터만 유지 (무료 티어 제한 대응)
 
 장기 보관 데이터
 
+> **NOTE**: rclone `gdrive:` 리모트는 `root_folder_id`로 `stock-screener-backup` 폴더를 가리킴.
+> 따라서 `gdrive:prices/`는 실제로 `Google Drive/stock-screener-backup/prices/`를 의미함.
+
 ```
-gdrive:stock-screener-backup/
+Google Drive/stock-screener-backup/  (rclone root)
 ├── prices/
 │   ├── us_prices_20250101.csv
 │   ├── kr_prices_20250101.csv
@@ -203,13 +206,14 @@ cat ~/.config/rclone/rclone.conf
 
 ### 일별 가격 복구
 ```bash
-rclone copy gdrive:stock-screener-backup/prices/us_prices_20250101.csv ./data/prices/
+# gdrive: 리모트는 stock-screener-backup 폴더를 가리킴
+rclone copy gdrive:prices/us_prices_20250101.csv ./data/prices/
 ```
 
 ### Supabase 복구
 ```bash
 # 백업 다운로드
-rclone copy gdrive:stock-screener-backup/backups/supabase_20250105.sql ./
+rclone copy gdrive:backups/supabase_20250105.sql ./
 
 # Supabase에 복원
 psql $DATABASE_URL < supabase_20250105.sql

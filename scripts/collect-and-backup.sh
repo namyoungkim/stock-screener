@@ -1,6 +1,12 @@
 #!/bin/bash
-# 로컬 데이터 수집 및 Google Drive 백업 스크립트
-# 사용법: ./scripts/collect-and-backup.sh [kr|us|all] [--resume]
+# 로컬 데이터 파이프라인: 수집 → 품질검사 → 백업 → DB 적재
+#
+# 사용법: ./scripts/collect-and-backup.sh [kr|us|all] [--resume] [--no-db]
+#
+# 옵션:
+#   kr|us|all  - 수집할 시장 (기본값: all)
+#   --resume   - Rate Limit 후 이어서 수집
+#   --no-db    - Supabase 적재 건너뛰기
 #
 # Exit codes:
 #   0 - 성공
@@ -9,12 +15,18 @@
 
 MARKET=${1:-all}
 RESUME_FLAG=""
+SKIP_DB=false
 
-# --resume 플래그 확인
+# 플래그 파싱
 for arg in "$@"; do
-    if [[ "$arg" == "--resume" ]]; then
-        RESUME_FLAG="--resume"
-    fi
+    case "$arg" in
+        --resume)
+            RESUME_FLAG="--resume"
+            ;;
+        --no-db)
+            SKIP_DB=true
+            ;;
+    esac
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -23,9 +35,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 echo "============================================"
-echo "Stock Data Collection & Backup"
+echo "Stock Data Pipeline"
 echo "Market: $MARKET"
 echo "Resume: ${RESUME_FLAG:-no}"
+echo "Skip DB: $SKIP_DB"
 echo "Time: $(date)"
 echo "============================================"
 
@@ -42,11 +55,11 @@ handle_rate_limit() {
     echo "============================================"
 }
 
-# KR 수집
+# Phase 1: KR 수집 (품질검사 + 자동재수집 포함)
 KR_SUCCESS=true
 if [[ "$MARKET" == "kr" || "$MARKET" == "all" ]]; then
     echo ""
-    echo "[1/3] Collecting KR stocks..."
+    echo "[1/4] Collecting KR stocks..."
     if uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --csv-only $RESUME_FLAG; then
         echo "KR collection completed!"
     else
@@ -64,11 +77,11 @@ if [[ "$MARKET" == "kr" || "$MARKET" == "all" ]]; then
     fi
 fi
 
-# US 수집
+# Phase 2: US 수집 (품질검사 + 자동재수집 포함)
 US_SUCCESS=true
 if [[ "$MARKET" == "us" || "$MARKET" == "all" ]]; then
     echo ""
-    echo "[2/3] Collecting US stocks..."
+    echo "[2/4] Collecting US stocks..."
     if uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only $RESUME_FLAG; then
         echo "US collection completed!"
     else
@@ -86,16 +99,40 @@ if [[ "$MARKET" == "us" || "$MARKET" == "all" ]]; then
     fi
 fi
 
-# 수집된 데이터가 있으면 백업
+# Phase 3: Google Drive 백업
+# NOTE: rclone gdrive: 는 root_folder_id로 stock-screener-backup 폴더를 가리킴
 if [[ -d "data/prices" ]] && [[ -n "$(ls -A data/prices/ 2>/dev/null)" ]]; then
     echo ""
-    echo "[3/3] Backing up to Google Drive..."
-    rclone copy data/prices/ gdrive:stock-screener-backup/prices/ --progress
-    rclone copy data/financials/ gdrive:stock-screener-backup/financials/ --progress
+    echo "[3/4] Backing up to Google Drive..."
+    rclone copy data/prices/ gdrive:prices/ --progress
+    rclone copy data/financials/ gdrive:financials/ --progress
     echo "Backup completed!"
 else
     echo ""
-    echo "[3/3] No data to backup, skipping..."
+    echo "[3/4] No data to backup, skipping..."
+fi
+
+# Phase 4: Supabase 적재
+if [[ "$SKIP_DB" == false ]]; then
+    echo ""
+    echo "[4/4] Loading to Supabase..."
+
+    DB_LOAD_ARGS=""
+    if [[ "$MARKET" == "kr" ]]; then
+        DB_LOAD_ARGS="--kr-only"
+    elif [[ "$MARKET" == "us" ]]; then
+        DB_LOAD_ARGS="--us-only"
+    fi
+
+    if uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db $DB_LOAD_ARGS; then
+        echo "Supabase loading completed!"
+    else
+        echo "Supabase loading failed!"
+        exit 1
+    fi
+else
+    echo ""
+    echo "[4/4] Skipping Supabase loading (--no-db)"
 fi
 
 echo ""

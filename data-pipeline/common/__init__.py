@@ -1,8 +1,6 @@
 """Common utilities for data pipeline."""
 
 from .config import (
-    BATCH_SIZE_HISTORY,
-    BATCH_SIZE_INFO,
     DATA_DIR,
     FINANCIALS_DIR,
     PRICES_DIR,
@@ -20,8 +18,6 @@ from .logging import CollectionProgress, setup_logger
 from .retry import RetryConfig, RetryQueue, with_retry
 
 __all__ = [
-    "BATCH_SIZE_HISTORY",
-    "BATCH_SIZE_INFO",
     "DATA_DIR",
     "FINANCIALS_DIR",
     "PRICES_DIR",

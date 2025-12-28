@@ -30,20 +30,31 @@ uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --k
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kosdaq    # KOSDAQ만
 ```
 
-### 로컬 수집 + Google Drive 백업 (권장)
+### 로컬 데이터 파이프라인 (권장)
 ```bash
-./scripts/collect-and-backup.sh         # 전체 (KR → US → 백업)
-./scripts/collect-and-backup.sh kr      # KR만 + 백업
-./scripts/collect-and-backup.sh us      # US만 + 백업
-./scripts/collect-and-backup.sh kr --resume  # Rate Limit 후 재시작
+./scripts/collect-and-backup.sh              # 전체 (KR → US → 백업 → DB)
+./scripts/collect-and-backup.sh --no-db      # DB 적재 제외
+./scripts/collect-and-backup.sh kr           # KR만
+./scripts/collect-and-backup.sh us           # US만
+./scripts/collect-and-backup.sh --resume     # Rate Limit 후 재시작
 ```
+
+**파이프라인 단계:**
+1. KR 수집 (품질검사 + 자동재수집 포함)
+2. US 수집 (품질검사 + 자동재수집 포함)
+3. Google Drive 백업
+4. Supabase 적재 (csv_to_db)
+
+**자동 기능 (수집 시):**
+- 품질 검사: 유니버스 커버리지, 대형주 누락, 지표 완성도
+- 자동 재수집: 누락 100개 이하 시 자동 재시도
 
 **Rate Limit 대처:**
 - Rate Limit 발생 시 진행 상황이 `data/{market}_progress.txt`에 자동 저장됨
 - 15-30분 대기 후 `--resume` 플래그로 이어서 수집
 - Exit code: 0=성공, 2=Rate Limit (재시작 필요)
 
-> **주의**: KR, US를 동시에 실행하면 yfinance Rate Limit에 걸릴 수 있습니다. 순차 실행 권장.
+> **주의**: KR, US를 동시에 실행하면 yfinance Rate Limit에 걸릴 수 있습니다.
 
 ### CSV → Supabase 로딩
 ```bash

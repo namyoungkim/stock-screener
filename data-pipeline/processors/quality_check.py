@@ -1,0 +1,304 @@
+"""Data quality checker for stock collection results.
+
+This module provides quality assessment for collected stock data,
+checking universe coverage, missing tickers, and metric completeness.
+"""
+
+import logging
+from dataclasses import dataclass, field
+from datetime import date
+
+import pandas as pd
+from common.config import DATA_DIR
+
+logger = logging.getLogger(__name__)
+
+# Key metrics to check for coverage
+KEY_METRICS = [
+    "pe_ratio",
+    "pb_ratio",
+    "ps_ratio",
+    "roe",
+    "roa",
+    "debt_equity",
+    "current_ratio",
+    "rsi",
+    "mfi",
+    "macd",
+    "bb_percent",
+]
+
+# Major tickers by market (top companies by market cap)
+US_MAJOR_TICKERS = [
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "NVDA",
+    "META",
+    "TSLA",
+    "BRK-B",
+    "JPM",
+    "V",
+    "UNH",
+    "XOM",
+    "LLY",
+    "MA",
+    "JNJ",
+]
+
+# KR: Top companies by market cap (code only, without suffix)
+KR_MAJOR_TICKERS = [
+    "005930",  # 삼성전자
+    "000660",  # SK하이닉스
+    "035420",  # NAVER
+    "005380",  # 현대차
+    "051910",  # LG화학
+    "006400",  # 삼성SDI
+    "035720",  # 카카오
+    "005490",  # POSCO홀딩스
+    "028260",  # 삼성물산
+    "068270",  # 셀트리온
+]
+
+# Minimum coverage threshold for passing quality check
+MIN_COVERAGE_THRESHOLD = 0.95  # 95%
+
+
+@dataclass
+class QualityReport:
+    """Quality assessment report for collected data."""
+
+    market: str
+    universe_count: int
+    collected_count: int
+    missing_count: int
+    missing_tickers: list[str] = field(default_factory=list)
+    missing_major: list[str] = field(default_factory=list)
+    metric_coverage: dict[str, float] = field(default_factory=dict)
+    passed: bool = False
+
+    @property
+    def coverage_rate(self) -> float:
+        """Calculate overall coverage rate."""
+        if self.universe_count == 0:
+            return 0.0
+        return self.collected_count / self.universe_count
+
+
+class DataQualityChecker:
+    """Checker for data collection quality assessment."""
+
+    def __init__(self) -> None:
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def get_universe(self, market: str) -> list[str]:
+        """Get the full ticker universe for a market.
+
+        Args:
+            market: Market identifier ("US" or "KR")
+
+        Returns:
+            List of all tickers in the universe
+        """
+        if market.upper() == "US":
+            from collectors.us_stocks import get_all_us_tickers
+
+            all_data = get_all_us_tickers()
+            return list(all_data.keys())
+        elif market.upper() == "KR":
+            from collectors.kr_stocks import KRCollector
+
+            collector = KRCollector(save_db=False, save_csv=False)
+            return collector.get_tickers()
+        else:
+            self.logger.warning(f"Unknown market: {market}")
+            return []
+
+    def check(
+        self,
+        market: str,
+        collected_tickers: list[str],
+        metrics_df: pd.DataFrame | None = None,
+    ) -> QualityReport:
+        """Check data quality for collected results.
+
+        Args:
+            market: Market identifier ("US" or "KR")
+            collected_tickers: List of successfully collected tickers
+            metrics_df: DataFrame with collected metrics (optional)
+
+        Returns:
+            QualityReport with assessment results
+        """
+        # Get universe
+        universe = self.get_universe(market)
+        universe_set = set(universe)
+        collected_set = set(collected_tickers)
+
+        # For KR, also check without suffix
+        if market.upper() == "KR":
+            normalized_collected = set()
+            for t in collected_tickers:
+                normalized_collected.add(t)
+                # Remove .KS or .KQ suffix if present
+                if ".KS" in t or ".KQ" in t:
+                    normalized_collected.add(t.replace(".KS", "").replace(".KQ", ""))
+            collected_set = normalized_collected
+
+        # Find missing tickers
+        missing_tickers = []
+        for t in universe:
+            base = t.replace(".KS", "").replace(".KQ", "") if market.upper() == "KR" else t
+            if t not in collected_set and base not in collected_set:
+                missing_tickers.append(t)
+
+        # Find missing major tickers
+        major_tickers = (
+            US_MAJOR_TICKERS if market.upper() == "US" else KR_MAJOR_TICKERS
+        )
+        missing_major = []
+        for t in major_tickers:
+            # For KR, major tickers are codes without suffix
+            if market.upper() == "KR":
+                found = any(t in ct for ct in collected_set)
+            else:
+                found = t in collected_set
+            if not found:
+                missing_major.append(t)
+
+        # Calculate metric coverage
+        metric_coverage = {}
+        if metrics_df is not None and len(metrics_df) > 0:
+            for metric in KEY_METRICS:
+                if metric in metrics_df.columns:
+                    non_null = metrics_df[metric].notna().sum()
+                    coverage = non_null / len(metrics_df)
+                    metric_coverage[metric] = coverage
+
+        # Determine if passed
+        coverage_rate = len(collected_set) / len(universe_set) if universe_set else 0
+        passed = coverage_rate >= MIN_COVERAGE_THRESHOLD and len(missing_major) == 0
+
+        return QualityReport(
+            market=market.upper(),
+            universe_count=len(universe_set),
+            collected_count=len(collected_set),
+            missing_count=len(missing_tickers),
+            missing_tickers=missing_tickers,
+            missing_major=missing_major,
+            metric_coverage=metric_coverage,
+            passed=passed,
+        )
+
+    def print_report(self, report: QualityReport) -> None:
+        """Print quality report to console.
+
+        Args:
+            report: QualityReport to print
+        """
+        coverage_pct = report.coverage_rate * 100
+
+        print()
+        print("=" * 60)
+        print(f"Data Quality Report: {report.market}")
+        print("=" * 60)
+        print()
+        print("Universe Coverage:")
+        print(f"  - Universe:  {report.universe_count:,}")
+        print(f"  - Collected: {report.collected_count:,} ({coverage_pct:.1f}%)")
+        print(f"  - Missing:   {report.missing_count:,}")
+
+        if report.missing_major:
+            print()
+            major_label = "S&P 500" if report.market == "US" else "KOSPI Top"
+            print(f"Missing Major Tickers ({major_label}): {len(report.missing_major)}")
+            print(f"  {report.missing_major}")
+        else:
+            major_label = "S&P 500" if report.market == "US" else "KOSPI Top"
+            print()
+            print(f"Missing Major Tickers ({major_label}): 0 ✓")
+
+        if report.metric_coverage:
+            print()
+            print("Metric Coverage:")
+            for metric, coverage in sorted(report.metric_coverage.items()):
+                count = int(coverage * report.collected_count)
+                print(
+                    f"  - {metric:20s} {coverage * 100:5.1f}% ({count:,}/{report.collected_count:,})"
+                )
+
+        print()
+        if report.passed:
+            print("Status: ✓ PASS (Coverage > 95%, No major tickers missing)")
+        else:
+            reasons = []
+            if report.coverage_rate < MIN_COVERAGE_THRESHOLD:
+                reasons.append(f"Coverage {coverage_pct:.1f}% < 95%")
+            if report.missing_major:
+                reasons.append(f"{len(report.missing_major)} major tickers missing")
+            print(f"Status: ✗ FAIL ({', '.join(reasons)})")
+        print("=" * 60)
+        print()
+
+    def merge_results(
+        self,
+        market: str,
+        new_metrics: list[dict],
+        new_prices: list[dict],
+    ) -> None:
+        """Merge new collection results into existing CSV files.
+
+        Args:
+            market: Market identifier ("US" or "KR")
+            new_metrics: List of new metrics records
+            new_prices: List of new price records
+        """
+        if not new_metrics and not new_prices:
+            self.logger.info("No new data to merge")
+            return
+
+        today = date.today().strftime("%Y%m%d")
+        prefix = market.lower()
+
+        # Merge metrics
+        metrics_file = DATA_DIR / "financials" / f"{prefix}_metrics_{today}.csv"
+        if metrics_file.exists() and new_metrics:
+            existing_df = pd.read_csv(metrics_file)
+            new_df = pd.DataFrame(new_metrics)
+
+            # Remove duplicates (keep new)
+            existing_tickers = set(existing_df["ticker"])
+            new_tickers = set(new_df["ticker"])
+            overlap = existing_tickers & new_tickers
+
+            if overlap:
+                existing_df = existing_df[~existing_df["ticker"].isin(overlap)]
+
+            merged_df = pd.concat([existing_df, new_df], ignore_index=True)
+            merged_df.to_csv(metrics_file, index=False)
+            self.logger.info(
+                f"Merged {len(new_metrics)} metrics into {metrics_file.name} "
+                f"(total: {len(merged_df)})"
+            )
+
+        # Merge prices
+        prices_file = DATA_DIR / "prices" / f"{prefix}_prices_{today}.csv"
+        if prices_file.exists() and new_prices:
+            existing_df = pd.read_csv(prices_file)
+            new_df = pd.DataFrame(new_prices)
+
+            # Remove duplicates (keep new)
+            existing_tickers = set(existing_df["ticker"])
+            new_tickers = set(new_df["ticker"])
+            overlap = existing_tickers & new_tickers
+
+            if overlap:
+                existing_df = existing_df[~existing_df["ticker"].isin(overlap)]
+
+            merged_df = pd.concat([existing_df, new_df], ignore_index=True)
+            merged_df.to_csv(prices_file, index=False)
+            self.logger.info(
+                f"Merged {len(new_prices)} prices into {prices_file.name} "
+                f"(total: {len(merged_df)})"
+            )

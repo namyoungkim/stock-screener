@@ -211,9 +211,15 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str],
         period: str = "3mo",
-        batch_size: int = 500,
+        batch_size: int = 300,
     ) -> dict[str, pd.DataFrame]:
-        """Fetch historical data for all KR tickers in bulk using yf.download."""
+        """Fetch historical data for all KR tickers in bulk using yf.download.
+
+        Rate limit handling:
+        - Batch size: 300 (reduced from 500)
+        - Sleep between batches: 1-2 seconds
+        - yf.download is more lenient than individual ticker.info calls
+        """
         results: dict[str, pd.DataFrame] = {}
 
         # Convert to yfinance format
@@ -256,10 +262,13 @@ class KRCollector(BaseCollector):
                         except Exception:
                             pass
 
-                time.sleep(0.2)  # Reduced for self-hosted runner
+                # Sleep between batches: 1-2 seconds
+                time.sleep(1.0 + random.uniform(0, 1.0))
 
             except Exception as e:
                 self.logger.error(f"History batch error: {e}")
+                # Longer sleep on error
+                time.sleep(5.0)
                 continue
 
         self.logger.info(f"Downloaded history for {len(results)} KR tickers")
@@ -269,11 +278,20 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str],
         history_data: dict[str, pd.DataFrame] | None = None,
-        batch_size: int = 30,
+        batch_size: int = 10,
     ) -> dict[str, dict]:
-        """Fetch yfinance metrics for multiple tickers in batches."""
+        """Fetch yfinance metrics for multiple tickers in batches.
+
+        Rate limit handling:
+        - Batch size: 10 (conservative to avoid rate limits)
+        - Sleep between batches: 2-3 seconds with jitter
+        - Rate limit detection: Stop early if 5+ consecutive failures
+        - Fallback retry: Longer delays (3-5 seconds)
+        """
         results: dict[str, dict] = {}
         failed_tickers: list[tuple[str, str]] = []
+        consecutive_failures = 0
+        max_consecutive_failures = 5  # Stop if 5 batches fail in a row
 
         # Convert to yfinance format
         yf_tickers = []
@@ -285,8 +303,11 @@ class KRCollector(BaseCollector):
             yf_tickers.append(yf_ticker)
             ticker_map[yf_ticker] = ticker
 
-        for i in tqdm(range(0, len(yf_tickers), batch_size), desc="yfinance batch", leave=False):
+        total_batches = (len(yf_tickers) + batch_size - 1) // batch_size
+        for batch_idx, i in enumerate(tqdm(range(0, len(yf_tickers), batch_size), desc="yfinance batch", leave=False)):
             batch = yf_tickers[i : i + batch_size]
+            batch_success = 0
+
             try:
                 tickers_obj = yf.Tickers(" ".join(batch))
 
@@ -335,20 +356,51 @@ class KRCollector(BaseCollector):
                                 "graham_number": calculate_graham_number(eps, bvps),
                                 **technicals,
                             }
+                            batch_success += 1
                         else:
                             failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
-                    except Exception:
+                    except Exception as e:
+                        error_msg = str(e).lower()
+                        if "rate limit" in error_msg or "too many requests" in error_msg:
+                            self.logger.warning(f"Rate limit detected in batch {batch_idx + 1}/{total_batches}")
+                            consecutive_failures += 1
                         failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
+
             except Exception as e:
-                self.logger.warning(f"Batch error: {e}")
+                error_msg = str(e).lower()
+                if "rate limit" in error_msg or "too many requests" in error_msg:
+                    self.logger.warning(f"Rate limit detected for batch: {e}")
+                    consecutive_failures += 1
+                else:
+                    self.logger.warning(f"Batch error: {e}")
                 for yf_ticker in batch:
                     failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
 
-            time.sleep(0.1)  # Reduced for self-hosted runner
+            # Track consecutive failures
+            if batch_success == 0:
+                consecutive_failures += 1
+            else:
+                consecutive_failures = 0  # Reset on any success
 
-        # Retry failed tickers
-        if failed_tickers:
-            self.logger.info(f"Retrying {len(failed_tickers)} failed tickers...")
+            # Stop early if rate limited
+            if consecutive_failures >= max_consecutive_failures:
+                self.logger.warning(
+                    f"Stopping batch processing: {consecutive_failures} consecutive failures detected. "
+                    f"Completed {len(results)}/{len(tickers)} tickers."
+                )
+                break
+
+            # Sleep between batches: 2-3 seconds with random jitter
+            sleep_time = 2.0 + random.uniform(0, 1.0)
+            time.sleep(sleep_time)
+
+        # Retry failed tickers with longer delays
+        if failed_tickers and consecutive_failures < max_consecutive_failures:
+            # Only retry if we're not rate limited
+            self.logger.info(f"Retrying {len(failed_tickers)} failed tickers with longer delays...")
+            retry_failures = 0
+            max_retry_failures = 10  # Stop retry if 10 consecutive failures
+
             for yf_ticker, krx_ticker in tqdm(failed_tickers, desc="Fallback", leave=False):
                 try:
                     data = self._fetch_yfinance_metrics(yf_ticker, krx_ticker)
@@ -358,9 +410,24 @@ class KRCollector(BaseCollector):
                             technicals = calculate_all_technicals(hist)
                             data.update(technicals)
                         results[krx_ticker] = data
-                except Exception:
-                    pass
-                time.sleep(0.5 + random.uniform(0, 0.5))
+                        retry_failures = 0  # Reset on success
+                    else:
+                        retry_failures += 1
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "rate limit" in error_msg or "too many requests" in error_msg:
+                        retry_failures += 1
+                        if retry_failures >= max_retry_failures:
+                            self.logger.warning(
+                                f"Stopping fallback: {retry_failures} consecutive failures. "
+                                f"Rate limit likely. Completed {len(results)}/{len(tickers)} tickers."
+                            )
+                            break
+
+                # Longer sleep for fallback: 3-5 seconds
+                time.sleep(3.0 + random.uniform(0, 2.0))
+        elif consecutive_failures >= max_consecutive_failures:
+            self.logger.info("Skipping fallback retry due to rate limit detection.")
 
         return results
 
@@ -368,8 +435,10 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str] | None = None,
         resume: bool = False,
-        batch_size: int = 30,
+        batch_size: int = 10,
         is_test: bool = False,
+        check_rate_limit_first: bool = True,
+        auto_retry: bool = True,
     ) -> dict:
         """
         Collect Korean stock data with optimized batch processing.
@@ -379,6 +448,9 @@ class KRCollector(BaseCollector):
         2. Download history for technical indicators (bulk, ~2min)
         3. Fetch yfinance metrics (bulk, ~3min)
         4. Combine and save
+
+        Args:
+            auto_retry: If True, retry missing tickers after quality check
         """
         # Get tickers if not provided
         if tickers is None:
@@ -519,6 +591,39 @@ class KRCollector(BaseCollector):
                 prices=all_prices,
                 is_test=is_test,
             )
+
+            # Quality check and auto-retry (only for full collection, not test mode)
+            if not is_test and len(all_metrics) > 0:
+                from processors.quality_check import DataQualityChecker
+
+                checker = DataQualityChecker()
+                collected_tickers = [r["ticker"] for r in all_metrics]
+                metrics_df = pd.DataFrame(all_metrics)
+
+                report = checker.check(
+                    market=self.MARKET,
+                    collected_tickers=collected_tickers,
+                    metrics_df=metrics_df,
+                )
+                checker.print_report(report)
+
+                # Auto-retry missing tickers
+                if auto_retry and report.missing_count > 0 and report.missing_count <= 100:
+                    self.logger.info(
+                        f"Auto-retrying {report.missing_count} missing tickers..."
+                    )
+                    retry_result = self.collect(
+                        tickers=report.missing_tickers,
+                        check_rate_limit_first=False,
+                        auto_retry=False,  # Prevent infinite loop
+                        is_test=is_test,
+                    )
+
+                    # Log retry results
+                    if retry_result.get("success", 0) > 0:
+                        self.logger.info(
+                            f"Retry collected {retry_result['success']} additional tickers"
+                        )
 
         progress.log_summary()
 

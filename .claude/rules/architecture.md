@@ -24,11 +24,13 @@ stock-screener/
 │   │   ├── logging.py    # 로거 + CollectionProgress
 │   │   ├── retry.py      # @with_retry 데코레이터
 │   │   ├── indicators.py # 기술적 지표 계산
-│   │   └── storage.py    # StorageManager
+│   │   ├── storage.py    # StorageManager
+│   │   └── rate_limit.py # Rate Limit 감지 + ProgressTracker
 │   ├── loaders/
 │   │   └── csv_to_db.py  # CSV → Supabase 로딩
 │   └── processors/
-│       └── validators.py # MetricsValidator 데이터 검증
+│       ├── validators.py    # MetricsValidator 데이터 검증
+│       └── quality_check.py # 수집 품질 검사 + 자동재수집
 ├── frontend/             # Next.js 프론트엔드
 ├── discord-bot/          # 디스코드 인터페이스
 ├── tests/                # 테스트 디렉토리
@@ -48,10 +50,17 @@ stock-screener/
 - 재무 지표: yfinance (ROE, ROA, Margins, D/E, Current Ratio 등)
 - 저장: Supabase + CSV
 
-**데이터 수집**:
-- 로컬에서 수동 실행 (`./scripts/collect-and-backup.sh`)
-- Google Drive 백업 (rclone)
-- KR, US 순차 실행 권장 (동시 실행 시 yfinance Rate Limit 발생)
+**데이터 파이프라인** (`./scripts/collect-and-backup.sh`):
+1. KR 수집 (품질검사 + 자동재수집)
+2. US 수집 (품질검사 + 자동재수집)
+3. Google Drive 백업 (rclone)
+4. Supabase 적재 (csv_to_db)
+
+**자동 품질 검사**:
+- 유니버스 커버리지 (95% 이상)
+- 대형주 누락 검사 (S&P 500 Top 15, KOSPI Top 10)
+- 지표 완성도 (PE, PB, ROE, RSI 등)
+- 누락 100개 이하 시 자동 재수집
 
 **수집 소요 시간** (로컬 Mac 기준):
 
