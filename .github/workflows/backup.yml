@@ -78,14 +78,18 @@ jobs:
       # ============================================================
 
       - name: Setup rclone
-        if: ${{ secrets.RCLONE_CONFIG != '' }}
+        if: ${{ env.RCLONE_CONFIG != '' }}
+        env:
+          RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
         run: |
           curl -s https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
+          echo "$RCLONE_CONFIG" > ~/.config/rclone/rclone.conf
 
       - name: Upload to Google Drive
-        if: ${{ secrets.RCLONE_CONFIG != '' }}
+        if: ${{ env.RCLONE_CONFIG != '' }}
+        env:
+          RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
         run: |
           DATE=$(date +%Y%m%d)
 
@@ -107,7 +111,9 @@ jobs:
           echo "Google Drive backup complete!"
 
       - name: Cleanup old backups (keep 4 weeks rolling)
-        if: ${{ secrets.RCLONE_CONFIG != '' }}
+        if: ${{ env.RCLONE_CONFIG != '' }}
+        env:
+          RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
         run: |
           # List and delete backups older than 28 days from Google Drive
           rclone delete gdrive:stock-screener-backup/backups/ --min-age 28d --progress 2>/dev/null || true
