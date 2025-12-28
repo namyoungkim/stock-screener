@@ -43,7 +43,7 @@
 - FastAPI 백엔드 API
 - Next.js 프론트엔드 (Preset 전략, Tooltip UX, 페이지네이션)
 - Vercel + Render 배포
-- GitHub OAuth 인증 (Supabase Auth)
+- 소셜 로그인 (GitHub + Google OAuth, Supabase Auth)
 - 워치리스트 기능 (추가/삭제/조회)
 - CORS 도메인 제한 (프로덕션 보안)
 - Rate Limiting (slowapi: 스크리닝 30/min, 일반 100/min)

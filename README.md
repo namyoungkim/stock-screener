@@ -10,7 +10,7 @@
 - **페이지네이션**: 대량 데이터 효율적 탐색 (페이지당 50개)
 
 ### 인증 및 개인화
-- **GitHub OAuth**: Supabase Auth 기반 소셜 로그인
+- **소셜 로그인**: GitHub, Google OAuth (Supabase Auth 기반)
 - **워치리스트**: 관심 종목 저장 및 관리 (로그인 필요)
 
 ### 기술 지표
@@ -130,7 +130,9 @@ NEXT_PUBLIC_API_URL=http://localhost:8000  # 로컬
 ### Supabase
 
 1. 프로젝트 생성 후 `supabase/schema.sql` 실행
-2. Authentication > Providers에서 GitHub OAuth 활성화
+2. Authentication > Providers에서 OAuth 활성화:
+   - GitHub OAuth 활성화
+   - Google OAuth 활성화 (Google Cloud Console에서 클라이언트 ID 발급 필요)
 3. Site URL 및 Redirect URL 설정:
    - Site URL: `https://your-domain.vercel.app`
    - Redirect URL: `https://your-domain.vercel.app/auth/callback`

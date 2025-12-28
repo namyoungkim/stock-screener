@@ -44,13 +44,13 @@ DEFAULT_CORS_ORIGINS = [
 
 ### OAuth 흐름
 
-GitHub OAuth를 통한 인증 흐름:
+GitHub/Google OAuth를 통한 인증 흐름:
 
 ```
-1. 사용자가 "Login with GitHub" 클릭
-   └─> Supabase Auth가 GitHub로 리다이렉트
+1. 사용자가 "Continue with GitHub" 또는 "Continue with Google" 클릭
+   └─> Supabase Auth가 해당 OAuth 제공자로 리다이렉트
 
-2. GitHub에서 인증 후 코드 발급
+2. OAuth 제공자에서 인증 후 코드 발급
    └─> /auth/callback으로 리다이렉트
 
 3. 프론트엔드가 코드를 세션으로 교환
@@ -59,6 +59,13 @@ GitHub OAuth를 통한 인증 흐름:
 4. JWT가 localStorage에 저장
    └─> 이후 API 요청에 Authorization 헤더로 포함
 ```
+
+### 지원 OAuth 제공자
+
+| 제공자 | 설정 위치 |
+|--------|----------|
+| GitHub | Supabase Dashboard > Authentication > Providers |
+| Google | Supabase Dashboard + Google Cloud Console |
 
 ### JWT 토큰 검증
 
