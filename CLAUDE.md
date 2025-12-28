@@ -30,13 +30,14 @@
 
 `.env` 파일에 필요:
 - `SUPABASE_URL`, `SUPABASE_KEY` - 데이터베이스 (필수)
-- `DART_API_KEY` - 한국 DART 재무제표 (KR 수집 시 필수)
 - `DISCORD_BOT_TOKEN` - 디스코드 봇 (봇 사용 시)
 
 ## 현재 상태
 
 **구현됨**:
 - 미국/한국 주식 데이터 수집기 (US 1,882개 + KR 2,788개 = 5,601개)
+- 데이터 파이프라인 리팩토링 (공통 모듈 추출, 47% 코드 감소)
+- KR 수집기 최적화 (pykrx + yfinance, ~45분 → ~5분)
 - 기술적 지표 수집 (RSI, MFI, MACD, Bollinger Bands, Volume Change)
 - 하이브리드 저장 (Supabase + CSV)
 - GitHub Actions 워크플로우 (수집 + 백업 + Google Drive 옵션)

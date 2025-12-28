@@ -27,7 +27,7 @@
 - **백엔드**: FastAPI
 - **데이터베이스**: Supabase (PostgreSQL)
 - **봇**: discord.py
-- **데이터**: yfinance, pykrx, OpenDartReader
+- **데이터**: yfinance, pykrx
 - **배포**: Vercel (Frontend), Render (Backend)
 
 ## 프로젝트 구조
@@ -48,8 +48,7 @@ stock-screener/
 - Python 3.11+
 - Node.js 18+
 - Supabase 계정
-- FMP API 키 (무료)
-- 디스코드 봇 토큰
+- 디스코드 봇 토큰 (봇 사용 시)
 
 ### 설치
 
@@ -78,9 +77,6 @@ cp .env.example .env
 # Supabase
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_service_key
-
-# DART (한국 재무제표)
-DART_API_KEY=your_dart_key
 
 # Discord
 DISCORD_BOT_TOKEN=your_discord_token

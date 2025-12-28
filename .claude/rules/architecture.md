@@ -16,11 +16,19 @@ stock-screener/
 ├── data-pipeline/        # 데이터 수집 스크립트
 │   ├── pyproject.toml    # 파이프라인 의존성
 │   ├── collectors/
+│   │   ├── base.py       # BaseCollector 추상 클래스
 │   │   ├── us_stocks.py  # 미국 주식 수집 (S&P 500/400/600 + Russell 2000)
 │   │   └── kr_stocks.py  # 한국 주식 수집 (KOSPI + KOSDAQ)
+│   ├── common/           # 공통 모듈
+│   │   ├── config.py     # 설정 상수
+│   │   ├── logging.py    # 로거 + CollectionProgress
+│   │   ├── retry.py      # @with_retry 데코레이터
+│   │   ├── indicators.py # 기술적 지표 계산
+│   │   └── storage.py    # StorageManager
 │   ├── loaders/
 │   │   └── csv_to_db.py  # CSV → Supabase 로딩
-│   └── processors/       # 데이터 변환
+│   └── processors/
+│       └── validators.py # MetricsValidator 데이터 검증
 ├── frontend/             # Next.js 프론트엔드
 ├── discord-bot/          # 디스코드 인터페이스
 ├── tests/                # 테스트 디렉토리
@@ -36,9 +44,8 @@ stock-screener/
 
 **한국 주식** (~2,800개):
 - 티커 소스: pykrx (KOSPI + KOSDAQ 전체)
-- 가격/시가총액: pykrx
-- 재무제표: OpenDartReader (DART API)
-- 추가 지표: yfinance (Gross Margin, EV/EBITDA, Dividend Yield, Beta 등)
+- 가격/시가총액/PER/PBR/EPS/BPS: pykrx (벌크)
+- 재무 지표: yfinance (ROE, ROA, Margins, D/E, Current Ratio 등)
 - 저장: Supabase + CSV
 
 **자동화**:
@@ -51,21 +58,21 @@ stock-screener/
 
 | 지표 | US 소스 | KR 소스 |
 |------|---------|---------|
-| P/E (Trailing) | yfinance | DART 계산 |
+| P/E (Trailing) | yfinance | pykrx |
 | P/E (Forward) | yfinance | yfinance |
-| P/B | yfinance | DART 계산 |
-| P/S | yfinance | DART 계산 |
+| P/B | yfinance | pykrx |
+| P/S | yfinance | yfinance |
 | EV/EBITDA | yfinance | yfinance |
 | PEG Ratio | yfinance | yfinance |
-| ROE, ROA | yfinance | DART 계산 |
+| ROE, ROA | yfinance | yfinance |
 | Gross Margin | yfinance | yfinance |
-| Net Margin | yfinance | DART 계산 |
-| Debt/Equity | yfinance | DART 계산 |
-| Current Ratio | yfinance | DART 계산 |
+| Net Margin | yfinance | yfinance |
+| Debt/Equity | yfinance | yfinance |
+| Current Ratio | yfinance | yfinance |
 | Dividend Yield | yfinance | yfinance |
 | Beta | yfinance | yfinance |
-| EPS | yfinance | yfinance |
-| Book Value/Share | yfinance | yfinance |
+| EPS | yfinance | pykrx |
+| Book Value/Share | yfinance | pykrx |
 | Graham Number | 계산 | 계산 |
 | 52주 고/저 | yfinance | yfinance |
 | 50일/200일 이동평균 | yfinance | yfinance |
@@ -88,7 +95,7 @@ stock-screener/
 ## 주요 의존성
 
 - 백엔드: FastAPI, asyncpg, Pydantic, httpx
-- 데이터 파이프라인: yfinance, pykrx, opendartreader, pandas, supabase-py
+- 데이터 파이프라인: yfinance, pykrx, pandas, supabase-py
 - 데이터베이스: Supabase (PostgreSQL)
 
 ## 하이브리드 저장 전략
