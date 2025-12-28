@@ -531,6 +531,12 @@ class KRCollector(BaseCollector):
                         if value is not None:
                             combined_metrics[key] = value
 
+                # Calculate Graham Number from available EPS/BPS (pykrx or yfinance)
+                eps = combined_metrics.get("eps")
+                bvps = combined_metrics.get("book_value_per_share")
+                if eps and bvps and "graham_number" not in combined_metrics:
+                    combined_metrics["graham_number"] = calculate_graham_number(eps, bvps)
+
                 # Validate metrics
                 validated = self.validator.validate(combined_metrics, ticker)
 
