@@ -1,16 +1,32 @@
 """Backend API tests."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
+from app.core.database import get_db
 from app.main import app
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client():
-    """Create test client."""
-    return TestClient(app)
+def mock_db():
+    """Create a mock database client."""
+    mock = MagicMock()
+    # Setup default return values
+    mock.table.return_value.select.return_value.execute.return_value.data = []
+    mock.table.return_value.select.return_value.execute.return_value.count = 0
+    mock.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
+    mock.table.return_value.select.return_value.range.return_value.execute.return_value.data = []
+    return mock
+
+
+@pytest.fixture
+def client(mock_db):
+    """Create test client with mocked database."""
+    app.dependency_overrides[get_db] = lambda: mock_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
 
 
 class TestHealthEndpoints:
@@ -54,39 +70,36 @@ class TestPresetsEndpoint:
 class TestStocksEndpoint:
     """Test stocks endpoints."""
 
-    @patch("app.api.stocks.get_db")
-    def test_list_stocks_requires_db(self, mock_get_db, client):
-        """Test that list stocks endpoint exists and requires db."""
-        # Mock the database dependency
-        mock_db = MagicMock()
-        mock_db.table.return_value.select.return_value.execute.return_value.data = []
-        mock_get_db.return_value = mock_db
+    def test_list_stocks(self, client, mock_db):
+        """Test list stocks endpoint."""
+        # Setup mock response
+        mock_db.table.return_value.select.return_value.range.return_value.execute.return_value.data = []
+        mock_db.table.return_value.select.return_value.range.return_value.execute.return_value.count = 0
 
-        # This will fail with rate limiting or DB error, but endpoint exists
         response = client.get("/api/stocks")
-        # Accept either success or error (we're testing route exists)
-        assert response.status_code in [200, 429, 500]
+        assert response.status_code == 200
+        data = response.json()
+        assert "stocks" in data
+        assert "total" in data
 
 
 class TestScreenEndpoint:
     """Test screen endpoint."""
 
-    @patch("app.api.screen.get_db")
-    def test_screen_with_preset(self, mock_get_db, client):
+    def test_screen_with_preset(self, client, mock_db):
         """Test screening with preset."""
-        mock_db = MagicMock()
-        mock_get_db.return_value = mock_db
+        # Setup mock response
+        mock_db.table.return_value.select.return_value.execute.return_value.data = []
+        mock_db.table.return_value.select.return_value.execute.return_value.count = 0
 
-        response = client.post(
-            "/api/screen",
-            json={"preset": "graham"}
-        )
-        # Accept success or error (testing route exists)
-        assert response.status_code in [200, 429, 500]
+        response = client.post("/api/screen", json={"preset": "graham"})
+        assert response.status_code == 200
+        data = response.json()
+        assert "stocks" in data
+        assert "total" in data
 
-    def test_screen_endpoint_exists(self, client):
-        """Test screen endpoint exists."""
+    def test_screen_endpoint_validation(self, client):
+        """Test screen endpoint validates input."""
         response = client.post("/api/screen", json={})
-        # 422 means validation error (endpoint exists)
-        # 200, 429, 500 are also valid
-        assert response.status_code in [200, 422, 429, 500]
+        # 200 is valid (empty filters)
+        assert response.status_code == 200
