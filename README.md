@@ -133,6 +133,18 @@ NEXT_PUBLIC_API_URL=http://localhost:8000  # 로컬
    - Site URL: `https://your-domain.vercel.app`
    - Redirect URL: `https://your-domain.vercel.app/auth/callback`
 
+### 데이터 수집 자동화
+
+EC2 Self-hosted Runner를 사용하여 데이터를 자동 수집합니다.
+
+| 항목 | 설정 |
+|------|------|
+| 수집 스케줄 | 평일 매일 00:00 UTC (09:00 KST) |
+| 백업 | 수집 완료 후 자동 실행 (Google Drive) |
+| Runner | EC2 Self-hosted (yfinance rate limit 회피) |
+
+자세한 설정: `.claude/rules/self-hosted-runner.md`
+
 ## 라이선스
 
 MIT
