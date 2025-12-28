@@ -43,13 +43,15 @@ API 서빙용 최신 데이터만 유지 (무료 티어 제한 대응)
 gdrive:stock-screener-backup/
 ├── prices/
 │   ├── us_prices_20250101.csv
-│   ├── us_prices_20250102.csv
+│   ├── kr_prices_20250101.csv
 │   └── ...
 ├── financials/
 │   ├── us_metrics_20250101.csv
+│   ├── kr_metrics_20250101.csv
 │   └── ...
 └── backups/
-    ├── supabase_20250105.sql
+    ├── companies_20250105.csv
+    ├── metrics_20250105.csv
     └── ...
 ```
 
@@ -61,7 +63,7 @@ gdrive:stock-screener-backup/
 |--------|------|----------|------|
 | 일별 가격 | 평일 매일 | 무기한 | CSV → Google Drive |
 | 재무제표 | 평일 매일 | 무기한 | CSV → Google Drive |
-| Supabase 전체 | 평일 매일 | 4주 롤링 | 스냅샷 → Google Drive |
+| Supabase 전체 | 평일 매일 | 4주 롤링 | CSV → Google Drive |
 
 ---
 

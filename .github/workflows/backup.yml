@@ -59,17 +59,11 @@ jobs:
               print(f'Exported {len(result.data)} metrics')
           "
 
-      - name: Create backup archive
-        run: |
-          cd data/backup
-          DATE=$(date +%Y%m%d)
-          tar -czvf backup_${DATE}.tar.gz *.csv 2>/dev/null || echo "No CSV files to archive"
-
       - name: Upload backup artifact (GitHub - 30 days retention)
         uses: actions/upload-artifact@v4
         with:
           name: supabase-backup-${{ github.run_id }}
-          path: data/backup/*.tar.gz
+          path: data/backup/*.csv
           retention-days: 30
 
       # ============================================================
@@ -91,21 +85,19 @@ jobs:
       - name: Upload to Google Drive
         if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
         run: |
-          DATE=$(date +%Y%m%d)
-
-          # Upload Supabase backup
-          echo "Uploading Supabase backup to Google Drive..."
-          rclone copy data/backup/backup_${DATE}.tar.gz gdrive:stock-screener-backup/backups/ --progress
+          # Upload Supabase backup CSVs
+          echo "Uploading Supabase backup CSVs to Google Drive..."
+          rclone copy data/backup/ gdrive:backups/ --progress
 
           # Upload daily data files if they exist
           if [ -d "data/prices" ]; then
             echo "Uploading price data..."
-            rclone copy data/prices/ gdrive:stock-screener-backup/prices/ --progress
+            rclone copy data/prices/ gdrive:prices/ --progress
           fi
 
           if [ -d "data/financials" ]; then
             echo "Uploading financial data..."
-            rclone copy data/financials/ gdrive:stock-screener-backup/financials/ --progress
+            rclone copy data/financials/ gdrive:financials/ --progress
           fi
 
           echo "Google Drive backup complete!"
@@ -113,12 +105,5 @@ jobs:
       - name: Cleanup old backups (keep 4 weeks rolling)
         if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
         run: |
-          # List and delete backups older than 28 days from Google Drive
-          rclone delete gdrive:stock-screener-backup/backups/ --min-age 28d --progress 2>/dev/null || true
-
-      - name: Local cleanup
-        run: |
-          # Keep only the latest backup archive locally
-          cd data/backup
-          ls -t *.tar.gz 2>/dev/null | tail -n +2 | xargs -r rm
-          rm -f *.csv 2>/dev/null || true
+          # Delete backups older than 28 days from Google Drive
+          rclone delete gdrive:backups/ --min-age 28d --progress 2>/dev/null || true
