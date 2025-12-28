@@ -186,6 +186,18 @@ CREATE TABLE metrics (
     fifty_day_average NUMERIC(16, 4),   -- 50일 이동평균
     two_hundred_day_average NUMERIC(16, 4), -- 200일 이동평균
 
+    -- Technical Indicators (기술적 지표)
+    rsi NUMERIC(8, 4),                  -- RSI (14일)
+    mfi NUMERIC(8, 4),                  -- Money Flow Index
+    volume_change NUMERIC(8, 4),        -- 거래량 변화율 (20일 평균 대비 %)
+    macd NUMERIC(12, 4),                -- MACD
+    macd_signal NUMERIC(12, 4),         -- MACD Signal (9일 EMA)
+    macd_histogram NUMERIC(12, 4),      -- MACD Histogram
+    bb_upper NUMERIC(16, 4),            -- Bollinger Band Upper (SMA20 + 2σ)
+    bb_middle NUMERIC(16, 4),           -- Bollinger Band Middle (SMA20)
+    bb_lower NUMERIC(16, 4),            -- Bollinger Band Lower (SMA20 - 2σ)
+    bb_percent NUMERIC(8, 4),           -- Bollinger %B
+
     -- Growth (성장성) - YoY
     revenue_growth_yoy NUMERIC(8, 4),   -- 매출 성장률 (전년대비)
     earnings_growth_yoy NUMERIC(8, 4),  -- 이익 성장률 (전년대비)
@@ -434,8 +446,23 @@ SELECT
     m.payout_ratio,
     m.fifty_two_week_high,
     m.fifty_two_week_low,
+    m.beta,
+    m.fifty_day_average,
+    m.two_hundred_day_average,
+    m.peg_ratio,
     m.revenue_growth_yoy,
     m.earnings_growth_yoy,
+    -- Technical Indicators
+    m.rsi,
+    m.mfi,
+    m.volume_change,
+    m.macd,
+    m.macd_signal,
+    m.macd_histogram,
+    m.bb_upper,
+    m.bb_middle,
+    m.bb_lower,
+    m.bb_percent,
     p.close AS latest_price,
     p.market_cap
 FROM companies c

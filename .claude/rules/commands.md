@@ -14,10 +14,12 @@ uv run --package stock-screener-backend uvicorn app.main:app --reload
 
 ### 미국 주식 수집
 ```bash
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks             # 전체 (DB + CSV)
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only  # CSV만
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test      # 테스트 (10개)
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks             # 전체 유니버스 (DB + CSV)
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only  # 전체 유니버스 (CSV만)
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --sp500     # S&P 500만
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test      # 테스트 (3개)
 ```
+**전체 유니버스**: S&P 500 + S&P 400 + S&P 600 + Russell 2000 (~2,800개, 3-4시간 소요)
 
 ### 한국 주식 수집
 ```bash

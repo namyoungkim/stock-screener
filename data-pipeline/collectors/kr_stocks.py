@@ -6,9 +6,11 @@ and saves to Supabase.
 Supports hybrid storage: Supabase for latest data, CSV for history.
 
 Optimized for speed with:
-- Batch yfinance calls (50 tickers at a time)
+- Bulk history download using yf.download() (500 tickers per batch)
+- Batch yfinance calls (30 tickers at a time for stock info)
 - Pre-fetched pykrx market data (single API call for all stocks)
-- ThreadPoolExecutor for parallel processing
+- ThreadPoolExecutor for parallel DART processing
+- Technical indicators calculated from pre-fetched history data
 """
 
 import math
@@ -41,6 +43,150 @@ def calculate_graham_number(eps: float | None, bvps: float | None) -> float | No
     if eps <= 0 or bvps <= 0:
         return None
     return math.sqrt(22.5 * eps * bvps)
+
+
+# ============================================================
+# Technical Indicator Functions (Optimized - use pre-fetched history)
+# ============================================================
+
+
+def calculate_rsi_from_hist(hist: pd.DataFrame, period: int = 14) -> float | None:
+    """Calculate RSI from pre-fetched history DataFrame."""
+    try:
+        if hist.empty or len(hist) < period + 1:
+            return None
+
+        delta = hist["Close"].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+
+        if loss.iloc[-1] == 0:
+            return 100.0 if gain.iloc[-1] > 0 else 50.0
+
+        rs = gain.iloc[-1] / loss.iloc[-1]
+        rsi = 100 - (100 / (1 + rs))
+        return round(rsi, 2)
+    except Exception:
+        return None
+
+
+def calculate_volume_change_from_hist(
+    hist: pd.DataFrame, period: int = 20
+) -> float | None:
+    """Calculate volume change rate from pre-fetched history."""
+    try:
+        if hist.empty or len(hist) < period:
+            return None
+
+        avg_volume = hist["Volume"].iloc[-period:].mean()
+        current_volume = hist["Volume"].iloc[-1]
+
+        if avg_volume == 0:
+            return None
+
+        change_rate = ((current_volume / avg_volume) - 1) * 100
+        return round(change_rate, 2)
+    except Exception:
+        return None
+
+
+def calculate_macd_from_hist(
+    hist: pd.DataFrame,
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> dict[str, float | None] | None:
+    """Calculate MACD from pre-fetched history."""
+    try:
+        if hist.empty or len(hist) < slow + signal:
+            return None
+
+        close = hist["Close"]
+        ema_fast = close.ewm(span=fast, adjust=False).mean()
+        ema_slow = close.ewm(span=slow, adjust=False).mean()
+        macd_line = ema_fast - ema_slow
+        signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+        histogram = macd_line - signal_line
+
+        return {
+            "macd": round(macd_line.iloc[-1], 4),
+            "macd_signal": round(signal_line.iloc[-1], 4),
+            "macd_histogram": round(histogram.iloc[-1], 4),
+        }
+    except Exception:
+        return None
+
+
+def calculate_bollinger_from_hist(
+    hist: pd.DataFrame,
+    period: int = 20,
+    std_dev: float = 2.0,
+) -> dict[str, float | None] | None:
+    """Calculate Bollinger Bands from pre-fetched history."""
+    try:
+        if hist.empty or len(hist) < period:
+            return None
+
+        close = hist["Close"]
+        middle = close.rolling(window=period).mean()
+        std = close.rolling(window=period).std()
+        upper = middle + (std_dev * std)
+        lower = middle - (std_dev * std)
+
+        current_price = close.iloc[-1]
+        upper_val = upper.iloc[-1]
+        lower_val = lower.iloc[-1]
+        middle_val = middle.iloc[-1]
+
+        if upper_val == lower_val:
+            percent_b = 0.5
+        else:
+            percent_b = (current_price - lower_val) / (upper_val - lower_val)
+
+        return {
+            "bb_upper": round(upper_val, 2),
+            "bb_middle": round(middle_val, 2),
+            "bb_lower": round(lower_val, 2),
+            "bb_percent": round(percent_b * 100, 2),
+        }
+    except Exception:
+        return None
+
+
+def calculate_mfi_from_hist(hist: pd.DataFrame, period: int = 14) -> float | None:
+    """Calculate Money Flow Index from pre-fetched history."""
+    try:
+        if hist.empty or len(hist) < period + 1:
+            return None
+
+        typical_price = (hist["High"] + hist["Low"] + hist["Close"]) / 3
+        raw_money_flow = typical_price * hist["Volume"]
+        tp_diff = typical_price.diff()
+
+        positive_flow = raw_money_flow.where(tp_diff > 0, 0)
+        negative_flow = raw_money_flow.where(tp_diff < 0, 0)
+
+        positive_mf = positive_flow.rolling(window=period).sum()
+        negative_mf = negative_flow.rolling(window=period).sum()
+
+        mf_ratio = positive_mf / negative_mf.replace(0, float("inf"))
+        mfi = 100 - (100 / (1 + mf_ratio))
+
+        return round(mfi.iloc[-1], 2)
+    except Exception:
+        return None
+
+
+def calculate_all_technicals(hist: pd.DataFrame) -> dict:
+    """Calculate all technical indicators from a single history DataFrame."""
+    return {
+        "rsi": calculate_rsi_from_hist(hist),
+        "volume_change": calculate_volume_change_from_hist(hist),
+        **(calculate_macd_from_hist(hist) or {}),
+        **(calculate_bollinger_from_hist(hist) or {}),
+        "mfi": calculate_mfi_from_hist(hist),
+    }
+
 
 if TYPE_CHECKING:
     from OpenDartReader.dart import OpenDartReader as OpenDartReaderType
@@ -107,6 +253,8 @@ def get_single_yfinance_metrics(
     """
     Fetch yfinance metrics for a single ticker with exponential backoff.
 
+    Optimized: fetches history once for all technical indicators.
+
     Args:
         yf_ticker: Yahoo Finance ticker (e.g., "005930.KS")
         max_retries: Maximum number of retry attempts
@@ -120,6 +268,11 @@ def get_single_yfinance_metrics(
             if info and info.get("regularMarketPrice") is not None:
                 eps = info.get("trailingEps")
                 bvps = info.get("bookValue")
+
+                # Fetch history once for all technical indicators (OPTIMIZED)
+                hist = stock.history(period="3mo")
+                technicals = calculate_all_technicals(hist)
+
                 return {
                     "gross_margin": info.get("grossMargins"),
                     "ev_ebitda": info.get("enterpriseToEbitda"),
@@ -128,11 +281,15 @@ def get_single_yfinance_metrics(
                     "beta": info.get("beta"),
                     "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
                     "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                    "fifty_day_average": info.get("fiftyDayAverage"),
+                    "two_hundred_day_average": info.get("twoHundredDayAverage"),
+                    "peg_ratio": info.get("trailingPegRatio"),
                     "trailing_pe": info.get("trailingPE"),
                     "price_to_book": info.get("priceToBook"),
                     "eps": eps,
                     "book_value_per_share": bvps,
                     "graham_number": calculate_graham_number(eps, bvps),
+                    **technicals,
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -151,9 +308,12 @@ def get_yfinance_metrics_batch(
     batch_size: int = 30,
     with_fallback: bool = True,
     delay: float = 0.3,
+    history_data: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, dict]:
     """
     Fetch yfinance metrics for multiple tickers in batches.
+
+    Optimized: uses pre-fetched bulk history data for technical indicators.
 
     Args:
         tickers: List of KRX tickers (e.g., ["005930", "000660"])
@@ -161,6 +321,7 @@ def get_yfinance_metrics_batch(
         batch_size: Number of tickers per batch
         with_fallback: If True, retry failed tickers individually
         delay: Delay between individual fallback calls
+        history_data: Pre-fetched historical data from get_history_bulk_kr()
 
     Returns:
         Dict mapping ticker to metrics dict.
@@ -187,11 +348,20 @@ def get_yfinance_metrics_batch(
 
             for yf_ticker in batch:
                 try:
-                    info = tickers_obj.tickers[yf_ticker].info
+                    stock = tickers_obj.tickers[yf_ticker]
+                    info = stock.info
                     if info and info.get("regularMarketPrice") is not None:
                         krx_ticker = ticker_map[yf_ticker]
                         eps = info.get("trailingEps")
                         bvps = info.get("bookValue")
+
+                        # Use pre-fetched history if available, otherwise fetch
+                        if history_data and krx_ticker in history_data:
+                            hist = history_data[krx_ticker]
+                        else:
+                            hist = stock.history(period="3mo")
+                        technicals = calculate_all_technicals(hist)
+
                         results[krx_ticker] = {
                             "gross_margin": info.get("grossMargins"),
                             "ev_ebitda": info.get("enterpriseToEbitda"),
@@ -200,11 +370,15 @@ def get_yfinance_metrics_batch(
                             "beta": info.get("beta"),
                             "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
                             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                            "fifty_day_average": info.get("fiftyDayAverage"),
+                            "two_hundred_day_average": info.get("twoHundredDayAverage"),
+                            "peg_ratio": info.get("trailingPegRatio"),
                             "trailing_pe": info.get("trailingPE"),
                             "price_to_book": info.get("priceToBook"),
                             "eps": eps,
                             "book_value_per_share": bvps,
                             "graham_number": calculate_graham_number(eps, bvps),
+                            **technicals,
                         }
                     else:
                         failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
@@ -242,6 +416,86 @@ def get_yfinance_metrics_batch(
 
             time.sleep(current_delay)
 
+    return results
+
+
+def get_history_bulk_kr(
+    tickers: list[str],
+    markets: dict[str, str],
+    period: str = "3mo",
+    batch_size: int = 500,
+) -> dict[str, pd.DataFrame]:
+    """
+    Fetch historical data for all KR tickers in bulk using yf.download.
+
+    This is much faster than individual .history() calls:
+    - Individual: ~2,800 HTTP requests
+    - Bulk: ~6 HTTP requests (500 tickers per batch)
+
+    Args:
+        tickers: List of KRX tickers (e.g., ["005930", "000660"])
+        markets: Dict mapping ticker to market ("KOSPI" or "KOSDAQ")
+        period: Historical period (default 3mo for technicals)
+        batch_size: Number of tickers per download batch
+
+    Returns:
+        Dict mapping KRX ticker to DataFrame with OHLCV data.
+    """
+    results: dict[str, pd.DataFrame] = {}
+
+    # Convert to yfinance format
+    yf_tickers = []
+    ticker_map = {}  # yf_ticker -> krx_ticker
+    for ticker in tickers:
+        market = markets.get(ticker, "KOSPI")
+        suffix = ".KS" if market == "KOSPI" else ".KQ"
+        yf_ticker = f"{ticker}{suffix}"
+        yf_tickers.append(yf_ticker)
+        ticker_map[yf_ticker] = ticker
+
+    print(f"Downloading {period} history for {len(tickers)} KR tickers in bulk...")
+
+    for i in tqdm(
+        range(0, len(yf_tickers), batch_size), desc="Downloading history", leave=False
+    ):
+        batch = yf_tickers[i : i + batch_size]
+        try:
+            # Download all tickers at once
+            df = yf.download(
+                batch,
+                period=period,
+                group_by="ticker",
+                progress=False,
+                threads=True,
+            )
+
+            if df.empty:
+                continue
+
+            # Extract each ticker's data
+            if len(batch) == 1:
+                # Single ticker: no multi-level columns
+                krx_ticker = ticker_map[batch[0]]
+                results[krx_ticker] = df
+            else:
+                for yf_ticker in batch:
+                    try:
+                        if yf_ticker in df.columns.get_level_values(0):
+                            ticker_df = df[yf_ticker].dropna(how="all")
+                            if not ticker_df.empty:
+                                krx_ticker = ticker_map[yf_ticker]
+                                results[krx_ticker] = ticker_df
+                    except Exception:
+                        pass
+
+            # Small delay between batches
+            time.sleep(0.5)
+
+        except Exception as e:
+            print(f"History batch error: {e}")
+            continue
+
+    print(f"Downloaded history for {len(results)} KR tickers")
     return results
 
 
@@ -622,6 +876,24 @@ def upsert_metrics(client: Client, company_id: str, metrics: dict) -> bool:
             "eps": metrics.get("eps"),
             "book_value_per_share": metrics.get("book_value_per_share"),
             "graham_number": metrics.get("graham_number"),
+            # Technical indicators
+            "rsi": metrics.get("rsi"),
+            "mfi": metrics.get("mfi"),
+            "macd": metrics.get("macd"),
+            "macd_signal": metrics.get("macd_signal"),
+            "macd_histogram": metrics.get("macd_histogram"),
+            "bb_upper": metrics.get("bb_upper"),
+            "bb_middle": metrics.get("bb_middle"),
+            "bb_lower": metrics.get("bb_lower"),
+            "bb_percent": metrics.get("bb_percent"),
+            "volume_change": metrics.get("volume_change"),
+            # Additional metrics from yfinance
+            "fifty_two_week_high": metrics.get("fifty_two_week_high"),
+            "fifty_two_week_low": metrics.get("fifty_two_week_low"),
+            "fifty_day_average": metrics.get("fifty_day_average"),
+            "two_hundred_day_average": metrics.get("two_hundred_day_average"),
+            "peg_ratio": metrics.get("peg_ratio"),
+            "beta": metrics.get("beta"),
             "data_source": "calculated",
         }
 
@@ -798,10 +1070,20 @@ def collect_and_save(
     ticker_names = dict(zip(df["ticker"], df["name"], strict=True))
     all_tickers = df["ticker"].tolist()
 
+    # === PHASE 1.5: Bulk download history for technical indicators ===
+    print("\nPhase 1.5: Bulk downloading 3-month history for technicals...")
+    history_data = get_history_bulk_kr(all_tickers, ticker_markets, period="3mo")
+    print(f"Downloaded history for {len(history_data)} tickers")
+
     # === PHASE 2: Batch yfinance metrics ===
     print("\nPhase 2: Fetching yfinance metrics in batches...")
     yf_metrics_all = get_yfinance_metrics_batch(
-        all_tickers, ticker_markets, batch_size=30, with_fallback=True, delay=0.3
+        all_tickers,
+        ticker_markets,
+        batch_size=30,
+        with_fallback=True,
+        delay=0.3,
+        history_data=history_data,
     )
     print(f"Fetched yfinance metrics for {len(yf_metrics_all)} stocks")
 

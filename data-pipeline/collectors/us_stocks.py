@@ -5,8 +5,9 @@ Collects financial data for US stocks using yfinance and saves to Supabase.
 Supports hybrid storage: Supabase for latest data, CSV for history.
 
 Optimized for speed with:
-- Batch yfinance calls (50 tickers at a time)
-- ThreadPoolExecutor for parallel processing
+- Bulk history download using yf.download() (500 tickers per batch)
+- Batch yfinance calls (50 tickers at a time for stock info)
+- Technical indicators calculated from pre-fetched history data
 """
 
 import math
@@ -37,25 +38,24 @@ def calculate_graham_number(eps: float | None, bvps: float | None) -> float | No
     return math.sqrt(22.5 * eps * bvps)
 
 
-def calculate_rsi(ticker_symbol: str, period: int = 14) -> float | None:
+# ============================================================
+# Technical Indicator Functions (Optimized - use pre-fetched history)
+# ============================================================
+
+
+def calculate_rsi_from_hist(hist: pd.DataFrame, period: int = 14) -> float | None:
     """
-    Calculate RSI (Relative Strength Index) for a ticker.
+    Calculate RSI from pre-fetched history DataFrame.
 
     Args:
-        ticker_symbol: Stock ticker symbol
+        hist: DataFrame with 'Close' column (from yf.Ticker.history())
         period: RSI period (default 14 days)
 
     Returns:
         RSI value (0-100) or None if calculation fails
     """
     try:
-        import yfinance as yf
-
-        ticker = yf.Ticker(ticker_symbol)
-        # Get 1 month of history to ensure enough data for 14-day RSI
-        hist = ticker.history(period="1mo")
-
-        if len(hist) < period + 1:
+        if hist.empty or len(hist) < period + 1:
             return None
 
         delta = hist["Close"].diff()
@@ -72,25 +72,21 @@ def calculate_rsi(ticker_symbol: str, period: int = 14) -> float | None:
         return None
 
 
-def calculate_volume_change(ticker_symbol: str, period: int = 20) -> float | None:
+def calculate_volume_change_from_hist(
+    hist: pd.DataFrame, period: int = 20
+) -> float | None:
     """
-    Calculate volume change rate compared to average volume.
+    Calculate volume change rate from pre-fetched history.
 
     Args:
-        ticker_symbol: Stock ticker symbol
+        hist: DataFrame with 'Volume' column
         period: Period for average volume (default 20 days)
 
     Returns:
-        Volume change rate as percentage (e.g., 50.0 means 50% above average)
-        or None if calculation fails
+        Volume change rate as percentage or None if calculation fails
     """
     try:
-        import yfinance as yf
-
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period="1mo")
-
-        if len(hist) < period:
+        if hist.empty or len(hist) < period:
             return None
 
         avg_volume = hist["Volume"].iloc[-period:].mean()
@@ -105,31 +101,26 @@ def calculate_volume_change(ticker_symbol: str, period: int = 20) -> float | Non
         return None
 
 
-def calculate_macd(
-    ticker_symbol: str,
+def calculate_macd_from_hist(
+    hist: pd.DataFrame,
     fast: int = 12,
     slow: int = 26,
     signal: int = 9,
 ) -> dict[str, float | None] | None:
     """
-    Calculate MACD (Moving Average Convergence Divergence).
+    Calculate MACD from pre-fetched history.
 
     Args:
-        ticker_symbol: Stock ticker symbol
+        hist: DataFrame with 'Close' column
         fast: Fast EMA period (default 12)
         slow: Slow EMA period (default 26)
         signal: Signal line EMA period (default 9)
 
     Returns:
-        Dictionary with macd, signal, histogram values or None if calculation fails
+        Dictionary with macd, signal, histogram values or None
     """
     try:
-        import yfinance as yf
-
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period="3mo")  # Need enough data for 26-day EMA
-
-        if len(hist) < slow + signal:
+        if hist.empty or len(hist) < slow + signal:
             return None
 
         close = hist["Close"]
@@ -156,16 +147,16 @@ def calculate_macd(
         return None
 
 
-def calculate_bollinger_bands(
-    ticker_symbol: str,
+def calculate_bollinger_from_hist(
+    hist: pd.DataFrame,
     period: int = 20,
     std_dev: float = 2.0,
 ) -> dict[str, float | None] | None:
     """
-    Calculate Bollinger Bands.
+    Calculate Bollinger Bands from pre-fetched history.
 
     Args:
-        ticker_symbol: Stock ticker symbol
+        hist: DataFrame with 'Close' column
         period: SMA period (default 20)
         std_dev: Standard deviation multiplier (default 2.0)
 
@@ -173,12 +164,7 @@ def calculate_bollinger_bands(
         Dictionary with upper, middle, lower bands and %B indicator
     """
     try:
-        import yfinance as yf
-
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period="3mo")
-
-        if len(hist) < period:
+        if hist.empty or len(hist) < period:
             return None
 
         close = hist["Close"]
@@ -214,26 +200,19 @@ def calculate_bollinger_bands(
         return None
 
 
-def calculate_mfi(ticker_symbol: str, period: int = 14) -> float | None:
+def calculate_mfi_from_hist(hist: pd.DataFrame, period: int = 14) -> float | None:
     """
-    Calculate Money Flow Index (MFI).
-
-    MFI is a volume-weighted RSI that measures buying/selling pressure.
+    Calculate Money Flow Index from pre-fetched history.
 
     Args:
-        ticker_symbol: Stock ticker symbol
+        hist: DataFrame with 'High', 'Low', 'Close', 'Volume' columns
         period: MFI period (default 14 days)
 
     Returns:
         MFI value (0-100) or None if calculation fails
     """
     try:
-        import yfinance as yf
-
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period="3mo")
-
-        if len(hist) < period + 1:
+        if hist.empty or len(hist) < period + 1:
             return None
 
         # Typical Price = (High + Low + Close) / 3
@@ -263,6 +242,27 @@ def calculate_mfi(ticker_symbol: str, period: int = 14) -> float | None:
         return None
 
 
+def calculate_all_technicals(hist: pd.DataFrame) -> dict:
+    """
+    Calculate all technical indicators from a single history DataFrame.
+
+    This is the optimized function that avoids multiple API calls.
+
+    Args:
+        hist: DataFrame from yf.Ticker.history(period="3mo")
+
+    Returns:
+        Dictionary with all technical indicator values
+    """
+    return {
+        "rsi": calculate_rsi_from_hist(hist),
+        "volume_change": calculate_volume_change_from_hist(hist),
+        **(calculate_macd_from_hist(hist) or {}),
+        **(calculate_bollinger_from_hist(hist) or {}),
+        "mfi": calculate_mfi_from_hist(hist),
+    }
+
+
 load_dotenv()
 
 # Data directory for CSV exports
@@ -289,7 +289,7 @@ def _fetch_wiki_tickers(url: str, index_name: str) -> list[str]:
     import requests
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
     }
     response = requests.get(url, headers=headers)
     tables = pd.read_html(StringIO(response.text))
@@ -460,6 +460,8 @@ def get_single_stock_info(
     """
     Fetch info for a single ticker with exponential backoff.
 
+    Optimized: fetches history once and reuses for all technical indicators.
+
     Args:
         ticker: Stock ticker symbol
         max_retries: Maximum number of retry attempts
@@ -473,6 +475,11 @@ def get_single_stock_info(
             if info and info.get("regularMarketPrice") is not None:
                 eps = info.get("trailingEps")
                 bvps = info.get("bookValue")
+
+                # Fetch history once for all technical indicators (OPTIMIZED)
+                hist = stock.history(period="3mo")
+                technicals = calculate_all_technicals(hist)
+
                 return {
                     "name": info.get("longName"),
                     "sector": info.get("sector"),
@@ -501,11 +508,7 @@ def get_single_stock_info(
                     "eps": eps,
                     "book_value_per_share": bvps,
                     "graham_number": calculate_graham_number(eps, bvps),
-                    "rsi": calculate_rsi(ticker),
-                    "volume_change": calculate_volume_change(ticker),
-                    **(calculate_macd(ticker) or {}),
-                    **(calculate_bollinger_bands(ticker) or {}),
-                    "mfi": calculate_mfi(ticker),
+                    **technicals,
                 }
             # No valid data, but not an error - don't retry
             return None
@@ -523,15 +526,19 @@ def get_stock_data_batch(
     batch_size: int = 50,
     with_fallback: bool = True,
     delay: float = 0.5,
+    history_data: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, dict]:
     """
     Fetch stock info and financials for multiple tickers in batches.
+
+    Optimized: uses pre-fetched bulk history data for technical indicators.
 
     Args:
         tickers: List of ticker symbols
         batch_size: Number of tickers per batch
         with_fallback: If True, retry failed tickers individually
         delay: Delay between individual fallback calls
+        history_data: Pre-fetched historical data from get_history_bulk()
 
     Returns:
         Dict mapping ticker to combined stock info and financials dict.
@@ -547,10 +554,19 @@ def get_stock_data_batch(
 
             for ticker in batch:
                 try:
-                    info = tickers_obj.tickers[ticker].info
+                    stock = tickers_obj.tickers[ticker]
+                    info = stock.info
                     if info and info.get("regularMarketPrice") is not None:
                         eps = info.get("trailingEps")
                         bvps = info.get("bookValue")
+
+                        # Use pre-fetched history if available, otherwise fetch
+                        if history_data and ticker in history_data:
+                            hist = history_data[ticker]
+                        else:
+                            hist = stock.history(period="3mo")
+                        technicals = calculate_all_technicals(hist)
+
                         results[ticker] = {
                             "name": info.get("longName"),
                             "sector": info.get("sector"),
@@ -579,11 +595,7 @@ def get_stock_data_batch(
                             "eps": eps,
                             "book_value_per_share": bvps,
                             "graham_number": calculate_graham_number(eps, bvps),
-                            "rsi": calculate_rsi(ticker),
-                            "volume_change": calculate_volume_change(ticker),
-                            **(calculate_macd(ticker) or {}),
-                            **(calculate_bollinger_bands(ticker) or {}),
-                            "mfi": calculate_mfi(ticker),
+                            **technicals,
                         }
                     else:
                         failed_tickers.append(ticker)
@@ -676,6 +688,72 @@ def get_prices_batch(tickers: list[str]) -> dict[str, dict]:
     except Exception as e:
         print(f"Price batch error: {e}")
 
+    return results
+
+
+def get_history_bulk(
+    tickers: list[str],
+    period: str = "3mo",
+    batch_size: int = 500,
+) -> dict[str, pd.DataFrame]:
+    """
+    Fetch historical data for all tickers in bulk using yf.download.
+
+    This is much faster than individual .history() calls:
+    - Individual: ~2,800 HTTP requests
+    - Bulk: ~6 HTTP requests (500 tickers per batch)
+
+    Args:
+        tickers: List of ticker symbols
+        period: Historical period (default 3mo for technicals)
+        batch_size: Number of tickers per download batch
+
+    Returns:
+        Dict mapping ticker to DataFrame with OHLCV data.
+    """
+    results: dict[str, pd.DataFrame] = {}
+
+    print(f"Downloading {period} history for {len(tickers)} tickers in bulk...")
+
+    for i in tqdm(
+        range(0, len(tickers), batch_size), desc="Downloading history", leave=False
+    ):
+        batch = tickers[i : i + batch_size]
+        try:
+            # Download all tickers at once
+            df = yf.download(
+                batch,
+                period=period,
+                group_by="ticker",
+                progress=False,
+                threads=True,
+            )
+
+            if df.empty:
+                continue
+
+            # Extract each ticker's data
+            if len(batch) == 1:
+                # Single ticker: no multi-level columns
+                results[batch[0]] = df
+            else:
+                for ticker in batch:
+                    try:
+                        if ticker in df.columns.get_level_values(0):
+                            ticker_df = df[ticker].dropna(how="all")
+                            if not ticker_df.empty:
+                                results[ticker] = ticker_df
+                    except Exception:
+                        pass
+
+            # Small delay between batches to be nice to API
+            time.sleep(0.5)
+
+        except Exception as e:
+            print(f"History batch error: {e}")
+            continue
+
+    print(f"Downloaded history for {len(results)} tickers")
     return results
 
 
@@ -848,6 +926,11 @@ def collect_and_save(
         f"Found {len(valid_tickers)} tickers with valid prices (out of {len(tickers)})"
     )
 
+    # === PHASE 1.5: Bulk download history for technical indicators ===
+    print("\nPhase 1.5: Bulk downloading 3-month history for technicals...")
+    history_data = get_history_bulk(valid_tickers, period="3mo", batch_size=500)
+    print(f"Downloaded history for {len(history_data)} tickers")
+
     # === PHASE 2: Fetch stock info only for valid tickers ===
     print(f"\nPhase 2: Fetching stock data in batches of {batch_size}...")
     stock_data_all: dict[str, dict] = {}
@@ -855,7 +938,11 @@ def collect_and_save(
     for i in tqdm(range(0, len(valid_tickers), batch_size), desc="Fetching stock data"):
         batch = valid_tickers[i : i + batch_size]
         batch_data = get_stock_data_batch(
-            batch, batch_size=len(batch), with_fallback=True, delay=0.3
+            batch,
+            batch_size=len(batch),
+            with_fallback=True,
+            delay=0.3,
+            history_data=history_data,
         )
         stock_data_all.update(batch_data)
         time.sleep(delay)
@@ -1061,7 +1148,7 @@ if __name__ == "__main__":
 
     args = sys.argv[1:]
     csv_only = "--csv-only" in args
-    full_universe = "--full" in args
+    sp500_only = "--sp500" in args
 
     if "--dry-run" in args:
         # Dry run: test data collection without database
@@ -1079,27 +1166,24 @@ if __name__ == "__main__":
         )
     elif "--list-tickers" in args:
         # Just list tickers without collecting
-        if full_universe:
+        if sp500_only:
+            tickers = get_sp500_tickers()
+        else:
             tickers = get_all_us_tickers()
             print("\nSample tickers with membership:")
             for t, m in list(tickers.items())[:20]:
                 print(f"  {t}: {m}")
-        else:
-            tickers = get_sp500_tickers()
-    elif full_universe:
-        # Full universe: S&P 500 + 400 + 600 + Russell 2000
-        print("Running FULL US universe collection...")
-        print("This will take 3-4 hours. Press Ctrl+C to cancel.\n")
+    elif sp500_only:
+        # S&P 500 only
+        print("Running S&P 500 collection...")
         collect_and_save(
             save_csv=True,
             save_db=not csv_only,
-            universe="full",
+            universe="sp500",
         )
-    elif csv_only:
-        # CSV only: save to files without database
-        print("Running S&P 500 collection (CSV only)...")
-        collect_and_save(save_csv=True, save_db=False, universe="sp500")
     else:
-        # S&P 500 only: both database and CSV
-        print("Running S&P 500 collection...")
-        collect_and_save(save_csv=True, save_db=True, universe="sp500")
+        # Default: Full universe (S&P 500 + 400 + 600 + Russell 2000)
+        print("Running FULL US universe collection...")
+        print("S&P 500 + 400 + 600 + Russell 2000 (~2,800 stocks)")
+        print("This will take 3-4 hours. Press Ctrl+C to cancel.\n")
+        collect_and_save(save_csv=True, save_db=not csv_only, universe="full")

@@ -1,5 +1,16 @@
 # 데이터 전략 및 백업 정책
 
+## 구현 상태
+
+| 항목 | 상태 |
+|------|------|
+| Supabase 저장 | ✅ 구현됨 |
+| CSV 로컬 저장 | ✅ 구현됨 |
+| GitHub Artifacts 백업 | ✅ 구현됨 (30일 보관) |
+| Google Drive 백업 | ✅ 워크플로우 구현됨 (RCLONE_CONFIG 설정 필요) |
+
+---
+
 ## 하이브리드 저장 방식
 
 | 저장소 | 용도 | 용량 | 비용 |
@@ -60,56 +71,58 @@ gdrive:stock-screener-backup/
 - **rclone**: Google Drive 연동 CLI
 - **GitHub Actions**: 스케줄 실행
 
-### 설정
+### Google Drive 설정 가이드
 
-1. Google Cloud 서비스 계정 생성
-2. Google Drive API 활성화
-3. 서비스 계정에 Drive 폴더 공유
-4. GitHub Secrets에 credentials 저장
+#### 1. Google Cloud 서비스 계정 생성
 
-### 워크플로우 예시
+1. [Google Cloud Console](https://console.cloud.google.com/) 접속
+2. 새 프로젝트 생성 또는 기존 프로젝트 선택
+3. **APIs & Services > Credentials** 이동
+4. **Create Credentials > Service Account** 클릭
+5. 서비스 계정 이름 입력 후 생성
+6. **Keys** 탭에서 **Add Key > Create new key > JSON** 선택
+7. JSON 키 파일 다운로드
 
-```yaml
-# .github/workflows/backup-to-gdrive.yml
-name: Backup to Google Drive
+#### 2. Google Drive API 활성화
 
-on:
-  schedule:
-    - cron: '0 0 * * 0'  # 매주 일요일 00:00 UTC
-  workflow_dispatch:
+1. **APIs & Services > Library** 이동
+2. "Google Drive API" 검색
+3. **Enable** 클릭
 
-jobs:
-  backup:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+#### 3. Drive 폴더 공유
 
-      - name: Setup rclone
-        run: |
-          curl https://rclone.org/install.sh | sudo bash
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
+1. Google Drive에서 `stock-screener-backup` 폴더 생성
+2. 폴더 우클릭 > **Share**
+3. 서비스 계정 이메일 추가 (형식: `xxx@xxx.iam.gserviceaccount.com`)
+4. **Editor** 권한 부여
 
-      - name: Backup data files
-        run: |
-          rclone copy ./data gdrive:stock-screener-backup/data --progress
-
-      - name: Backup Supabase (optional)
-        run: |
-          # pg_dump 또는 Supabase CLI 사용
-          # supabase db dump > backup.sql
-          # rclone copy backup.sql gdrive:stock-screener-backup/backups/
-```
-
-### rclone.conf 예시
+#### 4. rclone.conf 생성
 
 ```ini
 [gdrive]
 type = drive
 scope = drive
-service_account_file = /path/to/credentials.json
-root_folder_id = <folder-id>
+service_account_file_contents = <JSON 키 파일 내용 (한 줄로)>
+root_folder_id = <Drive 폴더 ID (URL에서 추출)>
 ```
+
+**팁**: JSON을 한 줄로 변환하려면:
+```bash
+cat credentials.json | jq -c .
+```
+
+#### 5. GitHub Secret 설정
+
+1. Repository **Settings > Secrets and variables > Actions**
+2. **New repository secret** 클릭
+3. Name: `RCLONE_CONFIG`
+4. Value: 위에서 생성한 rclone.conf 내용 전체 붙여넣기
+
+### 워크플로우
+
+`backup.yml`에 Google Drive 백업이 자동으로 포함됨:
+- `RCLONE_CONFIG` secret이 설정되면 자동 활성화
+- 설정되지 않으면 GitHub Artifacts만 사용 (기존 동작)
 
 ---
 

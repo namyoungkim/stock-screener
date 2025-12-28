@@ -25,13 +25,22 @@ from tqdm import tqdm
 from supabase import Client, create_client
 
 
-def safe_float(value: float | None) -> float | None:
-    """Convert value to JSON-safe float (handles inf/nan)."""
+def safe_float(value: float | None, max_abs: float | None = None) -> float | None:
+    """Convert value to JSON-safe float (handles inf/nan).
+
+    Args:
+        value: The value to convert
+        max_abs: Optional maximum absolute value (clamp to None if exceeded)
+    """
     if value is None or pd.isna(value):
         return None
     if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
         return None
-    return float(value)
+    result = float(value)
+    # Clamp extreme values to avoid numeric overflow
+    if max_abs is not None and abs(result) >= max_abs:
+        return None
+    return result
 
 
 def safe_int(value: int | float | None) -> int | None:
@@ -196,6 +205,44 @@ def load_metrics(
         # Skipped: forward_pe
     }
 
+    # Max absolute values based on Supabase NUMERIC precision
+    # After migration 002: price columns are NUMERIC(16, 4), ratios are NUMERIC(12, 4)
+    COLUMN_MAX = {
+        # Valuation ratios - NUMERIC(12, 4) max = 10^8
+        "pe_ratio": 1e7,
+        "pb_ratio": 1e7,
+        "ps_ratio": 1e7,
+        "ev_ebitda": 1e7,
+        "peg_ratio": 1e4,
+        # Profitability ratios - NUMERIC(8, 4) max = 10^4
+        "roe": 1e3,
+        "roa": 1e3,
+        "gross_margin": 1e3,
+        "net_margin": 1e3,
+        # Financial health - NUMERIC(12, 4) max = 10^8
+        "debt_equity": 1e7,
+        "current_ratio": 1e7,
+        # Other ratios
+        "dividend_yield": 1e3,
+        "beta": 1e3,
+        # Technical indicators
+        "rsi": 1e2,            # RSI is 0-100
+        "mfi": 1e2,            # MFI is 0-100
+        "volume_change": 1e4,  # % change
+        "bb_percent": 1e3,     # %B typically 0-100 but can exceed
+        # Price-based columns - NUMERIC(16, 4) max = 10^12
+        "macd": 1e11,
+        "macd_signal": 1e11,
+        "macd_histogram": 1e11,
+        "fifty_two_week_high": 1e11,
+        "fifty_two_week_low": 1e11,
+        "fifty_day_average": 1e11,
+        "two_hundred_day_average": 1e11,
+        "bb_upper": 1e11,
+        "bb_middle": 1e11,
+        "bb_lower": 1e11,
+    }
+
     # Read US metrics
     if us_metrics_csv and us_metrics_csv.exists():
         print(f"  Reading {us_metrics_csv.name}...")
@@ -213,7 +260,8 @@ def load_metrics(
             }
             for csv_col, db_col in COLUMN_MAP.items():
                 if csv_col in row.index:
-                    val = safe_float(row[csv_col])
+                    max_abs = COLUMN_MAX.get(db_col)
+                    val = safe_float(row[csv_col], max_abs=max_abs)
                     if val is not None:
                         metric[db_col] = val
 
@@ -241,7 +289,8 @@ def load_metrics(
             }
             for csv_col, db_col in COLUMN_MAP.items():
                 if csv_col in row.index:
-                    val = safe_float(row[csv_col])
+                    max_abs = COLUMN_MAX.get(db_col)
+                    val = safe_float(row[csv_col], max_abs=max_abs)
                     if val is not None:
                         metric[db_col] = val
 

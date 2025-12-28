@@ -47,6 +47,8 @@ stock-screener/
 
 ## 수집 지표
 
+### 기본 지표
+
 | 지표 | US 소스 | KR 소스 |
 |------|---------|---------|
 | P/E (Trailing) | yfinance | DART 계산 |
@@ -54,6 +56,7 @@ stock-screener/
 | P/B | yfinance | DART 계산 |
 | P/S | yfinance | DART 계산 |
 | EV/EBITDA | yfinance | yfinance |
+| PEG Ratio | yfinance | yfinance |
 | ROE, ROA | yfinance | DART 계산 |
 | Gross Margin | yfinance | yfinance |
 | Net Margin | yfinance | DART 계산 |
@@ -61,7 +64,26 @@ stock-screener/
 | Current Ratio | yfinance | DART 계산 |
 | Dividend Yield | yfinance | yfinance |
 | Beta | yfinance | yfinance |
+| EPS | yfinance | yfinance |
+| Book Value/Share | yfinance | yfinance |
+| Graham Number | 계산 | 계산 |
 | 52주 고/저 | yfinance | yfinance |
+| 50일/200일 이동평균 | yfinance | yfinance |
+
+### 기술적 지표
+
+| 지표 | 설명 | 계산 방식 |
+|------|------|----------|
+| RSI (14일) | 상대강도지수 | 가격 기반 계산 |
+| MFI | 자금흐름지수 | 거래량 가중 RSI |
+| MACD | 이동평균수렴확산 | EMA 12/26/9 |
+| MACD Signal | MACD 신호선 | 9일 EMA |
+| MACD Histogram | MACD 히스토그램 | MACD - Signal |
+| Bollinger Upper | 볼린저밴드 상단 | SMA20 + 2σ |
+| Bollinger Middle | 볼린저밴드 중간 | SMA20 |
+| Bollinger Lower | 볼린저밴드 하단 | SMA20 - 2σ |
+| Bollinger %B | 볼린저밴드 %B | (가격-하단)/(상단-하단) |
+| Volume Change | 거래량 변화율 | 20일 평균 대비 % |
 
 ## 주요 의존성
 
