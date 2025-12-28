@@ -102,9 +102,15 @@ jobs:
         env:
           RCLONE_CONFIG_CONTENT: ${{ secrets.RCLONE_CONFIG }}
         run: |
-          curl -s https://rclone.org/install.sh | sudo bash
-          mkdir -p ~/.config/rclone
-          echo "$RCLONE_CONFIG_CONTENT" > ~/.config/rclone/rclone.conf
+          # Skip install if already installed (self-hosted runner)
+          if ! command -v rclone &> /dev/null; then
+            curl -s https://rclone.org/install.sh | sudo bash
+          fi
+          # Use existing config on self-hosted runner, or create from secret
+          if [ ! -f ~/.config/rclone/rclone.conf ]; then
+            mkdir -p ~/.config/rclone
+            echo "$RCLONE_CONFIG_CONTENT" > ~/.config/rclone/rclone.conf
+          fi
 
       - name: Upload to Google Drive
         if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
