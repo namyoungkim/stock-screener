@@ -297,7 +297,7 @@ class USCollector(BaseCollector):
                         except Exception:
                             pass
 
-                time.sleep(0.5)
+                time.sleep(0.2)  # Reduced for self-hosted runner
 
             except Exception as e:
                 self.logger.error(f"History batch error: {e}")
@@ -337,7 +337,7 @@ class USCollector(BaseCollector):
                             # Use pre-fetched history if available
                             hist = history_data.get(ticker) if history_data else None
                             if hist is None or hist.empty:
-                                hist = stock.history(period="3mo")
+                                hist = stock.history(period="2mo")
                             technicals = calculate_all_technicals(hist)
 
                             results[ticker] = {
@@ -379,7 +379,7 @@ class USCollector(BaseCollector):
                 self.logger.warning(f"Batch error: {e}")
                 failed_tickers.extend(batch)
 
-            time.sleep(0.3)
+            time.sleep(0.1)  # Reduced for self-hosted runner
 
         # Retry failed tickers with exponential backoff
         if failed_tickers:
@@ -453,7 +453,7 @@ class USCollector(BaseCollector):
 
         # Phase 2: Bulk download history
         self.logger.info("Phase 2: Downloading history for technical indicators...")
-        history_data = self.fetch_history_bulk(valid_tickers, period="3mo", batch_size=500)
+        history_data = self.fetch_history_bulk(valid_tickers, period="2mo", batch_size=500)
 
         # Phase 3: Batch fetch stock data
         self.logger.info(f"Phase 3: Fetching stock data in batches of {batch_size}...")

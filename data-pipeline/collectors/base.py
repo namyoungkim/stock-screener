@@ -107,14 +107,14 @@ class BaseCollector(ABC):
     def fetch_history_bulk(
         self,
         tickers: list[str],
-        period: str = "3mo",
+        period: str = "2mo",
     ) -> dict[str, pd.DataFrame]:
         """
         Fetch historical data for multiple tickers in bulk.
 
         Args:
             tickers: List of ticker symbols
-            period: Historical period (e.g., "3mo", "1y")
+            period: Historical period (e.g., "2mo", "3mo")
 
         Returns:
             Dictionary mapping ticker to DataFrame with OHLCV data
@@ -170,7 +170,7 @@ class BaseCollector(ABC):
 
         # Phase 2: Bulk download history for technical indicators
         self.logger.info("Phase 2: Downloading history for technical indicators...")
-        history_data = self.fetch_history_bulk(valid_tickers, period="3mo")
+        history_data = self.fetch_history_bulk(valid_tickers, period="2mo")
         self.logger.info(f"Downloaded history for {len(history_data)} tickers")
 
         # Phase 3: Fetch stock info and process

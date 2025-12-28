@@ -256,7 +256,7 @@ class KRCollector(BaseCollector):
                         except Exception:
                             pass
 
-                time.sleep(0.5)
+                time.sleep(0.2)  # Reduced for self-hosted runner
 
             except Exception as e:
                 self.logger.error(f"History batch error: {e}")
@@ -303,7 +303,7 @@ class KRCollector(BaseCollector):
                             # Get technicals from pre-fetched history
                             hist = history_data.get(krx_ticker) if history_data else None
                             if hist is None or hist.empty:
-                                hist = stock.history(period="3mo")
+                                hist = stock.history(period="2mo")
                             technicals = calculate_all_technicals(hist)
 
                             results[krx_ticker] = {
@@ -344,7 +344,7 @@ class KRCollector(BaseCollector):
                 for yf_ticker in batch:
                     failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
 
-            time.sleep(0.3)
+            time.sleep(0.1)  # Reduced for self-hosted runner
 
         # Retry failed tickers
         if failed_tickers:
@@ -406,7 +406,7 @@ class KRCollector(BaseCollector):
 
         # Phase 2: Bulk download history
         self.logger.info("Phase 2: Downloading history for technical indicators...")
-        history_data = self.fetch_history_bulk(valid_tickers, period="3mo", batch_size=500)
+        history_data = self.fetch_history_bulk(valid_tickers, period="2mo", batch_size=500)
 
         # Phase 3: Batch yfinance metrics
         self.logger.info("Phase 3: Fetching yfinance metrics in batches...")
