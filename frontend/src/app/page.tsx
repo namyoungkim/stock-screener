@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, PresetStrategy, ScreenRequest } from "@/lib/api";
+import { api, PresetStrategy, ScreenRequest, MetricFilter } from "@/lib/api";
 import { StockTable } from "@/components/StockTable";
 import { FilterPanel } from "@/components/FilterPanel";
 import { Pagination } from "@/components/ui/Pagination";
@@ -14,6 +14,7 @@ export default function Home() {
   const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [customFilters, setCustomFilters] = useState<MetricFilter[]>([]);
 
   // Fetch presets
   const { data: presets = [] } = useQuery<PresetStrategy[]>({
@@ -27,19 +28,20 @@ export default function Home() {
   const screenRequest: ScreenRequest = {
     preset: selectedPreset ?? undefined,
     market: selectedMarket as ScreenRequest["market"],
+    filters: customFilters.length > 0 ? customFilters : undefined,
     limit: ITEMS_PER_PAGE,
     offset,
   };
 
-  // Fetch stocks - use screen API if preset selected, otherwise use stocks API
+  // Fetch stocks - use screen API if preset or custom filters selected
   const {
     data: stocksData,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["stocks", selectedPreset, selectedMarket, searchQuery, currentPage],
+    queryKey: ["stocks", selectedPreset, selectedMarket, searchQuery, currentPage, customFilters],
     queryFn: async () => {
-      if (selectedPreset) {
+      if (selectedPreset || customFilters.length > 0) {
         return api.screen(screenRequest);
       }
       return api.getStocks({
@@ -67,6 +69,12 @@ export default function Home() {
     setCurrentPage(1);
   };
 
+  const handleApplyFilters = (filters: MetricFilter[]) => {
+    setCustomFilters(filters);
+    setSearchQuery(""); // Clear search when applying custom filters
+    setCurrentPage(1);
+  };
+
   const totalPages = Math.ceil((stocksData?.total ?? 0) / ITEMS_PER_PAGE);
 
   return (
@@ -86,10 +94,11 @@ export default function Home() {
             selectedPreset={selectedPreset}
             selectedMarket={selectedMarket}
             searchQuery={searchQuery}
+            customFilters={customFilters}
             onPresetChange={handlePresetChange}
             onMarketChange={handleMarketChange}
             onSearchChange={handleSearchChange}
-            onApplyFilters={() => {}}
+            onApplyFilters={handleApplyFilters}
           />
         </div>
 
@@ -101,6 +110,8 @@ export default function Home() {
                 <h2 className="font-semibold text-slate-900 dark:text-white">
                   {selectedPreset
                     ? `${presets.find((p) => p.id === selectedPreset)?.name} Results`
+                    : customFilters.length > 0
+                    ? "Filtered Results"
                     : "All Stocks"}
                 </h2>
                 <span className="text-sm font-medium text-slate-600 dark:text-slate-300">

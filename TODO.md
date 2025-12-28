@@ -37,6 +37,12 @@
   - 프론트엔드: `/alerts` 페이지, `AlertForm` 컴포넌트
   - 종목 상세 페이지에서 알림 추가 가능
   - 알림 조건: 지표 + 연산자 + 값 (예: P/E <= 15)
+- [x] **Advanced Filters 구현** - 커스텀 지표 필터링
+  - 프론트엔드: `FilterPanel.tsx`에 Advanced Filters UI 추가
+  - 20개 지표 지원 (Valuation, Profitability, Technical 등 카테고리별)
+  - 필터 추가/삭제/적용/초기화 기능
+  - Preset과 Custom Filters 동시 사용 가능
+  - 필터 적용 개수 뱃지 표시
 
 ## 이전 완료 (2025-12-27)
 
