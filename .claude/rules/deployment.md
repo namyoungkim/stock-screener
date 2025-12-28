@@ -32,16 +32,25 @@ git add . && git commit -m "변경 내용" && git push
 
 ## 데이터 수집 인프라
 
-### 현재: 로컬 수집 + Google Drive 백업
+### 현재: 로컬 통합 파이프라인
 
 ```bash
-./scripts/collect-and-backup.sh    # KR → US → Google Drive 백업
+./scripts/collect-and-backup.sh         # 전체 (KR → US → 백업 → DB)
+./scripts/collect-and-backup.sh --no-db # DB 적재 제외
 ```
+
+**파이프라인 단계:**
+1. KR 수집 (품질검사 + 자동재수집)
+2. US 수집 (품질검사 + 자동재수집)
+3. Google Drive 백업 (rclone)
+4. Supabase 적재 (csv_to_db)
 
 | 항목 | 설명 |
 |------|------|
 | 수집 | 로컬 Mac에서 수동 실행 |
+| 품질검사 | 유니버스 커버리지 95%, 대형주 누락 검사 |
 | 백업 | rclone → Google Drive |
+| DB 적재 | CSV → Supabase (companies, metrics, prices) |
 | 장점 | 빠른 속도, 무료, Rate Limit 회피 용이 |
 | 단점 | 수동 실행 필요 |
 

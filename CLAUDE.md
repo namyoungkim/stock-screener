@@ -36,12 +36,14 @@
 ## 현재 상태
 
 **구현됨**:
-- 미국/한국 주식 데이터 수집기 (US ~2,800개 + KR ~2,800개)
-- 데이터 파이프라인 리팩토링 (공통 모듈 추출, 47% 코드 감소)
+- 미국/한국 주식 데이터 수집기 (US 2,810개 + KR 2,788개 = 5,598개)
+- 통합 데이터 파이프라인 (`./scripts/collect-and-backup.sh`)
+  - 수집 → 품질검사 → 자동재수집 → Google Drive 백업 → Supabase 적재
+- 품질검사 자동화 (유니버스 커버리지, 대형주 누락, 지표 완성도)
 - KR 수집기 최적화 (pykrx + yfinance 하이브리드)
 - 기술적 지표 수집 (RSI, MFI, MACD, Bollinger Bands, Volume Change)
+- 가치투자 지표 (EPS, BPS, Graham Number)
 - 하이브리드 저장 (Supabase + CSV)
-- 로컬 수집 + Google Drive 백업 스크립트 (`./scripts/collect-and-backup.sh`)
 - yfinance Rate Limit 대처 (진행 상황 저장 + `--resume` 재시작)
 - FastAPI 백엔드 API
 - Next.js 프론트엔드 (Preset 전략, Tooltip UX, 페이지네이션)
