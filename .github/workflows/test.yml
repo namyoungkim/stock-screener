@@ -32,6 +32,9 @@ jobs:
         continue-on-error: true
 
       - name: Run tests with coverage
+        env:
+          SUPABASE_URL: https://test.supabase.co
+          SUPABASE_KEY: test-key-for-ci
         run: |
           uv run --package stock-screener-backend pytest tests/backend/ \
             --cov=backend/app \
