@@ -50,7 +50,8 @@ stock-screener/
 
 **자동화**:
 - GitHub Actions가 평일 매일 00:00 UTC에 수집기 실행 (휴장일은 gracefully 스킵)
-- 평일 매일 01:00 UTC에 Supabase 데이터를 백업
+- 수집 완료 후 backup.yml 자동 실행 (workflow_run 트리거)
+- Self-hosted Runner 사용 (yfinance rate limit 회피)
 
 ## 수집 지표
 

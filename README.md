@@ -116,8 +116,8 @@ NEXT_PUBLIC_API_URL=http://localhost:8000  # 로컬
 ### Render (Backend)
 
 1. GitHub 저장소 연결
-2. Build Command: `pip install -r backend/requirements.txt`
-3. Start Command: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+2. Build Command: `pip install uv && uv sync`
+3. Start Command: `uv run --package stock-screener-backend uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 4. 환경 변수 설정:
    - `SUPABASE_URL`
    - `SUPABASE_KEY`

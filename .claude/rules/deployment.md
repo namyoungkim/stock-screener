@@ -27,3 +27,15 @@ git add . && git commit -m "변경 내용" && git push
 
 - **Vercel**: `main` 브랜치 푸시 시 자동 배포
 - **Render**: `main` 브랜치 푸시 시 자동 배포 (무료 티어: 15분 비활성 시 슬립)
+
+---
+
+## 자동화 인프라
+
+| 구성요소 | 설정 |
+|---------|------|
+| 데이터 수집 | EC2 Self-hosted Runner (yfinance rate limit 회피) |
+| 스케줄 | 평일 매일 00:00 UTC (update-data.yml) |
+| 백업 | 수집 완료 후 자동 실행 (backup.yml - workflow_run) |
+
+자세한 설정: @.claude/rules/self-hosted-runner.md
