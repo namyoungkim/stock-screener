@@ -220,6 +220,7 @@
 - [x] GitHub Actions Runner 설치 및 서비스 등록
 - [x] 환경 변수 설정 (GitHub Secrets 사용)
 - [x] 워크플로우 테스트 (workflow_dispatch로 수동 실행)
+- [x] 수집기 속도 최적화 (3mo→2mo, sleep 감소)
 - [ ] 정상 동작 확인 후 스케줄 활성화
 
 ---

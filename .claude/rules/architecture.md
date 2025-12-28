@@ -53,6 +53,15 @@ stock-screener/
 - 수집 완료 후 backup.yml 자동 실행 (workflow_run 트리거)
 - Self-hosted Runner 사용 (yfinance rate limit 회피)
 
+**수집 소요 시간** (Self-hosted Runner 기준):
+
+| 마켓 | 종목 수 | 예상 시간 |
+|------|---------|----------|
+| KR | ~2,800개 | ~15-20분 |
+| US | ~2,800개 | ~1.5-2시간 |
+
+> 히스토리 2개월 다운로드, batch 500개, sleep 최소화 적용
+
 ## 수집 지표
 
 ### 기본 지표

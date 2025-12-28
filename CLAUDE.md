@@ -38,11 +38,12 @@
 **구현됨**:
 - 미국/한국 주식 데이터 수집기 (US 1,882개 + KR 2,788개 = 5,601개)
 - 데이터 파이프라인 리팩토링 (공통 모듈 추출, 47% 코드 감소)
-- KR 수집기 최적화 (pykrx + yfinance, ~45분 → ~5분)
+- KR 수집기 최적화 (pykrx + yfinance 하이브리드)
 - 기술적 지표 수집 (RSI, MFI, MACD, Bollinger Bands, Volume Change)
 - 하이브리드 저장 (Supabase + CSV)
 - GitHub Actions 워크플로우 (수집 + 백업 + Google Drive)
 - EC2 Self-hosted Runner (yfinance rate limit 회피)
+- 수집기 속도 최적화 (KR ~15분, US ~1.5시간)
 - FastAPI 백엔드 API
 - Next.js 프론트엔드 (Preset 전략, Tooltip UX, 페이지네이션)
 - Vercel + Render 배포
