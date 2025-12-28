@@ -16,6 +16,7 @@
 - 데이터 백업 정책: @.claude/rules/data-policy.md
 - 알림 시스템 가이드: @.claude/rules/alerts.md
 - 개발 프로세스 가이드: @.claude/rules/development.md
+- Self-hosted Runner 설정: @.claude/rules/self-hosted-runner.md
 
 ## 관련 문서 (필요 시 참조)
 
