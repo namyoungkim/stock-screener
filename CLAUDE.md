@@ -36,9 +36,10 @@
 ## 현재 상태
 
 **구현됨**:
-- 미국/한국 주식 데이터 수집기 (전체 유니버스)
+- 미국/한국 주식 데이터 수집기 (US 1,882개 + KR 2,788개 = 5,601개)
+- 기술적 지표 수집 (RSI, MFI, MACD, Bollinger Bands, Volume Change)
 - 하이브리드 저장 (Supabase + CSV)
-- GitHub Actions 워크플로우 (수집 + 백업)
+- GitHub Actions 워크플로우 (수집 + 백업 + Google Drive 옵션)
 - FastAPI 백엔드 API
 - Next.js 프론트엔드 (Preset 전략, Tooltip UX, 페이지네이션)
 - Vercel + Render 배포
@@ -52,7 +53,7 @@
 - 프리셋 관리 페이지 (/presets, 사용자 프리셋 CRUD)
 - 테스트 인프라 (Vitest + pytest)
 
-**미구현**: 디스코드 봇 워치리스트/알림 연동, i18n, Toast/Skeleton 컴포넌트
+**미구현**: 디스코드 봇 워치리스트/알림 연동, i18n
 
 **코드 내 알려진 TODO**:
 - 입력 검증 강화
