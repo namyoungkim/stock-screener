@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { api, PresetStrategy, ScreenRequest, MetricFilter } from "@/lib/api";
 import { StockTable } from "@/components/StockTable";
 import { FilterPanel } from "@/components/FilterPanel";
@@ -9,12 +10,38 @@ import { Pagination } from "@/components/ui/Pagination";
 
 const ITEMS_PER_PAGE = 50;
 
-export default function Home() {
+function HomeContent() {
+  const searchParams = useSearchParams();
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [customFilters, setCustomFilters] = useState<MetricFilter[]>([]);
+
+  // Handle preset from URL (system preset or custom preset from sessionStorage)
+  useEffect(() => {
+    const presetId = searchParams.get("preset");
+    const customPreset = searchParams.get("customPreset");
+
+    if (presetId) {
+      // System preset
+      setSelectedPreset(presetId);
+      setCustomFilters([]);
+    } else if (customPreset === "true") {
+      // User preset - load filters from sessionStorage
+      const storedFilters = sessionStorage.getItem("customFilters");
+      if (storedFilters) {
+        try {
+          const filters = JSON.parse(storedFilters) as MetricFilter[];
+          setCustomFilters(filters);
+          setSelectedPreset(null);
+          sessionStorage.removeItem("customFilters"); // Clean up after use
+        } catch {
+          console.error("Failed to parse custom filters from sessionStorage");
+        }
+      }
+    }
+  }, [searchParams]);
 
   // Fetch presets
   const { data: presets = [] } = useQuery<PresetStrategy[]>({
@@ -145,5 +172,19 @@ export default function Home() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="mx-auto max-w-screen-xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-center py-16">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        </div>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   );
 }
