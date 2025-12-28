@@ -4,6 +4,14 @@
 
 ## 0. 최근 완료 (2025-12-28)
 
+- [x] **워크플로우 일일 실행으로 변경**
+  - 데이터 수집: 평일 매일 00:00 UTC (09:00 KST)
+  - 백업: 평일 매일 01:00 UTC (10:00 KST)
+  - 휴장일은 gracefully 스킵 (pykrx/yfinance 빈 데이터 반환)
+- [x] **Google Drive 백업 OAuth 설정**
+  - Service Account → OAuth 인증으로 변경 (개인 계정 호환)
+  - Production 모드로 토큰 만료 방지
+  - 백업 테스트 완료
 - [x] **데이터 파이프라인 리팩토링** - 공통 모듈 추출 및 코드 최적화
   - `common/` 패키지 생성 (config, logging, retry, indicators, storage)
   - `collectors/base.py` - BaseCollector 추상 클래스
@@ -327,5 +335,6 @@
 - [x] Supabase 스키마 마이그레이션 (기술적 지표 컬럼 + precision 수정)
 
 ### 백업 전략
-- [x] Google Drive 백업 워크플로우 구현 (rclone, `RCLONE_CONFIG` secret 필요)
-- [x] backup.yml 워크플로우 수정
+- [x] Google Drive 백업 워크플로우 구현 (OAuth 인증, `RCLONE_CONFIG` secret)
+- [x] backup.yml 워크플로우 수정 (평일 매일 01:00 UTC)
+- [x] OAuth 설정 가이드 문서화 (`.claude/rules/data-policy.md`)
