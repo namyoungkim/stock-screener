@@ -202,6 +202,10 @@ def load_metrics(
         "bb_lower": "bb_lower",
         "bb_percent": "bb_percent",
         "mfi": "mfi",
+        # Value metrics
+        "eps": "eps",
+        "book_value_per_share": "book_value_per_share",
+        "graham_number": "graham_number",
         # Skipped: forward_pe
     }
 
@@ -241,6 +245,10 @@ def load_metrics(
         "bb_upper": 1e11,
         "bb_middle": 1e11,
         "bb_lower": 1e11,
+        # Value metrics - NUMERIC(16, 4) for price-based
+        "eps": 1e7,
+        "book_value_per_share": 1e11,
+        "graham_number": 1e11,
     }
 
     # Read US metrics
