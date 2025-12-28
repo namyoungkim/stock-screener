@@ -5,6 +5,7 @@ import { X, Plus, Trash2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { api, MetricFilter, OperatorType } from "@/lib/api";
 import { metricsGlossary } from "@/lib/glossary";
+import { useToast } from "@/contexts/ToastContext";
 
 // Available metrics for filtering (same as FilterPanel)
 const FILTER_METRICS = [
@@ -49,6 +50,7 @@ interface PresetFormProps {
 }
 
 export function PresetForm({ token, onClose, onSuccess }: PresetFormProps) {
+  const { success: showSuccess, error: showError } = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [filters, setFilters] = useState<MetricFilter[]>([]);
@@ -65,13 +67,16 @@ export function PresetForm({ token, onClose, onSuccess }: PresetFormProps) {
         filters,
       }),
     onSuccess: () => {
+      showSuccess(`Preset "${name}" created successfully`);
       onSuccess();
     },
     onError: (err: Error) => {
       if (err.message.includes("already exists")) {
         setError("A preset with this name already exists");
+        showError("A preset with this name already exists");
       } else {
         setError("Failed to create preset");
+        showError("Failed to create preset");
       }
     },
   });
