@@ -209,6 +209,21 @@
 
 ---
 
+## 4.5. Self-hosted Runner 설정 ✅
+
+> yfinance rate limit 회피를 위해 EC2에 Self-hosted Runner 설정 완료 (2025-12-28)
+> 가이드: `.claude/rules/self-hosted-runner.md`
+
+- [x] EC2 인스턴스 생성 (t3.micro 또는 t3.small)
+- [x] 초기 환경 설정 (uv, Python 3.11, rclone)
+- [x] rclone 설정 (Google Drive 연동)
+- [x] GitHub Actions Runner 설치 및 서비스 등록
+- [x] 환경 변수 설정 (GitHub Secrets 사용)
+- [x] 워크플로우 테스트 (workflow_dispatch로 수동 실행)
+- [ ] 정상 동작 확인 후 스케줄 활성화
+
+---
+
 ## 5. 디스코드 봇
 
 - [x] `discord-bot/bot/main.py` - 봇 메인 코드
