@@ -1,10 +1,12 @@
 name: Update Stock Data
 
 on:
-  schedule:
-    # Run every weekday at 00:00 UTC (09:00 KST)
-    # Note: Collectors handle market holidays gracefully (skip if no data)
-    - cron: '0 0 * * 1-5'
+  # NOTE: Self-hosted Runner 미사용으로 스케줄 비활성화
+  # 재활성화 시 아래 주석 해제
+  # schedule:
+  #   # Run every weekday at 00:00 UTC (09:00 KST)
+  #   # Note: Collectors handle market holidays gracefully (skip if no data)
+  #   - cron: '0 0 * * 1-5'
   workflow_dispatch:
     inputs:
       market:

@@ -30,12 +30,24 @@ git add . && git commit -m "변경 내용" && git push
 
 ---
 
-## 자동화 인프라
+## 데이터 수집 인프라
 
-| 구성요소 | 설정 |
-|---------|------|
-| 데이터 수집 | EC2 Self-hosted Runner (yfinance rate limit 회피) |
-| 스케줄 | 평일 매일 00:00 UTC (update-data.yml) |
-| 백업 | 수집 완료 후 자동 실행 (backup.yml - workflow_run) |
+### 현재: 로컬 수집 + Google Drive 백업
 
-자세한 설정: @.claude/rules/self-hosted-runner.md
+```bash
+./scripts/collect-and-backup.sh    # KR → US → Google Drive 백업
+```
+
+| 항목 | 설명 |
+|------|------|
+| 수집 | 로컬 Mac에서 수동 실행 |
+| 백업 | rclone → Google Drive |
+| 장점 | 빠른 속도, 무료, Rate Limit 회피 용이 |
+| 단점 | 수동 실행 필요 |
+
+### 참고: Self-hosted Runner (미사용)
+
+EC2 t3.micro의 리소스 제한(1GB RAM, 스레드 한계)으로 현재 미사용.
+향후 Oracle Cloud (24GB RAM 무료) 또는 스펙 업그레이드 시 재검토.
+
+설정 가이드: @.claude/rules/self-hosted-runner.md

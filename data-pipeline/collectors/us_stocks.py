@@ -279,7 +279,7 @@ class USCollector(BaseCollector):
                     period=period,
                     group_by="ticker",
                     progress=False,
-                    threads=False,  # Disable threads to avoid resource limits on low-spec runners
+                    threads=True,
                 )
 
                 if df.empty:

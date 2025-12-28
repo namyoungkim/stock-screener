@@ -48,19 +48,19 @@ stock-screener/
 - 재무 지표: yfinance (ROE, ROA, Margins, D/E, Current Ratio 등)
 - 저장: Supabase + CSV
 
-**자동화**:
-- GitHub Actions가 평일 매일 00:00 UTC에 수집기 실행 (휴장일은 gracefully 스킵)
-- 수집 완료 후 backup.yml 자동 실행 (workflow_run 트리거)
-- Self-hosted Runner 사용 (yfinance rate limit 회피)
+**데이터 수집**:
+- 로컬에서 수동 실행 (`./scripts/collect-and-backup.sh`)
+- Google Drive 백업 (rclone)
+- KR, US 순차 실행 권장 (동시 실행 시 yfinance Rate Limit 발생)
 
-**수집 소요 시간** (Self-hosted Runner 기준):
+**수집 소요 시간** (로컬 Mac 기준):
 
 | 마켓 | 종목 수 | 예상 시간 |
 |------|---------|----------|
-| KR | ~2,800개 | ~15-20분 |
-| US | ~2,800개 | ~1.5-2시간 |
+| KR | ~2,800개 | ~10-15분 |
+| US | ~2,800개 | ~10-15분 |
 
-> 히스토리 2개월 다운로드, batch 500개, sleep 최소화 적용
+> 주의: KR, US 동시 실행 시 yfinance Rate Limit에 걸릴 수 있음
 
 ## 수집 지표
 

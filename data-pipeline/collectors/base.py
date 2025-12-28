@@ -7,6 +7,7 @@ It handles common functionality like:
 - Resume from failed collections
 - Data validation
 - Storage to Supabase and CSV
+- Rate limit detection and graceful exit
 """
 
 import logging
@@ -18,6 +19,11 @@ import pandas as pd
 from common.config import DATA_DIR
 from common.indicators import calculate_all_technicals, calculate_graham_number
 from common.logging import CollectionProgress, setup_logger
+from common.rate_limit import (
+    ProgressTracker,
+    check_rate_limit,
+    handle_rate_limit_exit,
+)
 from common.retry import RetryQueue
 from common.storage import StorageManager, get_supabase_client
 from processors.validators import MetricsValidator
@@ -66,6 +72,9 @@ class BaseCollector(ABC):
         )
         self.validator = MetricsValidator()
         self.retry_queue = RetryQueue()
+        self.progress_tracker = ProgressTracker(self.MARKET_PREFIX)
+        self._rate_limit_errors = 0
+        self._max_rate_limit_errors = 3  # Exit after this many consecutive rate limit errors
 
     @abstractmethod
     def get_tickers(self) -> list[str]:
@@ -127,6 +136,7 @@ class BaseCollector(ABC):
         resume: bool = False,
         batch_size: int = 50,
         is_test: bool = False,
+        check_rate_limit_first: bool = True,
     ) -> dict:
         """
         Main collection method.
@@ -136,24 +146,40 @@ class BaseCollector(ABC):
             resume: If True, skip already collected tickers
             batch_size: Number of tickers per batch
             is_test: If True, append "_test" to CSV filenames
+            check_rate_limit_first: If True, check rate limit before starting
 
         Returns:
             Dictionary with collection statistics
         """
+        # Check rate limit before starting
+        if check_rate_limit_first and not is_test:
+            self.logger.info("Checking rate limit status...")
+            if check_rate_limit():
+                handle_rate_limit_exit(
+                    self.MARKET_PREFIX,
+                    self.progress_tracker.count,
+                    0,
+                    "Rate limited before collection started",
+                )
+
         # Get tickers if not provided
         if tickers is None:
             tickers = self.get_tickers()
             self.logger.info(f"Found {len(tickers)} tickers to collect")
 
-        # Resume: skip already collected tickers
+        total_tickers = len(tickers)
+
+        # Resume: skip already collected tickers using ProgressTracker
         if resume:
-            completed = self.storage.load_completed_tickers()
             original_count = len(tickers)
-            tickers = [t for t in tickers if t not in completed]
+            tickers = self.progress_tracker.get_remaining(tickers)
             self.logger.info(
                 f"Resume mode: Skipping {original_count - len(tickers)} already collected tickers. "
                 f"{len(tickers)} remaining."
             )
+        else:
+            # Clear previous progress if not resuming
+            self.progress_tracker.clear_progress()
 
         if not tickers:
             self.logger.info("No tickers to collect")
@@ -241,13 +267,43 @@ class BaseCollector(ABC):
                         )
 
                 progress.update(success=True)
+                self.progress_tracker.mark_completed(ticker)
+                self._rate_limit_errors = 0  # Reset on success
 
             except Exception as e:
-                self.logger.error(f"Error processing {ticker}: {e}")
-                self.retry_queue.add_failed(ticker, str(e))
+                error_msg = str(e).lower()
+                is_rate_limit = "rate limit" in error_msg or "too many requests" in error_msg
+
+                if is_rate_limit:
+                    self._rate_limit_errors += 1
+                    self.logger.warning(f"Rate limit error ({self._rate_limit_errors}/{self._max_rate_limit_errors}): {e}")
+
+                    if self._rate_limit_errors >= self._max_rate_limit_errors:
+                        # Save progress and exit
+                        self.progress_tracker.save_progress()
+                        if self.save_csv and (all_companies or all_metrics or all_prices):
+                            self.storage.save_to_csv(
+                                companies=all_companies,
+                                metrics=all_metrics,
+                                prices=all_prices,
+                                is_test=is_test,
+                            )
+                        handle_rate_limit_exit(
+                            self.MARKET_PREFIX,
+                            self.progress_tracker.count,
+                            total_tickers,
+                            str(e),
+                        )
+                else:
+                    self.logger.error(f"Error processing {ticker}: {e}")
+                    self.retry_queue.add_failed(ticker, str(e))
+
                 progress.update(success=False)
 
             progress.log_progress(interval=100)
+
+        # Save progress
+        self.progress_tracker.save_progress()
 
         # Save to CSV
         if self.save_csv:

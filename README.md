@@ -133,17 +133,24 @@ NEXT_PUBLIC_API_URL=http://localhost:8000  # 로컬
    - Site URL: `https://your-domain.vercel.app`
    - Redirect URL: `https://your-domain.vercel.app/auth/callback`
 
-### 데이터 수집 자동화
+### 데이터 수집
 
-EC2 Self-hosted Runner를 사용하여 데이터를 자동 수집합니다.
+로컬에서 수동으로 데이터를 수집하고 Google Drive에 백업합니다.
 
-| 항목 | 설정 |
+```bash
+./scripts/collect-and-backup.sh         # 전체 (KR → US → 백업)
+./scripts/collect-and-backup.sh kr      # KR만 + 백업
+./scripts/collect-and-backup.sh us      # US만 + 백업
+./scripts/collect-and-backup.sh kr --resume  # Rate Limit 후 재시작
+```
+
+| 항목 | 설명 |
 |------|------|
-| 수집 스케줄 | 평일 매일 00:00 UTC (09:00 KST) |
-| 백업 | 수집 완료 후 자동 실행 (Google Drive) |
-| Runner | EC2 Self-hosted (yfinance rate limit 회피) |
+| 수집 | 로컬 Mac에서 수동 실행 |
+| 백업 | rclone → Google Drive |
+| Rate Limit | 자동 감지 후 진행 저장, `--resume`으로 재시작 |
 
-자세한 설정: `.claude/rules/self-hosted-runner.md`
+> 참고: Self-hosted Runner 설정 가이드는 `.claude/rules/self-hosted-runner.md` 참조
 
 ## 라이선스
 
