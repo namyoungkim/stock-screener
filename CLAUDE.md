@@ -15,6 +15,7 @@
 - 비전 및 AI 로드맵: @.claude/rules/vision.md
 - 데이터 백업 정책: @.claude/rules/data-policy.md
 - 알림 시스템 가이드: @.claude/rules/alerts.md
+- 개발 프로세스 가이드: @.claude/rules/development.md
 
 ## 관련 문서 (필요 시 참조)
 
@@ -48,8 +49,10 @@
 - 다크모드 (Tailwind class 전략, localStorage 저장)
 - 알림 시스템 (지표 기반 알림 CRUD, /alerts 페이지)
 - Advanced Filters (커스텀 지표 필터링, 20개 지표 지원)
+- 프리셋 관리 페이지 (/presets, 사용자 프리셋 CRUD)
+- 테스트 인프라 (Vitest + pytest)
 
-**미구현**: 디스코드 봇 워치리스트/알림 연동, i18n
+**미구현**: 디스코드 봇 워치리스트/알림 연동, i18n, Toast/Skeleton 컴포넌트
 
 **코드 내 알려진 TODO**:
 - 입력 검증 강화
