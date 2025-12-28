@@ -1,14 +1,17 @@
 name: Daily Backup
 
 on:
-  schedule:
-    # Every weekday at 00:00 UTC (after data collection)
-    - cron: '0 1 * * 1-5'
+  workflow_run:
+    workflows: ["Update Stock Data"]
+    types:
+      - completed
   workflow_dispatch:  # Manual trigger
 
 jobs:
   backup:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
+    # Run only if update-data succeeded or manually triggered
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     env:
       HAS_RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG != '' }}
 
@@ -85,21 +88,10 @@ jobs:
       - name: Upload to Google Drive
         if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
         run: |
-          # Upload Supabase backup CSVs
+          # Upload Supabase backup CSVs only
+          # (prices/financials are backed up by update-data.yml)
           echo "Uploading Supabase backup CSVs to Google Drive..."
           rclone copy data/backup/ gdrive:backups/ --progress
-
-          # Upload daily data files if they exist
-          if [ -d "data/prices" ]; then
-            echo "Uploading price data..."
-            rclone copy data/prices/ gdrive:prices/ --progress
-          fi
-
-          if [ -d "data/financials" ]; then
-            echo "Uploading financial data..."
-            rclone copy data/financials/ gdrive:financials/ --progress
-          fi
-
           echo "Google Drive backup complete!"
 
       - name: Cleanup old backups (keep 4 weeks rolling)

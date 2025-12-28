@@ -29,8 +29,10 @@ env:
 jobs:
   collect-us:
     name: Collect US Stocks
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: ${{ github.event.inputs.market == 'all' || github.event.inputs.market == 'us' || github.event_name == 'schedule' }}
+    env:
+      HAS_RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG != '' }}
 
     steps:
       - name: Checkout repository
@@ -54,6 +56,13 @@ jobs:
             uv run --package stock-screener-data-pipeline python -m collectors.us_stocks
           fi
 
+      - name: Backup to Google Drive
+        if: ${{ env.HAS_RCLONE_CONFIG == 'true' && steps.us_collector.outcome == 'success' }}
+        run: |
+          echo "Uploading US data to Google Drive..."
+          rclone copy data/prices/ gdrive:prices/ --progress
+          rclone copy data/financials/ gdrive:financials/ --progress
+
       - name: Summary
         if: always()
         run: |
@@ -64,8 +73,10 @@ jobs:
 
   collect-kr:
     name: Collect KR Stocks
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: ${{ github.event.inputs.market == 'all' || github.event.inputs.market == 'kr' || github.event_name == 'schedule' }}
+    env:
+      HAS_RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG != '' }}
 
     steps:
       - name: Checkout repository
@@ -89,6 +100,13 @@ jobs:
             uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks
           fi
 
+      - name: Backup to Google Drive
+        if: ${{ env.HAS_RCLONE_CONFIG == 'true' && steps.kr_collector.outcome == 'success' }}
+        run: |
+          echo "Uploading KR data to Google Drive..."
+          rclone copy data/prices/ gdrive:prices/ --progress
+          rclone copy data/financials/ gdrive:financials/ --progress
+
       - name: Summary
         if: always()
         run: |
@@ -99,7 +117,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [collect-us, collect-kr]
     if: ${{ failure() }}
 
