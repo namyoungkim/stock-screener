@@ -10,6 +10,7 @@ import { AlertForm } from "@/components/AlertForm";
 import { formatMarketCap, formatPercent, formatRatio } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { metricsGlossary } from "@/lib/glossary";
+import { SkeletonStockDetail } from "@/components/ui/Skeleton";
 
 function MetricLabel({ label, glossaryKey }: { label: string; glossaryKey: string }) {
   const tooltip = metricsGlossary[glossaryKey];
@@ -39,13 +40,7 @@ export default function StockDetailPage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <div className="flex items-center justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-        </div>
-      </div>
-    );
+    return <SkeletonStockDetail />;
   }
 
   if (error || !data) {

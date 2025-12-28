@@ -6,6 +6,7 @@ import { Bell, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
 import { api, AlertItem } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { metricsGlossary } from "@/lib/glossary";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 
 // Available metrics for alerts
 const ALERT_METRICS = [
@@ -79,10 +80,12 @@ export default function AlertsPage() {
   // Loading
   if (authLoading || isLoading) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-16">
-        <div className="flex items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className="mb-8">
+          <div className="h-9 w-32 bg-gray-200 dark:bg-slate-700 rounded animate-pulse" />
+          <div className="h-5 w-24 bg-gray-200 dark:bg-slate-700 rounded animate-pulse mt-2" />
         </div>
+        <SkeletonTable rows={5} columns={6} />
       </div>
     );
   }

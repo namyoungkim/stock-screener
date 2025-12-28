@@ -140,3 +140,79 @@ export function SkeletonTable({
     </div>
   );
 }
+
+// Preset card skeleton
+export function SkeletonPresetCard({ className }: { className?: string }) {
+  return (
+    <div className={cn("rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4", className)}>
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex-1">
+          <Skeleton variant="text" width="60%" height={20} />
+          <Skeleton variant="text" width="80%" height={14} className="mt-2" />
+        </div>
+      </div>
+      <div className="mt-3 space-y-2">
+        <Skeleton variant="text" width="70%" height={14} />
+        <Skeleton variant="text" width="50%" height={14} />
+        <Skeleton variant="text" width="60%" height={14} />
+      </div>
+      <div className="mt-4 flex items-center gap-2">
+        <Skeleton variant="rectangular" width={70} height={32} />
+      </div>
+    </div>
+  );
+}
+
+// Stock detail page skeleton
+export function SkeletonStockDetail({ className }: { className?: string }) {
+  return (
+    <div className={cn("mx-auto max-w-4xl px-4 py-8", className)}>
+      {/* Back button */}
+      <Skeleton variant="text" width={120} height={20} className="mb-6" />
+
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center gap-3">
+          <Skeleton variant="text" width={100} height={36} />
+          <Skeleton variant="rectangular" width={60} height={28} />
+          <Skeleton variant="circular" width={32} height={32} />
+        </div>
+        <Skeleton variant="text" width="40%" height={24} className="mt-2" />
+        <Skeleton variant="text" width="30%" height={16} className="mt-2" />
+      </div>
+
+      {/* Price Info Card */}
+      <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 mb-6">
+        <div className="flex items-baseline gap-4">
+          <Skeleton variant="text" width={120} height={40} />
+          <Skeleton variant="text" width={80} height={24} />
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i}>
+              <Skeleton variant="text" width="60%" height={12} />
+              <Skeleton variant="text" width="80%" height={20} className="mt-1" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Metrics Grid */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+            <Skeleton variant="text" width="40%" height={16} className="mb-3" />
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, j) => (
+                <div key={j} className="flex justify-between">
+                  <Skeleton variant="text" width="30%" height={14} />
+                  <Skeleton variant="text" width="20%" height={14} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

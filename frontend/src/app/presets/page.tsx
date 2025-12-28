@@ -7,6 +7,7 @@ import { Layers, Plus, Trash2, Play } from "lucide-react";
 import { api, UserPreset, MetricFilter } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { PresetForm } from "@/components/PresetForm";
+import { SkeletonPresetCard } from "@/components/ui/Skeleton";
 
 // Metric label mapping
 const METRIC_LABELS: Record<string, string> = {
@@ -149,8 +150,23 @@ export default function PresetsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        <div className="space-y-8">
+          <section>
+            <div className="h-6 w-32 bg-gray-200 dark:bg-slate-700 rounded animate-pulse mb-4" />
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonPresetCard key={i} />
+              ))}
+            </div>
+          </section>
+          <section>
+            <div className="h-6 w-28 bg-gray-200 dark:bg-slate-700 rounded animate-pulse mb-4" />
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <SkeletonPresetCard key={i} />
+              ))}
+            </div>
+          </section>
         </div>
       ) : (
         <div className="space-y-8">

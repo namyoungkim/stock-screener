@@ -6,6 +6,7 @@ import { Star } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { WatchlistButton } from "@/components/WatchlistButton";
+import { SkeletonTable } from "@/components/ui/Skeleton";
 
 export default function WatchlistPage() {
   const { session, user, isLoading: authLoading } = useAuth();
@@ -38,10 +39,12 @@ export default function WatchlistPage() {
   // Loading
   if (authLoading || isLoading) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-16">
-        <div className="flex items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className="mb-8">
+          <div className="h-9 w-36 bg-gray-200 dark:bg-slate-700 rounded animate-pulse" />
+          <div className="h-5 w-28 bg-gray-200 dark:bg-slate-700 rounded animate-pulse mt-2" />
         </div>
+        <SkeletonTable rows={5} columns={6} />
       </div>
     );
   }
