@@ -15,6 +15,12 @@
 - **알림 시스템**: 지표 기반 알림 설정 (P/E < 15 등)
 - **사용자 프리셋**: 커스텀 필터 조합 저장
 
+### 투자 인사이트
+- **종합 투자 점수**: P/E, P/B, ROE, D/E, RSI, Graham Number 등 기반 0-100점
+- **투자 신호**: STRONG_BUY / BUY / HOLD / SELL / STRONG_SELL
+- **액션 가이드**: Graham Number 대비 저평가율, 52주 위치, RSI 상태 등
+- **리스크 경고**: 높은 부채비율, 유동성 위험, 순손실 등 자동 감지
+
 ### 기술 지표
 - **기본 지표**: P/E, P/B, P/S, EV/EBITDA, ROE, ROA, Margin 등
 - **모멘텀 지표**: RSI, MACD, 볼린저 밴드, MFI
