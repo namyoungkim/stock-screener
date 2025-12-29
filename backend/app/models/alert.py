@@ -3,7 +3,9 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from app.models.common import CompanyId, MetricType, MetricValue
 
 
 class OperatorType(str, Enum):
@@ -19,13 +21,10 @@ class OperatorType(str, Enum):
 class AlertItemBase(BaseModel):
     """Base alert item model."""
 
-    company_id: str
-    metric: str = Field(
-        ...,
-        description="Metric to monitor (e.g., 'pe_ratio', 'pb_ratio', 'price', 'rsi')",
-    )
+    company_id: CompanyId
+    metric: MetricType
     operator: OperatorType
-    value: float
+    value: MetricValue
 
 
 class AlertItemCreate(AlertItemBase):
@@ -37,9 +36,9 @@ class AlertItemCreate(AlertItemBase):
 class AlertItemUpdate(BaseModel):
     """Update alert item request."""
 
-    metric: str | None = None
+    metric: MetricType | None = None
     operator: OperatorType | None = None
-    value: float | None = None
+    value: MetricValue | None = None
     is_active: bool | None = None
 
 

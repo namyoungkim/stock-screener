@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.models.common import MetricType
 from app.models.stock import (
     CompanyWithMetrics,
     MarketType,
@@ -18,9 +19,15 @@ PRESETS: dict[str, PresetStrategy] = {
         name="Graham Classic",
         description="Benjamin Graham's classic value criteria: P/E < 15, P/B < 1.5, D/E < 0.5",
         filters=[
-            MetricFilter(metric="pe_ratio", operator=OperatorType.LT, value=15),
-            MetricFilter(metric="pb_ratio", operator=OperatorType.LT, value=1.5),
-            MetricFilter(metric="debt_equity", operator=OperatorType.LT, value=0.5),
+            MetricFilter(
+                metric=MetricType.PE_RATIO, operator=OperatorType.LT, value=15
+            ),
+            MetricFilter(
+                metric=MetricType.PB_RATIO, operator=OperatorType.LT, value=1.5
+            ),
+            MetricFilter(
+                metric=MetricType.DEBT_EQUITY, operator=OperatorType.LT, value=0.5
+            ),
         ],
     ),
     "buffett": PresetStrategy(
@@ -28,8 +35,10 @@ PRESETS: dict[str, PresetStrategy] = {
         name="Buffett Quality",
         description="Warren Buffett style: ROE > 15%, positive margins",
         filters=[
-            MetricFilter(metric="roe", operator=OperatorType.GT, value=0.15),
-            MetricFilter(metric="net_margin", operator=OperatorType.GT, value=0.1),
+            MetricFilter(metric=MetricType.ROE, operator=OperatorType.GT, value=0.15),
+            MetricFilter(
+                metric=MetricType.NET_MARGIN, operator=OperatorType.GT, value=0.1
+            ),
         ],
     ),
     "dividend": PresetStrategy(
@@ -37,7 +46,9 @@ PRESETS: dict[str, PresetStrategy] = {
         name="Dividend Value",
         description="High dividend yield stocks: Dividend Yield > 3%",
         filters=[
-            MetricFilter(metric="dividend_yield", operator=OperatorType.GT, value=0.03),
+            MetricFilter(
+                metric=MetricType.DIVIDEND_YIELD, operator=OperatorType.GT, value=0.03
+            ),
         ],
     ),
     "deep_value": PresetStrategy(
@@ -45,8 +56,10 @@ PRESETS: dict[str, PresetStrategy] = {
         name="Deep Value",
         description="Deep value stocks: P/B < 1, P/E < 10",
         filters=[
-            MetricFilter(metric="pb_ratio", operator=OperatorType.LT, value=1),
-            MetricFilter(metric="pe_ratio", operator=OperatorType.LT, value=10),
+            MetricFilter(metric=MetricType.PB_RATIO, operator=OperatorType.LT, value=1),
+            MetricFilter(
+                metric=MetricType.PE_RATIO, operator=OperatorType.LT, value=10
+            ),
         ],
     ),
 }
@@ -68,7 +81,8 @@ def _build_filter_query(
 ) -> Any:
     """Apply filters to query."""
     for f in filters:
-        column = f.metric
+        # Get string value from Enum for database column name
+        column = f.metric.value if hasattr(f.metric, "value") else f.metric
         value = f.value
 
         match f.operator:

@@ -4,13 +4,15 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.models.common import CompanyId, NotesField, TargetPrice
+
 
 class WatchlistItemBase(BaseModel):
     """Base watchlist item model."""
 
-    company_id: str
-    notes: str | None = None
-    target_price: float | None = None
+    company_id: CompanyId
+    notes: NotesField | None = None
+    target_price: TargetPrice | None = None
 
 
 class WatchlistItemCreate(WatchlistItemBase):
@@ -22,8 +24,8 @@ class WatchlistItemCreate(WatchlistItemBase):
 class WatchlistItemUpdate(BaseModel):
     """Update watchlist item request."""
 
-    notes: str | None = None
-    target_price: float | None = None
+    notes: NotesField | None = None
+    target_price: TargetPrice | None = None
 
 
 class WatchlistItem(WatchlistItemBase):

@@ -205,7 +205,12 @@
 - [x] CORS 설정 수정 (`"*"` → 특정 도메인만 허용)
 - [ ] API 키 노출 방지 (환경변수 검증)
 - [x] Rate limiting 미들웨어 추가 (slowapi)
-- [ ] 입력 검증 강화
+- [x] 입력 검증 강화
+  - `MetricType` Enum으로 metric 필드 화이트리스트 (33개 지표)
+  - 숫자 범위 제한 (`-1e12 ~ 1e12`)
+  - 문자열 길이 제한 (notes: 1000자, description: 500자)
+  - UUID v4 형식 검증 (company_id 등)
+  - ticker 패턴 검증 (`^[A-Za-z0-9.\-]+$`)
 
 ---
 

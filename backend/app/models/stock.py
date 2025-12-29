@@ -5,6 +5,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from app.models.common import MetricType, MetricValue
+
 
 class MarketType(str, Enum):
     """Market type enum."""
@@ -195,9 +197,9 @@ class OperatorType(str, Enum):
 class MetricFilter(BaseModel):
     """Single metric filter."""
 
-    metric: str
+    metric: MetricType
     operator: OperatorType
-    value: float
+    value: MetricValue
 
 
 class ScreenRequest(BaseModel):

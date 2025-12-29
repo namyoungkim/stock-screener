@@ -124,10 +124,10 @@ Authorization: Bearer <jwt_token>
 - JWT 토큰 검증 (ES256/JWKS)
 - 인증 필요 엔드포인트 보호
 - Rate Limiting (slowapi)
+- 입력 검증 강화 (아래 섹션 참조)
 
 #### 향후 구현 예정
 - [ ] API 키 노출 방지 (환경변수 검증)
-- [ ] 입력 검증 강화
 - [ ] 로깅 및 모니터링
 
 ---
@@ -160,6 +160,90 @@ HTTP 상태 코드: `429 Too Many Requests`
 
 ---
 
+## 입력 검증 (Input Validation)
+
+### 개념
+
+입력 검증은 API 요청 데이터를 검증하여 SQL Injection, XSS, DoS 공격을 방지합니다.
+
+### 구현 상세
+
+`backend/app/models/common.py`에 공통 타입 정의:
+
+#### MetricType Enum (화이트리스트)
+
+`metric` 필드는 33개의 허용된 값만 수용합니다:
+
+```python
+class MetricType(str, Enum):
+    PE_RATIO = "pe_ratio"
+    PB_RATIO = "pb_ratio"
+    ROE = "roe"
+    RSI = "rsi"
+    # ... 총 33개 지표
+```
+
+잘못된 metric 값 요청 시:
+```json
+{
+  "detail": [
+    {
+      "type": "enum",
+      "loc": ["body", "filters", 0, "metric"],
+      "msg": "Input should be 'pe_ratio', 'pb_ratio', ..."
+    }
+  ]
+}
+```
+
+#### 숫자 범위 제한
+
+```python
+MetricValue = Annotated[float, Field(ge=-1e12, le=1e12)]
+TargetPrice = Annotated[float, Field(gt=0, le=1e9)]
+```
+
+#### UUID 형식 검증
+
+```python
+UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+CompanyId = Annotated[str, Field(pattern=UUID_PATTERN)]
+```
+
+#### 문자열 길이 제한
+
+```python
+NotesField = Annotated[str, Field(max_length=1000)]
+DescriptionField = Annotated[str, Field(max_length=500)]
+```
+
+### 검증 적용 엔드포인트
+
+| 엔드포인트 | 검증 항목 |
+|------------|----------|
+| `POST /api/screen` | `metric` 화이트리스트, `value` 범위 |
+| `POST /api/alerts` | `company_id` UUID, `metric` 화이트리스트, `value` 범위 |
+| `POST /api/watchlist` | `company_id` UUID, `notes` 길이, `target_price` 범위 |
+| `POST /api/user-presets` | `description` 길이, `filters` 검증 |
+| `GET /api/stocks/{ticker}` | `ticker` 패턴 (`^[A-Za-z0-9.\-]+$`) |
+| `GET /api/stocks?search=` | `search` 길이 (1-100자) |
+
+### 잘못된 입력 예시
+
+```bash
+# SQL Injection 시도 - 400 에러로 차단
+curl -X POST http://localhost:8000/api/screen \
+  -H "Content-Type: application/json" \
+  -d '{"filters": [{"metric": "pe_ratio; DROP TABLE--", "operator": "<", "value": 15}]}'
+
+# 범위 초과 - 400 에러로 차단
+curl -X POST http://localhost:8000/api/screen \
+  -H "Content-Type: application/json" \
+  -d '{"filters": [{"metric": "pe_ratio", "operator": "<", "value": 1e15}]}'
+```
+
+---
+
 ## 문제 해결
 
 ### CORS 에러
@@ -188,3 +272,17 @@ has been blocked by CORS policy
 1. Supabase Dashboard > Authentication > URL Configuration 확인
 2. Redirect URL에 `/auth/callback` 경로 포함 여부
 3. Vercel 환경변수 설정 후 재배포 여부
+
+### 422 Validation Error
+
+```json
+{"detail": [{"type": "enum", "loc": ["body", "filters", 0, "metric"], "msg": "Input should be..."}]}
+```
+
+**원인:** 입력 값이 검증 규칙에 맞지 않음
+
+**확인 사항:**
+1. `metric` 필드가 허용된 값인지 확인 (pe_ratio, pb_ratio, roe 등)
+2. `value` 필드가 범위 내인지 확인 (-1e12 ~ 1e12)
+3. `company_id`가 올바른 UUID v4 형식인지 확인 (소문자)
+4. 문자열 길이가 제한을 초과하지 않는지 확인

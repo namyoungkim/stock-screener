@@ -57,8 +57,6 @@
 - Advanced Filters (커스텀 지표 필터링, 20개 지표 지원)
 - 프리셋 관리 페이지 (/presets, 사용자 프리셋 CRUD)
 - 테스트 인프라 (Vitest + pytest)
+- 입력 검증 강화 (MetricType Enum 화이트리스트, UUID/범위/길이 검증)
 
 **미구현**: 디스코드 봇 워치리스트/알림 연동, i18n
-
-**코드 내 알려진 TODO**:
-- 입력 검증 강화

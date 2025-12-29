@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.models.common import DescriptionField
 from app.models.stock import MetricFilter
 
 
@@ -11,7 +12,7 @@ class UserPresetBase(BaseModel):
     """Base user preset model."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    description: str | None = None
+    description: DescriptionField | None = None
 
 
 class UserPresetCreate(UserPresetBase):
@@ -24,7 +25,7 @@ class UserPresetUpdate(BaseModel):
     """Update user preset request."""
 
     name: str | None = Field(None, min_length=1, max_length=255)
-    description: str | None = None
+    description: DescriptionField | None = None
     filters: list[MetricFilter] | None = None
 
 

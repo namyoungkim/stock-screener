@@ -1,6 +1,8 @@
 """Stock API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
 from app.core.database import get_db
 from app.core.rate_limit import RATE_LIMITS, limiter
@@ -20,7 +22,9 @@ router = APIRouter(prefix="/stocks", tags=["stocks"])
 async def list_stocks(
     request: Request,
     market: MarketType | None = Query(None, description="Filter by market"),
-    search: str | None = Query(None, description="Search by ticker or name"),
+    search: str | None = Query(
+        None, min_length=1, max_length=100, description="Search by ticker or name"
+    ),
     limit: int = Query(100, le=500, description="Maximum results"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     db: Client = Depends(get_db),
@@ -48,7 +52,15 @@ async def list_stocks(
 @limiter.limit(RATE_LIMITS["default"])
 async def get_stock(
     request: Request,
-    ticker: str,
+    ticker: Annotated[
+        str,
+        Path(
+            min_length=1,
+            max_length=20,
+            pattern=r"^[A-Za-z0-9.\-]+$",
+            description="Stock ticker symbol",
+        ),
+    ],
     market: MarketType | None = Query(
         None, description="Market (required for KR stocks)"
     ),

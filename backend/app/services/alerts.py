@@ -55,13 +55,15 @@ async def create_alert(
     item: AlertItemCreate,
 ) -> AlertItem:
     """Create a new alert."""
+    # Get string value from Enum for database storage
+    metric_value = item.metric.value if hasattr(item.metric, "value") else item.metric
     result = (
         db.table("alerts")
         .insert(
             {
                 "user_id": user_id,
                 "company_id": item.company_id,
-                "metric": item.metric,
+                "metric": metric_value,
                 "operator": item.operator.value,
                 "value": item.value,
             }
@@ -115,9 +117,15 @@ async def update_alert(
     if not update_data:
         return None
 
-    # Convert operator enum to string if present
+    # Convert enums to strings for database storage
     if "operator" in update_data and update_data["operator"] is not None:
         update_data["operator"] = update_data["operator"].value
+    if "metric" in update_data and update_data["metric"] is not None:
+        update_data["metric"] = (
+            update_data["metric"].value
+            if hasattr(update_data["metric"], "value")
+            else update_data["metric"]
+        )
 
     result = (
         db.table("alerts")
