@@ -24,9 +24,9 @@ uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --t
 **티커 유니버스**:
 | 옵션 | 소스 | 종목 수 | 예상 시간 |
 |------|------|---------|----------|
-| (기본) | NASDAQ FTP (NYSE + NASDAQ) | ~6,000개 | ~1-2시간 |
-| `--index-only` | S&P 500/400/600 + Russell 2000 | ~2,800개 | ~30-60분 |
-| `--sp500` | S&P 500만 | ~500개 | ~10분 |
+| (기본) | NASDAQ FTP (NYSE + NASDAQ) | ~6,000개 | ~2-3시간 |
+| `--index-only` | S&P 500/400/600 + Russell 2000 | ~2,800개 | ~1-2시간 |
+| `--sp500` | S&P 500만 | ~500개 | ~15-30분 |
 
 ### 한국 주식 수집
 ```bash
