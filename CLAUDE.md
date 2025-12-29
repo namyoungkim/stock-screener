@@ -16,6 +16,7 @@
 - 데이터 백업 정책: @.claude/rules/data-policy.md
 - 알림 시스템 가이드: @.claude/rules/alerts.md
 - 디스코드 봇 가이드: @.claude/rules/discord-bot.md
+- 디스코드 봇 배포 옵션: @.claude/rules/discord-bot-deployment.md
 - 개발 프로세스 가이드: @.claude/rules/development.md
 - Self-hosted Runner 설정: @.claude/rules/self-hosted-runner.md
 
@@ -62,4 +63,4 @@
 - API 키 노출 방지 (환경변수 검증, 로그 마스킹, DB 연결 검증)
 - 디스코드 봇 워치리스트/알림 연동 (/watch, /watchlist, /alert, /alerts 등)
 
-**미구현**: i18n
+**미구현**: 디스코드 봇 배포 (의사결정 필요), i18n
