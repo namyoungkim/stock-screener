@@ -345,51 +345,72 @@ class USCollector(BaseCollector):
             "graham_number": calculate_graham_number(eps, bvps),
         }
 
-    def fetch_prices_batch(self, tickers: list[str]) -> dict[str, dict]:
-        """Fetch price data for multiple tickers using yf.download."""
+    def fetch_prices_batch(
+        self, tickers: list[str], batch_size: int = 500
+    ) -> dict[str, dict]:
+        """Fetch price data for multiple tickers using yf.download in batches.
+
+        Args:
+            tickers: List of ticker symbols
+            batch_size: Number of tickers per batch (default 500)
+        """
         results: dict[str, dict] = {}
+        today = date.today().isoformat()
 
-        try:
-            df = yf.download(tickers, period="1d", group_by="ticker", progress=False)
+        self.logger.info(
+            f"Fetching prices for {len(tickers)} tickers in batches of {batch_size}..."
+        )
 
-            if df.empty:
-                return results
+        for i in tqdm(
+            range(0, len(tickers), batch_size), desc="Fetching prices", leave=False
+        ):
+            batch = tickers[i : i + batch_size]
+            try:
+                df = yf.download(
+                    batch, period="1d", group_by="ticker", progress=False, threads=True
+                )
 
-            today = date.today().isoformat()
+                if df.empty:
+                    continue
 
-            for ticker in tickers:
-                try:
-                    if len(tickers) == 1:
-                        row = df.iloc[-1]
-                    else:
-                        if ticker not in df.columns.get_level_values(0):
-                            continue
-                        row = df[ticker].iloc[-1]
+                for ticker in batch:
+                    try:
+                        if len(batch) == 1:
+                            row = df.iloc[-1]
+                        else:
+                            if ticker not in df.columns.get_level_values(0):
+                                continue
+                            row = df[ticker].iloc[-1]
 
-                    if pd.notna(row.get("Close")):
-                        results[ticker] = {
-                            "date": today,
-                            "open": float(row["Open"])
-                            if pd.notna(row.get("Open"))
-                            else None,
-                            "high": float(row["High"])
-                            if pd.notna(row.get("High"))
-                            else None,
-                            "low": float(row["Low"])
-                            if pd.notna(row.get("Low"))
-                            else None,
-                            "close": float(row["Close"])
-                            if pd.notna(row.get("Close"))
-                            else None,
-                            "volume": int(row["Volume"])
-                            if pd.notna(row.get("Volume"))
-                            else None,
-                        }
-                except Exception:
-                    pass
+                        if pd.notna(row.get("Close")):
+                            results[ticker] = {
+                                "date": today,
+                                "open": float(row["Open"])
+                                if pd.notna(row.get("Open"))
+                                else None,
+                                "high": float(row["High"])
+                                if pd.notna(row.get("High"))
+                                else None,
+                                "low": float(row["Low"])
+                                if pd.notna(row.get("Low"))
+                                else None,
+                                "close": float(row["Close"])
+                                if pd.notna(row.get("Close"))
+                                else None,
+                                "volume": int(row["Volume"])
+                                if pd.notna(row.get("Volume"))
+                                else None,
+                            }
+                    except Exception:
+                        pass
 
-        except Exception as e:
-            self.logger.error(f"Price batch error: {e}")
+                # Sleep between batches
+                time.sleep(0.5 + random.uniform(0, 0.5))
+
+            except Exception as e:
+                self.logger.error(f"Price batch error: {e}")
+                time.sleep(2.0)
+                continue
 
         return results
 
