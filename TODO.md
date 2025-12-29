@@ -203,7 +203,11 @@
 ## 4. 보안
 
 - [x] CORS 설정 수정 (`"*"` → 특정 도메인만 허용)
-- [ ] API 키 노출 방지 (환경변수 검증)
+- [x] API 키 노출 방지 (환경변수 검증)
+  - 서버 시작 시 필수 환경변수 검증 (SUPABASE_URL, SUPABASE_KEY)
+  - 프로덕션 환경에서 누락 시 서버 시작 실패
+  - 로그에 민감한 정보 마스킹 (`mask_secret()`)
+  - DB 연결 health check
 - [x] Rate limiting 미들웨어 추가 (slowapi)
 - [x] 입력 검증 강화
   - `MetricType` Enum으로 metric 필드 화이트리스트 (33개 지표)

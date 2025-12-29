@@ -125,9 +125,9 @@ Authorization: Bearer <jwt_token>
 - 인증 필요 엔드포인트 보호
 - Rate Limiting (slowapi)
 - 입력 검증 강화 (아래 섹션 참조)
+- API 키 노출 방지 (아래 섹션 참조)
 
 #### 향후 구현 예정
-- [ ] API 키 노출 방지 (환경변수 검증)
 - [ ] 로깅 및 모니터링
 
 ---
@@ -157,6 +157,83 @@ Rate Limiting은 API 남용을 방지하기 위해 일정 시간 내 요청 횟�
 ```
 
 HTTP 상태 코드: `429 Too Many Requests`
+
+---
+
+## API 키 노출 방지
+
+### 개념
+
+API 키 노출 방지는 민감한 환경변수가 로그나 에러 메시지에 노출되지 않도록 보호합니다.
+
+### 구현 상세
+
+#### 환경변수 검증 (서버 시작 시)
+
+`backend/app/core/config.py`:
+
+```python
+@model_validator(mode="after")
+def validate_required_settings(self) -> "Settings":
+    missing = []
+    if not self.supabase_url:
+        missing.append("SUPABASE_URL")
+    if not self.supabase_key:
+        missing.append("SUPABASE_KEY")
+
+    if missing:
+        # 프로덕션에서는 서버 시작 실패
+        if os.getenv("RENDER") or os.getenv("VERCEL"):
+            sys.exit(1)
+```
+
+#### 로그 마스킹
+
+민감한 정보는 마스킹되어 로그에 출력됩니다:
+
+```python
+def mask_secret(value: str, visible_chars: int = 4) -> str:
+    """Mask a secret value for safe logging."""
+    if len(value) <= visible_chars * 2:
+        return "*" * len(value)
+    return f"{value[:visible_chars]}...{value[-visible_chars:]}"
+```
+
+출력 예시:
+```
+SUPABASE_URL: https://abc123456...supabase.co
+SUPABASE_KEY: eyJh...key1
+```
+
+#### DB 연결 검증 (서버 시작 시)
+
+`backend/app/main.py`의 lifespan 이벤트:
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # DB 연결 검증
+    client = get_supabase_client()
+    client.table("companies").select("id").limit(1).execute()
+    logger.info("Database connection verified successfully")
+```
+
+### 보호되는 환경변수
+
+| 변수 | 용도 | 필수 |
+|------|------|------|
+| `SUPABASE_URL` | Supabase 프로젝트 URL | Yes |
+| `SUPABASE_KEY` | Supabase Service Role Key | Yes |
+| `SUPABASE_JWT_SECRET` | JWT 검증 (미사용) | No |
+
+### 프로덕션 동작
+
+프로덕션 환경 (`RENDER` 또는 `VERCEL` 환경변수 존재 시):
+- 필수 환경변수 누락 시 **서버 시작 실패** (`sys.exit(1)`)
+- 로그에 민감한 정보 마스킹
+
+개발 환경:
+- 경고 로그 출력 후 서버 시작 (DB 연결 없이 테스트 가능)
 
 ---
 
