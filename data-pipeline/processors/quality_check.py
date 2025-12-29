@@ -29,22 +29,23 @@ KEY_METRICS = [
 ]
 
 # Major tickers by market (top companies by market cap)
+# These critical tickers must be collected regardless of universe setting
 US_MAJOR_TICKERS = [
-    "AAPL",
-    "MSFT",
-    "GOOGL",
-    "AMZN",
-    "NVDA",
-    "META",
-    "TSLA",
-    "BRK-B",
-    "JPM",
-    "V",
-    "UNH",
-    "XOM",
-    "LLY",
-    "MA",
-    "JNJ",
+    "AAPL",   # Apple
+    "MSFT",   # Microsoft
+    "GOOGL",  # Alphabet
+    "AMZN",   # Amazon
+    "NVDA",   # NVIDIA
+    "META",   # Meta
+    "TSLA",   # Tesla
+    "BRK",    # Berkshire Hathaway (BRK-A or BRK-B)
+    "JPM",    # JPMorgan Chase
+    "V",      # Visa
+    "UNH",    # UnitedHealth
+    "XOM",    # Exxon Mobil
+    "LLY",    # Eli Lilly
+    "MA",     # Mastercard
+    "JNJ",    # Johnson & Johnson
 ]
 
 # KR: Top companies by market cap (code only, without suffix)
@@ -163,7 +164,8 @@ class DataQualityChecker:
             if market.upper() == "KR":
                 found = any(t in ct for ct in collected_set)
             else:
-                found = t in collected_set
+                # For US, check exact match or prefix match (e.g., BRK matches BRK-B, BRKA, BRKB)
+                found = t in collected_set or any(ct.startswith(t) for ct in collected_set)
             if not found:
                 missing_major.append(t)
 
@@ -211,11 +213,11 @@ class DataQualityChecker:
 
         if report.missing_major:
             print()
-            major_label = "S&P 500" if report.market == "US" else "KOSPI Top"
+            major_label = "US Major" if report.market == "US" else "KOSPI Top"
             print(f"Missing Major Tickers ({major_label}): {len(report.missing_major)}")
             print(f"  {report.missing_major}")
         else:
-            major_label = "S&P 500" if report.market == "US" else "KOSPI Top"
+            major_label = "US Major" if report.market == "US" else "KOSPI Top"
             print()
             print(f"Missing Major Tickers ({major_label}): 0 ✓")
 

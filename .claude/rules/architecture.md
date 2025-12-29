@@ -17,7 +17,7 @@ stock-screener/
 │   ├── pyproject.toml    # 파이프라인 의존성
 │   ├── collectors/
 │   │   ├── base.py       # BaseCollector 추상 클래스
-│   │   ├── us_stocks.py  # 미국 주식 수집 (S&P 500/400/600 + Russell 2000)
+│   │   ├── us_stocks.py  # 미국 주식 수집 (NYSE + NASDAQ 전체)
 │   │   └── kr_stocks.py  # 한국 주식 수집 (KOSPI + KOSDAQ)
 │   ├── common/           # 공통 모듈
 │   │   ├── config.py     # 설정 상수
@@ -39,10 +39,11 @@ stock-screener/
 
 ## 데이터 흐름
 
-**미국 주식** (~2,800개):
-- 티커 소스: Wikipedia (S&P 500/400/600) + iShares (Russell 2000)
+**미국 주식** (~6,000개):
+- 티커 소스: NASDAQ FTP (NYSE + NASDAQ 전체)
 - 데이터: yfinance (가격, 재무, 지표)
 - 저장: Supabase + CSV
+- 옵션: `--index-only`로 S&P + Russell만 수집 (~2,800개)
 
 **한국 주식** (~2,800개):
 - 티커 소스: pykrx (KOSPI + KOSDAQ 전체)
@@ -58,7 +59,7 @@ stock-screener/
 
 **자동 품질 검사**:
 - 유니버스 커버리지 (95% 이상)
-- 대형주 누락 검사 (S&P 500 Top 15, KOSPI Top 10)
+- 대형주 누락 검사 (US Major Top 15, KOSPI Top 10)
 - 지표 완성도 (PE, PB, ROE, RSI 등)
 - 누락 100개 이하 시 자동 재수집
 
@@ -67,7 +68,8 @@ stock-screener/
 | 마켓 | 종목 수 | 예상 시간 |
 |------|---------|----------|
 | KR | ~2,800개 | ~10-15분 |
-| US | ~2,800개 | ~10-15분 |
+| US (full) | ~6,000개 | ~1-2시간 |
+| US (--index-only) | ~2,800개 | ~30-60분 |
 
 > 주의: KR, US 동시 실행 시 yfinance Rate Limit에 걸릴 수 있음
 

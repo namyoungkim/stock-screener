@@ -8,8 +8,14 @@ Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.us_stocks
     uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only
     uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --sp500
+    uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --index-only
     uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test
     uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --resume
+
+Ticker Sources:
+    --sp500: S&P 500 only (~500 stocks)
+    --index-only: S&P 500 + 400 + 600 + Russell 2000 (~2,800 stocks)
+    (default): Full US market via NASDAQ FTP (~6,000-8,000 stocks)
 """
 
 import logging
@@ -99,14 +105,99 @@ def get_russell2000_tickers() -> list[str]:
         return []
 
 
-def get_all_us_tickers() -> dict[str, list[str]]:
+def _fetch_nasdaq_ftp() -> tuple[list[str], list[str]]:
     """
-    Get all US tickers with index membership.
+    Fetch all tickers from NASDAQ FTP.
+
+    Returns:
+        Tuple of (nasdaq_tickers, other_tickers)
+        - nasdaq_tickers: NASDAQ listed stocks
+        - other_tickers: NYSE, AMEX, and other exchange stocks
+
+    Data source: ftp://ftp.nasdaqtrader.com/symboldirectory/
+    Files: nasdaqlisted.txt, otherlisted.txt
+    """
+    nasdaq_tickers: list[str] = []
+    other_tickers: list[str] = []
+
+    # NASDAQ listed stocks
+    try:
+        url = "ftp://ftp.nasdaqtrader.com/symboldirectory/nasdaqlisted.txt"
+        df = pd.read_csv(url, sep="|")
+
+        # Filter out test symbols (ends with File Creation Time row)
+        df = df[df["Symbol"].notna()]
+        df = df[~df["Symbol"].str.contains("File Creation Time", na=False)]
+
+        # Filter: only common stocks (exclude ETFs, warrants, etc.)
+        # ETF column: Y = ETF, N = Not ETF
+        if "ETF" in df.columns:
+            df = df[df["ETF"] == "N"]
+
+        # Test Issue column: Y = Test, N = Not Test
+        if "Test Issue" in df.columns:
+            df = df[df["Test Issue"] == "N"]
+
+        nasdaq_tickers = df["Symbol"].str.strip().tolist()
+        # Filter: only common stocks (exclude warrants, rights, units)
+        # Warrants/Rights/Units are typically 5-letter tickers ending in W/R/U
+        # 4-letter or shorter tickers ending in W/R/U are usually common stocks (e.g., SNOW, PLTR)
+        nasdaq_tickers = [
+            t for t in nasdaq_tickers
+            if t and len(t) <= 5 and t.isalpha()
+            and not (len(t) == 5 and t.endswith("W"))  # 5-letter Warrants
+            and not (len(t) == 5 and t.endswith("R"))  # 5-letter Rights
+            and not (len(t) == 5 and t.endswith("U"))  # 5-letter Units
+        ]
+        print(f"Fetched {len(nasdaq_tickers)} NASDAQ tickers")
+
+    except Exception as e:
+        print(f"Error fetching NASDAQ list: {e}")
+
+    # Other exchanges (NYSE, AMEX, etc.)
+    try:
+        url = "ftp://ftp.nasdaqtrader.com/symboldirectory/otherlisted.txt"
+        df = pd.read_csv(url, sep="|")
+
+        # Filter out test symbols
+        df = df[df["ACT Symbol"].notna()]
+        df = df[~df["ACT Symbol"].str.contains("File Creation Time", na=False)]
+
+        # Filter: only common stocks
+        # ETF column: Y = ETF, N = Not ETF
+        if "ETF" in df.columns:
+            df = df[df["ETF"] == "N"]
+
+        # Test Issue column: Y = Test, N = Not Test
+        if "Test Issue" in df.columns:
+            df = df[df["Test Issue"] == "N"]
+
+        other_tickers = df["ACT Symbol"].str.strip().tolist()
+        # Filter: only common stocks (exclude warrants, rights, units)
+        # Warrants/Rights/Units are typically 5-letter tickers ending in W/R/U
+        other_tickers = [
+            t for t in other_tickers
+            if t and len(t) <= 5 and t.isalpha()
+            and not (len(t) == 5 and t.endswith("W"))  # 5-letter Warrants
+            and not (len(t) == 5 and t.endswith("R"))  # 5-letter Rights
+            and not (len(t) == 5 and t.endswith("U"))  # 5-letter Units
+        ]
+        print(f"Fetched {len(other_tickers)} other exchange tickers")
+
+    except Exception as e:
+        print(f"Error fetching other listings: {e}")
+
+    return nasdaq_tickers, other_tickers
+
+
+def get_index_tickers() -> dict[str, list[str]]:
+    """
+    Get US tickers from major indices (S&P 500/400/600 + Russell 2000).
 
     Returns:
         Dictionary mapping ticker to list of indices it belongs to.
     """
-    print("Fetching all US index tickers...")
+    print("Fetching US index tickers (S&P + Russell)...")
 
     sp500 = set(get_sp500_tickers())
     sp400 = set(get_sp400_tickers())
@@ -124,11 +215,37 @@ def get_all_us_tickers() -> dict[str, list[str]]:
     for ticker in russell2000:
         all_tickers.setdefault(ticker, []).append("RUSSELL2000")
 
-    print(f"\nTotal unique tickers: {len(all_tickers)}")
+    print(f"\nTotal unique index tickers: {len(all_tickers)}")
     print(f"  - S&P 500: {len(sp500)}")
     print(f"  - S&P 400: {len(sp400)}")
     print(f"  - S&P 600: {len(sp600)}")
     print(f"  - Russell 2000: {len(russell2000)}")
+
+    return all_tickers
+
+
+def get_all_us_tickers() -> dict[str, list[str]]:
+    """
+    Get all US tickers from NASDAQ FTP (full market coverage).
+
+    Returns:
+        Dictionary mapping ticker to list of exchanges it belongs to.
+        Includes ~6,000-8,000 stocks from NYSE and NASDAQ.
+    """
+    print("Fetching full US market tickers via NASDAQ FTP...")
+
+    nasdaq_tickers, other_tickers = _fetch_nasdaq_ftp()
+
+    all_tickers: dict[str, list[str]] = {}
+
+    for ticker in nasdaq_tickers:
+        all_tickers.setdefault(ticker, []).append("NASDAQ")
+    for ticker in other_tickers:
+        all_tickers.setdefault(ticker, []).append("NYSE/OTHER")
+
+    print(f"\nTotal unique tickers: {len(all_tickers)}")
+    print(f"  - NASDAQ: {len(nasdaq_tickers)}")
+    print(f"  - NYSE/Other: {len(other_tickers)}")
 
     return all_tickers
 
@@ -156,7 +273,10 @@ class USCollector(BaseCollector):
         Initialize US stock collector.
 
         Args:
-            universe: "sp500" or "full" (S&P 500+400+600 + Russell 2000)
+            universe: "sp500", "index", or "full"
+                - "sp500": S&P 500 only (~500 stocks)
+                - "index": S&P 500+400+600 + Russell 2000 (~2,800 stocks)
+                - "full": Full US market via NASDAQ FTP (~6,000-8,000 stocks)
             save_db: Whether to save to Supabase
             save_csv: Whether to save to CSV files
             log_level: Logging level
@@ -170,7 +290,10 @@ class USCollector(BaseCollector):
         if self.universe == "sp500":
             tickers = get_sp500_tickers()
             self._ticker_membership = {t: ["SP500"] for t in tickers}
-        else:
+        elif self.universe == "index":
+            self._ticker_membership = get_index_tickers()
+            tickers = list(self._ticker_membership.keys())
+        else:  # full
             self._ticker_membership = get_all_us_tickers()
             tickers = list(self._ticker_membership.keys())
 
@@ -694,6 +817,7 @@ def main():
     args = sys.argv[1:]
     csv_only = "--csv-only" in args
     sp500_only = "--sp500" in args
+    index_only = "--index-only" in args
     resume = "--resume" in args
     is_test = "--test" in args
     log_level = logging.DEBUG if "--verbose" in args else logging.INFO
@@ -715,15 +839,29 @@ def main():
         if sp500_only:
             tickers = get_sp500_tickers()
             print(f"\nTotal: {len(tickers)} tickers")
+        elif index_only:
+            ticker_membership = get_index_tickers()
+            print(f"\nTotal: {len(ticker_membership)} index tickers")
+            print("\nSample tickers with membership:")
+            for t, m in list(ticker_membership.items())[:20]:
+                print(f"  {t}: {m}")
         else:
             ticker_membership = get_all_us_tickers()
-            print("\nSample tickers with membership:")
+            print(f"\nTotal: {len(ticker_membership)} tickers")
+            print("\nSample tickers:")
             for t, m in list(ticker_membership.items())[:20]:
                 print(f"  {t}: {m}")
         return
 
+    # Determine universe
+    if sp500_only:
+        universe = "sp500"
+    elif index_only:
+        universe = "index"
+    else:
+        universe = "full"
+
     # Create collector
-    universe = "sp500" if sp500_only else "full"
     collector = USCollector(
         universe=universe,
         save_db=not csv_only,
@@ -739,9 +877,13 @@ def main():
         )
     else:
         if universe == "full":
-            print("Running FULL US universe collection...")
+            print("Running FULL US market collection...")
+            print("NYSE + NASDAQ via NASDAQ FTP (~6,000-8,000 stocks)")
+            print("This may take 1-2 hours. Press Ctrl+C to cancel.\n")
+        elif universe == "index":
+            print("Running INDEX universe collection...")
             print("S&P 500 + 400 + 600 + Russell 2000 (~2,800 stocks)")
-            print("This will take 3-4 hours. Press Ctrl+C to cancel.\n")
+            print("This may take 30-60 minutes. Press Ctrl+C to cancel.\n")
         else:
             print("Running S&P 500 collection...")
 
