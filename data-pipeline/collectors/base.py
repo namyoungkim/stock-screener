@@ -136,7 +136,7 @@ class BaseCollector(ABC):
         self,
         tickers: list[str] | None = None,
         resume: bool = False,
-        batch_size: int = 10,
+        batch_size: int = 5,
         is_test: bool = False,
         check_rate_limit_first: bool = True,
         auto_retry: bool = True,

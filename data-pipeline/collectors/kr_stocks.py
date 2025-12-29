@@ -288,20 +288,22 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str],
         history_data: dict[str, pd.DataFrame] | None = None,
-        batch_size: int = 10,
+        batch_size: int = 5,
     ) -> dict[str, dict]:
         """Fetch yfinance metrics for multiple tickers in batches.
 
         Rate limit handling:
-        - Batch size: 10 (conservative to avoid rate limits)
-        - Sleep between batches: 2-3 seconds with jitter
-        - Rate limit detection: Stop early if 5+ consecutive failures
-        - Fallback retry: Longer delays (3-5 seconds)
+        - Batch size: 5 (conservative for large collections)
+        - Sleep between batches: 3-5 seconds with jitter
+        - Rate limit detection: Backoff 30-60s on consecutive failures
+        - Max retries: 3 backoffs before stopping
         """
         results: dict[str, dict] = {}
         failed_tickers: list[tuple[str, str]] = []
         consecutive_failures = 0
-        max_consecutive_failures = 5  # Stop if 5 batches fail in a row
+        max_consecutive_failures = 10  # Allow more failures before backoff
+        backoff_count = 0
+        max_backoffs = 3  # Stop after 3 backoffs
 
         # Convert to yfinance format
         yf_tickers = []
@@ -407,26 +409,36 @@ class KRCollector(BaseCollector):
             else:
                 consecutive_failures = 0  # Reset on any success
 
-            # Stop early if rate limited
+            # Backoff if rate limited
             if consecutive_failures >= max_consecutive_failures:
-                self.logger.warning(
-                    f"Stopping batch processing: {consecutive_failures} consecutive failures detected. "
-                    f"Completed {len(results)}/{len(tickers)} tickers."
-                )
-                break
+                backoff_count += 1
+                if backoff_count > max_backoffs:
+                    self.logger.warning(
+                        f"Stopping after {max_backoffs} backoffs. "
+                        f"Completed {len(results)}/{len(tickers)} tickers."
+                    )
+                    break
 
-            # Sleep between batches: 2-3 seconds with random jitter
-            sleep_time = 2.0 + random.uniform(0, 1.0)
+                backoff_time = 30.0 + random.uniform(0, 30.0)  # 30-60 seconds
+                self.logger.warning(
+                    f"Rate limit detected. Backoff {backoff_count}/{max_backoffs}: "
+                    f"waiting {backoff_time:.0f}s... "
+                    f"(Completed {len(results)}/{len(tickers)} so far)"
+                )
+                time.sleep(backoff_time)
+                consecutive_failures = 0  # Reset after backoff
+
+            # Sleep between batches: 3-5 seconds with random jitter
+            sleep_time = 3.0 + random.uniform(0, 2.0)
             time.sleep(sleep_time)
 
-        # Retry failed tickers with longer delays
-        if failed_tickers and consecutive_failures < max_consecutive_failures:
-            # Only retry if we're not rate limited
+        # Retry failed tickers with longer delays (only if not stopped by backoff limit)
+        if failed_tickers and backoff_count <= max_backoffs:
             self.logger.info(
                 f"Retrying {len(failed_tickers)} failed tickers with longer delays..."
             )
             retry_failures = 0
-            max_retry_failures = 10  # Stop retry if 10 consecutive failures
+            max_retry_failures = 20  # Allow more retries
 
             for yf_ticker, krx_ticker in tqdm(
                 failed_tickers, desc="Fallback", leave=False
@@ -452,11 +464,16 @@ class KRCollector(BaseCollector):
                                 f"Rate limit likely. Completed {len(results)}/{len(tickers)} tickers."
                             )
                             break
+                        # Backoff on rate limit in fallback
+                        if retry_failures % 5 == 0:
+                            backoff_time = 30.0 + random.uniform(0, 30.0)
+                            self.logger.warning(f"Fallback backoff: waiting {backoff_time:.0f}s...")
+                            time.sleep(backoff_time)
 
-                # Longer sleep for fallback: 3-5 seconds
-                time.sleep(3.0 + random.uniform(0, 2.0))
-        elif consecutive_failures >= max_consecutive_failures:
-            self.logger.info("Skipping fallback retry due to rate limit detection.")
+                # Longer sleep for fallback: 5-8 seconds
+                time.sleep(5.0 + random.uniform(0, 3.0))
+        elif backoff_count > max_backoffs:
+            self.logger.info("Skipping fallback retry due to rate limit.")
 
         return results
 
@@ -464,7 +481,7 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str] | None = None,
         resume: bool = False,
-        batch_size: int = 10,
+        batch_size: int = 5,
         is_test: bool = False,
         check_rate_limit_first: bool = True,
         auto_retry: bool = True,
