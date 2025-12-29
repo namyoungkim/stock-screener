@@ -4,6 +4,12 @@
 
 ## 0. 최근 완료 (2025-12-29)
 
+- [x] **Phase 3.5: 투자 인사이트 (규칙 기반)**
+  - 종합 투자 점수 계산 (`lib/scoring.ts`) - P/E, P/B, ROE, D/E, RSI, Graham, MA Trend, MACD 기반
+  - 리스크 감지 시스템 (`lib/risks.ts`) - HIGH/MEDIUM 레벨 경고
+  - 새 컴포넌트: `InvestmentSignal`, `ActionGuide`, `RiskAlert`, `WatchlistPrompt`
+  - 종목 상세 페이지 통합 (워치리스트 종목: 전체 분석, 미등록: 워치리스트 유도)
+  - 워치리스트 페이지 요약 표시 (점수, 신호, 리스크 배지)
 - [x] **디스코드 봇 워치리스트/알림 연동**
   - 디스코드 전용 테이블 (`discord_watchlist`, `discord_alerts`)
   - 백엔드 API (`/api/discord/watchlist`, `/api/discord/alerts`)
