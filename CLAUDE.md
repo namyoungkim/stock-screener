@@ -33,6 +33,16 @@
 - 개발 프로세스 가이드: @.claude/rules/development.md
 - Self-hosted Runner 설정: @.claude/rules/self-hosted-runner.md
 
+## 문서 계층 구조
+
+PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
+
+| 문서 | 역할 | 변경 시 |
+|------|------|---------|
+| `docs/PRD.md` | 무엇을 (요구사항) | ROADMAP, TODO에 반영 |
+| `ROADMAP.md` | 언제/순서 (마일스톤) | TODO에 반영 |
+| `TODO.md` | 구체적 작업 목록 | PRD 기준 확인 |
+
 ## 관련 문서 (필요 시 참조)
 
 | 문서 | 용도 | 언제 참조 |
@@ -40,7 +50,7 @@
 | `docs/PRD.md` | 제품 요구사항 (핵심 가치, 설계 원칙, UX) | 기능 구현, 제품 방향 결정 시 |
 | `README.md` | 프로젝트 소개 | 새 기여자 온보딩, GitHub 페이지 |
 | `SECURITY.md` | 보안 설정 (CORS, 인증, API) | 보안 관련 작업 시 |
-| `ROADMAP.md` | 장기 로드맵 (Phase 1-5) | 다음 Phase 계획 시 |
+| `ROADMAP.md` | 마일스톤 (Phase 1-5) | 다음 Phase 계획 시 |
 | `TODO.md` | 상세 작업 목록 | 구현할 기능 선택 시 |
 
 ## 환경 변수
@@ -76,7 +86,8 @@
 - 입력 검증 강화 (MetricType Enum 화이트리스트, UUID/범위/길이 검증)
 - API 키 노출 방지 (환경변수 검증, 로그 마스킹, DB 연결 검증)
 - 디스코드 봇 워치리스트/알림 연동 (/watch, /watchlist, /alert, /alerts 등)
+- 투자 인사이트 (Phase 3.5) - 규칙 기반 점수/신호, 액션 가이드, 리스크 경고
 
-**진행 중** (Phase 3.5): 투자 인사이트 - 규칙 기반 점수/신호, 액션 가이드, 리스크 경고
+**다음 단계** (Phase 4): AI 분석 - RAG 인프라, Claude API 연동
 
-**미구현**: Phase 4 (AI 분석), Phase 5 (AI 어드바이저), 디스코드 봇 배포, i18n
+**미구현**: Phase 5 (AI 어드바이저), 운영/인프라 (봇 배포, i18n, 도메인)
