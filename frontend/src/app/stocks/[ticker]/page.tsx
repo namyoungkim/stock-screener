@@ -11,6 +11,7 @@ import { formatMarketCap, formatPercent, formatRatio } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { metricsGlossary } from "@/lib/glossary";
 import { SkeletonStockDetail } from "@/components/ui/Skeleton";
+import { InvestmentSignal, ActionGuide, RiskAlert } from "@/components/stock";
 
 function MetricLabel({ label, glossaryKey }: { label: string; glossaryKey: string }) {
   const tooltip = metricsGlossary[glossaryKey];
@@ -91,6 +92,20 @@ export default function StockDetailPage() {
           </p>
         )}
       </div>
+
+      {/* Investment Insight Section */}
+      {metrics && (
+        <div className="mb-8 space-y-4">
+          {/* Risk Alerts - 위험 시 최상단 표시 */}
+          <RiskAlert metrics={metrics} />
+
+          {/* Investment Signal */}
+          <InvestmentSignal metrics={metrics} price={price} />
+
+          {/* Action Guide */}
+          <ActionGuide metrics={metrics} price={price} currency={company.currency} />
+        </div>
+      )}
 
       {/* Price Info */}
       {price && (
@@ -441,6 +456,15 @@ export default function StockDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Disclaimer */}
+      <div className="mt-8 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 p-4">
+        <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+          <span className="font-medium">면책 조항:</span> 본 정보는 투자 참고용이며 투자 조언이 아닙니다.
+          투자 결정은 본인의 판단과 책임 하에 이루어져야 합니다.
+          과거 데이터와 지표가 미래 수익을 보장하지 않습니다.
+        </p>
+      </div>
     </div>
   );
 }

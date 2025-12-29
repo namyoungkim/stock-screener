@@ -87,14 +87,14 @@ export default function WatchlistPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-white">
                   Market
                 </th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-white">
+                  Analysis
+                </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-white">
                   Target Price
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-white">
                   Notes
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-white">
-                  Added
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-white">
                   Actions
@@ -128,6 +128,14 @@ export default function WatchlistPage() {
                       {item.market}
                     </span>
                   </td>
+                  <td className="px-4 py-4 text-center">
+                    <Link
+                      href={`/stocks/${item.ticker}?market=${item.market}`}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 bg-blue-50 dark:bg-blue-900/20 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                    >
+                      분석 보기 →
+                    </Link>
+                  </td>
                   <td className="px-4 py-4 text-right">
                     {item.target_price ? (
                       <span className="font-medium text-gray-900 dark:text-white">
@@ -141,9 +149,6 @@ export default function WatchlistPage() {
                     <p className="text-sm text-gray-600 dark:text-gray-300 truncate max-w-[200px]">
                       {item.notes || "-"}
                     </p>
-                  </td>
-                  <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">
-                    {new Date(item.added_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-4 text-center">
                     <WatchlistButton companyId={item.company_id} size="sm" />
