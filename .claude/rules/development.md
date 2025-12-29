@@ -1,5 +1,33 @@
 # 개발 프로세스 가이드
 
+## Git 워크플로우 (GitHub Flow)
+
+### 브랜치 전략
+- `main`: 항상 배포 가능 상태 (Vercel/Render 자동 배포)
+- 작업 브랜치: `feature/*`, `fix/*`, `refactor/*`, `docs/*`, `chore/*`
+
+### 워크플로우
+1. `git checkout -b feature/xxx` - main에서 브랜치 생성
+2. 개발 및 커밋
+3. `git push -u origin feature/xxx` - PR 생성, Vercel Preview 확인
+4. main에 머지 → 자동 배포
+5. 로컬 브랜치 정리: `git branch -d feature/xxx`
+
+### 브랜치 네이밍
+| 접두사 | 용도 | 예시 |
+|--------|------|------|
+| `feature/` | 새 기능 | `feature/watchlist-export` |
+| `fix/` | 버그 수정 | `fix/login-redirect` |
+| `refactor/` | 리팩토링 | `refactor/api-structure` |
+| `docs/` | 문서 | `docs/api-guide` |
+| `chore/` | 설정/유지보수 | `chore/update-deps` |
+
+### 예외
+- 타이포, 1줄 수정 등 사소한 변경은 main 직접 커밋 허용
+- dev 브랜치 불필요 (Vercel Preview가 스테이징 역할)
+
+---
+
 ## 테스트 우선 개발
 
 ### 원칙
