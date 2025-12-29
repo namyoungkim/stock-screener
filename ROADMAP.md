@@ -26,7 +26,7 @@
 | M1-M6 | MVP ~ 워치리스트 | ✅ |
 | M7 | 알림 시스템 | ✅ |
 | M7.5 | 투자 인사이트 | ✅ |
-| M8 | Phase 4: RAG 인프라 + AI 종목 분석 | 예정 |
+| M8 | 티커 확장 + Phase 4: RAG 인프라 + AI 종목 분석 | 예정 |
 | M9 | Phase 5: AI 어드바이저 | 예정 |
 | M10 | 운영/인프라 (봇 배포, i18n 등) | 낮음 |
 
@@ -57,7 +57,7 @@
 
 ## 데이터 전략
 
-상세: @.claude/rules/data-policy.md
+상세: @.claude/rules/data-policy.md, @.claude/rules/ticker-strategy.md
 
 | 저장소 | 용도 |
 |--------|------|

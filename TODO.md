@@ -321,12 +321,21 @@
 - ~~Phase 1-3: MVP ~ 워치리스트/알림~~ ✅
 - ~~Phase 3.5: 투자 인사이트~~ ✅
 
-### P1 - Phase 4: AI 분석
-1. RAG 인프라 구축
+### P1 - 티커 유니버스 확장 + Phase 4: AI 분석
+
+1. US 티커 유니버스 확장 (~2,800 → ~6,000-8,000)
+   - [ ] NASDAQ FTP 연동 (`get_all_us_tickers()` 재작성)
+   - [ ] CLI 옵션 추가 (`--index-only`)
+   - [ ] 품질검사 업데이트 (`US_MAJOR_TICKERS` 재정의)
+   - [ ] 문서 업데이트 (6개 파일)
+   > 전략: `.claude/rules/ticker-strategy.md`
+
+2. RAG 인프라 구축
    - [ ] Supabase pgvector 활성화
    - [ ] 종목 데이터 임베딩
    - [ ] 검색 API 구현
-2. AI 종목 분석
+
+3. AI 종목 분석
    - [ ] Claude API 연동
    - [ ] 웹검색 기반 뉴스 수집
    - [ ] 분석 결과 저장
