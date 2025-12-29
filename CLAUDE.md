@@ -32,6 +32,7 @@
 - 디스코드 봇 배포 옵션: @.claude/rules/discord-bot-deployment.md
 - 개발 프로세스 가이드: @.claude/rules/development.md
 - Self-hosted Runner 설정: @.claude/rules/self-hosted-runner.md
+- 티커 유니버스 확장 전략: @.claude/rules/ticker-strategy.md
 
 ## 문서 계층 구조
 
@@ -88,6 +89,6 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 - 디스코드 봇 워치리스트/알림 연동 (/watch, /watchlist, /alert, /alerts 등)
 - 투자 인사이트 (Phase 3.5) - 규칙 기반 점수/신호, 액션 가이드, 리스크 경고
 
-**다음 단계** (Phase 4): AI 분석 - RAG 인프라, Claude API 연동
+**다음 단계** (M8): 티커 확장 (~2,800 → ~6,000-8,000) + Phase 4 AI 분석
 
 **미구현**: Phase 5 (AI 어드바이저), 운영/인프라 (봇 배포, i18n, 도메인)
