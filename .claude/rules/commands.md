@@ -14,12 +14,19 @@ uv run --package stock-screener-backend uvicorn app.main:app --reload
 
 ### 미국 주식 수집
 ```bash
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks             # 전체 유니버스 (DB + CSV)
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only  # 전체 유니버스 (CSV만)
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --sp500     # S&P 500만
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test      # 테스트 (3개)
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks              # 전체 시장 (DB + CSV)
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only   # 전체 시장 (CSV만)
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --index-only # S&P + Russell만
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --sp500      # S&P 500만
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test       # 테스트 (3개)
 ```
-**전체 유니버스**: S&P 500 + S&P 400 + S&P 600 + Russell 2000 (~2,800개, 3-4시간 소요)
+
+**티커 유니버스**:
+| 옵션 | 소스 | 종목 수 | 예상 시간 |
+|------|------|---------|----------|
+| (기본) | NASDAQ FTP (NYSE + NASDAQ) | ~6,000개 | ~1-2시간 |
+| `--index-only` | S&P 500/400/600 + Russell 2000 | ~2,800개 | ~30-60분 |
+| `--sp500` | S&P 500만 | ~500개 | ~10분 |
 
 ### 한국 주식 수집
 ```bash
