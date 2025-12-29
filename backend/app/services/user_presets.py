@@ -1,6 +1,5 @@
 """User presets service."""
 
-
 from app.models.stock import MetricFilter
 from app.models.user_preset import (
     UserPreset,
@@ -17,7 +16,9 @@ def _parse_filters(filters_json: list[dict]) -> list[MetricFilter]:
 
 def _serialize_filters(filters: list[MetricFilter]) -> list[dict]:
     """Serialize MetricFilter list to JSON-compatible format."""
-    return [{"metric": f.metric, "operator": f.operator, "value": f.value} for f in filters]
+    return [
+        {"metric": f.metric, "operator": f.operator, "value": f.value} for f in filters
+    ]
 
 
 async def get_user_presets(

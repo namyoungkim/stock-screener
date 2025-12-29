@@ -3,11 +3,16 @@
 ## 개요
 
 사용자가 특정 종목의 지표 조건을 설정하고, 조건 충족 시 알림을 받는 시스템.
-소셜 로그인 필요 (GitHub 또는 Google).
+
+### 두 가지 인터페이스
+- **웹**: 소셜 로그인 필요 (GitHub 또는 Google)
+- **디스코드 봇**: 별도 인증 없음 (Discord User ID 기반)
 
 ---
 
 ## API 엔드포인트
+
+### 웹 (Supabase Auth 필요)
 
 | Method | Endpoint | 설명 |
 |--------|----------|------|
@@ -18,6 +23,15 @@
 | DELETE | /api/alerts/{id} | 알림 삭제 |
 | POST | /api/alerts/{id}/toggle | 활성화/비활성화 토글 |
 | GET | /api/alerts/company/{company_id} | 특정 종목의 알림 조회 |
+
+### 디스코드 봇 (X-Discord-User-Id 헤더 필요)
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | /api/discord/alerts | 알림 목록 조회 |
+| POST | /api/discord/alerts | 알림 생성 |
+| DELETE | /api/discord/alerts/{id} | 알림 삭제 |
+| POST | /api/discord/alerts/{id}/toggle | 활성화/비활성화 토글 |
 
 ---
 
@@ -53,12 +67,21 @@
 
 ---
 
-## 프론트엔드
+## 프론트엔드 (웹)
 
 | 경로/컴포넌트 | 용도 |
 |--------------|------|
 | `/alerts` | 알림 목록 관리 페이지 |
 | `AlertForm` | 종목 상세 페이지에서 알림 생성 모달 |
+
+## 디스코드 봇
+
+| 명령어 | 용도 |
+|--------|------|
+| `/alert {ticker} {metric} {operator} {value}` | 알림 생성 |
+| `/alerts` | 알림 목록 조회 |
+| `/delalert {alert_id}` | 알림 삭제 |
+| `/togglealert {alert_id}` | 활성화/비활성화 토글 |
 
 ---
 
@@ -99,8 +122,13 @@
 - `frontend/src/components/AlertForm.tsx` - 알림 생성 모달
 - `frontend/src/lib/api.ts` - API 클라이언트 (AlertItem, AlertResponse 타입)
 
+### 디스코드 봇
+- `discord-bot/bot/main.py` - 봇 명령어 (alert, alerts, delalert, togglealert)
+- `discord-bot/bot/api.py` - API 클라이언트
+
 ### 데이터베이스
-- `supabase/schema.sql` - alerts 테이블, RLS 정책
+- `supabase/schema.sql` - alerts 테이블, RLS 정책 (웹용)
+- `supabase/discord_schema.sql` - discord_alerts 테이블 (봇용)
 
 ---
 

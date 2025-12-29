@@ -49,6 +49,7 @@ def safe_int(value: int | float | None) -> int | None:
         return None
     return int(value)
 
+
 load_dotenv()
 
 # Data directory paths
@@ -230,10 +231,10 @@ def load_metrics(
         "dividend_yield": 1e3,
         "beta": 1e3,
         # Technical indicators
-        "rsi": 1e2,            # RSI is 0-100
-        "mfi": 1e2,            # MFI is 0-100
+        "rsi": 1e2,  # RSI is 0-100
+        "mfi": 1e2,  # MFI is 0-100
         "volume_change": 1e4,  # % change
-        "bb_percent": 1e3,     # %B typically 0-100 but can exceed
+        "bb_percent": 1e3,  # %B typically 0-100 but can exceed
         # Price-based columns - NUMERIC(16, 4) max = 10^12
         "macd": 1e11,
         "macd_signal": 1e11,
@@ -307,9 +308,7 @@ def load_metrics(
     # Batch upsert
     if metrics_to_upsert:
         print(f"  Upserting {len(metrics_to_upsert)} metrics...")
-        for i in tqdm(
-            range(0, len(metrics_to_upsert), BATCH_SIZE), desc="  Metrics"
-        ):
+        for i in tqdm(range(0, len(metrics_to_upsert), BATCH_SIZE), desc="  Metrics"):
             batch = metrics_to_upsert[i : i + BATCH_SIZE]
             client.table("metrics").upsert(
                 batch, on_conflict="company_id,date"

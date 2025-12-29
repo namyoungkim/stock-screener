@@ -285,6 +285,8 @@ def calculate_all_technicals(hist: pd.DataFrame) -> dict:
     if bb_values:
         result.update(bb_values)
     else:
-        result.update({"bb_upper": None, "bb_middle": None, "bb_lower": None, "bb_percent": None})
+        result.update(
+            {"bb_upper": None, "bb_middle": None, "bb_lower": None, "bb_percent": None}
+        )
 
     return result

@@ -149,14 +149,14 @@ class DataQualityChecker:
         # Find missing tickers
         missing_tickers = []
         for t in universe:
-            base = t.replace(".KS", "").replace(".KQ", "") if market.upper() == "KR" else t
+            base = (
+                t.replace(".KS", "").replace(".KQ", "") if market.upper() == "KR" else t
+            )
             if t not in collected_set and base not in collected_set:
                 missing_tickers.append(t)
 
         # Find missing major tickers
-        major_tickers = (
-            US_MAJOR_TICKERS if market.upper() == "US" else KR_MAJOR_TICKERS
-        )
+        major_tickers = US_MAJOR_TICKERS if market.upper() == "US" else KR_MAJOR_TICKERS
         missing_major = []
         for t in major_tickers:
             # For KR, major tickers are codes without suffix

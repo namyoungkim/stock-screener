@@ -21,45 +21,79 @@ class ValidationRule:
     field: str
     min_value: float | None = None
     max_value: float | None = None
-    max_abs: float | None = None  # Maximum absolute value (for numeric overflow prevention)
-    warn_only: bool = True  # If True, log warning but keep value. If False, set to None.
+    max_abs: float | None = (
+        None  # Maximum absolute value (for numeric overflow prevention)
+    )
+    warn_only: bool = (
+        True  # If True, log warning but keep value. If False, set to None.
+    )
 
 
 # Default validation rules based on Supabase schema constraints
 # and reasonable financial metric ranges
 DEFAULT_RULES: dict[str, ValidationRule] = {
     # Valuation ratios - can be negative but should be within reason
-    "pe_ratio": ValidationRule("pe_ratio", min_value=-1000, max_value=10000, max_abs=1e7),
+    "pe_ratio": ValidationRule(
+        "pe_ratio", min_value=-1000, max_value=10000, max_abs=1e7
+    ),
     "pb_ratio": ValidationRule("pb_ratio", min_value=0, max_value=500, max_abs=1e7),
     "ps_ratio": ValidationRule("ps_ratio", min_value=0, max_value=500, max_abs=1e7),
-    "ev_ebitda": ValidationRule("ev_ebitda", min_value=-100, max_value=1000, max_abs=1e7),
-    "peg_ratio": ValidationRule("peg_ratio", min_value=-100, max_value=100, max_abs=1e4),
+    "ev_ebitda": ValidationRule(
+        "ev_ebitda", min_value=-100, max_value=1000, max_abs=1e7
+    ),
+    "peg_ratio": ValidationRule(
+        "peg_ratio", min_value=-100, max_value=100, max_abs=1e4
+    ),
     # Profitability ratios (as decimals, e.g., 0.15 = 15%)
-    "roe": ValidationRule("roe", min_value=-10, max_value=10, max_abs=1e3),  # -1000% to 1000%
+    "roe": ValidationRule(
+        "roe", min_value=-10, max_value=10, max_abs=1e3
+    ),  # -1000% to 1000%
     "roa": ValidationRule("roa", min_value=-10, max_value=10, max_abs=1e3),
-    "gross_margin": ValidationRule("gross_margin", min_value=-10, max_value=10, max_abs=1e3),
-    "net_margin": ValidationRule("net_margin", min_value=-10, max_value=10, max_abs=1e3),
+    "gross_margin": ValidationRule(
+        "gross_margin", min_value=-10, max_value=10, max_abs=1e3
+    ),
+    "net_margin": ValidationRule(
+        "net_margin", min_value=-10, max_value=10, max_abs=1e3
+    ),
     # Financial health
-    "debt_equity": ValidationRule("debt_equity", min_value=0, max_value=1000, max_abs=1e7),
-    "current_ratio": ValidationRule("current_ratio", min_value=0, max_value=100, max_abs=1e7),
+    "debt_equity": ValidationRule(
+        "debt_equity", min_value=0, max_value=1000, max_abs=1e7
+    ),
+    "current_ratio": ValidationRule(
+        "current_ratio", min_value=0, max_value=100, max_abs=1e7
+    ),
     # Other ratios
     "dividend_yield": ValidationRule(
         "dividend_yield", min_value=0, max_value=1, max_abs=1e3
     ),  # 0-100%
     "beta": ValidationRule("beta", min_value=-10, max_value=10, max_abs=1e3),
     # Technical indicators with strict ranges
-    "rsi": ValidationRule("rsi", min_value=0, max_value=100, max_abs=1e2, warn_only=False),
-    "mfi": ValidationRule("mfi", min_value=0, max_value=100, max_abs=1e2, warn_only=False),
-    "volume_change": ValidationRule("volume_change", min_value=-100, max_value=10000, max_abs=1e4),
-    "bb_percent": ValidationRule("bb_percent", min_value=-100, max_value=200, max_abs=1e3),
+    "rsi": ValidationRule(
+        "rsi", min_value=0, max_value=100, max_abs=1e2, warn_only=False
+    ),
+    "mfi": ValidationRule(
+        "mfi", min_value=0, max_value=100, max_abs=1e2, warn_only=False
+    ),
+    "volume_change": ValidationRule(
+        "volume_change", min_value=-100, max_value=10000, max_abs=1e4
+    ),
+    "bb_percent": ValidationRule(
+        "bb_percent", min_value=-100, max_value=200, max_abs=1e3
+    ),
     # Price-based columns (large values allowed)
     "macd": ValidationRule("macd", max_abs=1e11),
     "macd_signal": ValidationRule("macd_signal", max_abs=1e11),
     "macd_histogram": ValidationRule("macd_histogram", max_abs=1e11),
-    "fifty_two_week_high": ValidationRule("fifty_two_week_high", min_value=0, max_abs=1e11),
-    "fifty_two_week_low": ValidationRule("fifty_two_week_low", min_value=0, max_abs=1e11),
+    "fifty_two_week_high": ValidationRule(
+        "fifty_two_week_high", min_value=0, max_abs=1e11
+    ),
+    "fifty_two_week_low": ValidationRule(
+        "fifty_two_week_low", min_value=0, max_abs=1e11
+    ),
     "fifty_day_average": ValidationRule("fifty_day_average", min_value=0, max_abs=1e11),
-    "two_hundred_day_average": ValidationRule("two_hundred_day_average", min_value=0, max_abs=1e11),
+    "two_hundred_day_average": ValidationRule(
+        "two_hundred_day_average", min_value=0, max_abs=1e11
+    ),
     "bb_upper": ValidationRule("bb_upper", min_value=0, max_abs=1e11),
     "bb_middle": ValidationRule("bb_middle", min_value=0, max_abs=1e11),
     "bb_lower": ValidationRule("bb_lower", min_value=0, max_abs=1e11),
@@ -139,7 +173,9 @@ class MetricsValidator:
             if safe_value is None:
                 if value is not None:
                     # Value was invalid (nan, inf, etc.)
-                    result.warnings.append(f"{field_name}: Invalid value {value} -> None")
+                    result.warnings.append(
+                        f"{field_name}: Invalid value {value} -> None"
+                    )
                     cleaned[field_name] = None
                     result.modified_fields.append(field_name)
                 continue
@@ -185,7 +221,9 @@ class MetricsValidator:
 
         # Log warnings if any
         if result.warnings:
-            logger.warning(f"[{ticker}] Validation warnings: {', '.join(result.warnings[:5])}")
+            logger.warning(
+                f"[{ticker}] Validation warnings: {', '.join(result.warnings[:5])}"
+            )
         if result.errors:
             logger.error(f"[{ticker}] Validation errors: {', '.join(result.errors)}")
 
@@ -213,7 +251,9 @@ class MetricsValidator:
             "valid": valid_count,
             "with_warnings": warning_count,
             "invalid": invalid_count,
-            "field_issues": dict(sorted(field_issues.items(), key=lambda x: -x[1])[:10]),
+            "field_issues": dict(
+                sorted(field_issues.items(), key=lambda x: -x[1])[:10]
+            ),
         }
 
     def reset(self) -> None:

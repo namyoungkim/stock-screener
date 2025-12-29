@@ -27,7 +27,10 @@
 - **API 키 보호**: 환경변수 검증, 로그 마스킹
 
 ### 추가 기능
-- **디스코드 봇**: 디스코드에서 직접 스크리닝 (/stock, /screen, /presets)
+- **디스코드 봇**: 디스코드에서 직접 스크리닝 및 모니터링
+  - `/stock`, `/screen`, `/presets`, `/search` - 조회 명령어
+  - `/watch`, `/unwatch`, `/watchlist` - 워치리스트 관리
+  - `/alert`, `/alerts`, `/delalert`, `/togglealert` - 알림 관리
 - **다크모드**: 시스템 설정 연동 및 수동 토글
 
 ## 기술 스택

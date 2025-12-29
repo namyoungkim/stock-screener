@@ -32,8 +32,13 @@
 | companies | ~3MB | 마스터 데이터 |
 | metrics | ~6MB | 최신만 (upsert) |
 | prices | ~25MB | 1개월 유지 |
-| 인덱스 | ~15MB | 데이터의 30~50% |
-| **총계** | **~50MB** | 제한의 10% |
+| watchlist | ~1MB | 사용자 데이터 |
+| alerts | ~1MB | 사용자 데이터 |
+| user_presets | ~1MB | 사용자 데이터 |
+| discord_watchlist | ~1MB | 디스코드 사용자 데이터 |
+| discord_alerts | ~1MB | 디스코드 사용자 데이터 |
+| 인덱스 | ~20MB | 데이터의 30~50% |
+| **총계** | **~60MB** | 제한의 12% |
 
 ---
 
@@ -41,7 +46,7 @@
 
 | 저장소 | 용도 | 용량 | 비용 |
 |--------|------|------|------|
-| Supabase | 최신 데이터 (API 서빙) | ~50MB | 무료 |
+| Supabase | 최신 데이터 (API 서빙) | ~60MB | 무료 |
 | Google Drive | 히스토리 아카이브 | 15GB | 무료 |
 | GitHub | 코드만 (데이터 제외) | - | 무료 |
 
@@ -56,9 +61,11 @@ API 서빙용 최신 데이터만 유지 (무료 티어 제한 대응)
 | companies | 전체 (마스터 데이터) | ✅ |
 | metrics | 최신만 (덮어쓰기) | ✅ upsert |
 | prices | 최근 1개월 | ✅ backup.yml에서 자동 삭제 |
-| watchlist | 전체 (사용자 데이터) | ✅ |
-| alerts | 전체 (사용자 데이터) | ✅ |
-| user_presets | 전체 (사용자 데이터) | ✅ |
+| watchlist | 전체 (웹 사용자 데이터) | ✅ |
+| alerts | 전체 (웹 사용자 데이터) | ✅ |
+| user_presets | 전체 (웹 사용자 데이터) | ✅ |
+| discord_watchlist | 전체 (디스코드 사용자 데이터) | ✅ |
+| discord_alerts | 전체 (디스코드 사용자 데이터) | ✅ |
 
 ---
 

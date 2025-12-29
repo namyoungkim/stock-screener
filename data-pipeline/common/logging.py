@@ -114,23 +114,23 @@ class CollectionProgress:
 
         if self.total == 0:
             self.logger.info(
-                f"\n{'='*60}\n"
+                f"\n{'=' * 60}\n"
                 f"{self.desc} Summary:\n"
                 f"  Total: 0 (no data collected)\n"
                 f"  Time: {elapsed:.1f}s\n"
-                f"{'='*60}"
+                f"{'=' * 60}"
             )
             return
 
         self.logger.info(
-            f"\n{'='*60}\n"
+            f"\n{'=' * 60}\n"
             f"{self.desc} Summary:\n"
             f"  Total: {self.total}\n"
-            f"  Success: {self.success} ({self.success/self.total*100:.1f}%)\n"
-            f"  Failed: {self.failed} ({self.failed/self.total*100:.1f}%)\n"
-            f"  Skipped: {self.skipped} ({self.skipped/self.total*100:.1f}%)\n"
+            f"  Success: {self.success} ({self.success / self.total * 100:.1f}%)\n"
+            f"  Failed: {self.failed} ({self.failed / self.total * 100:.1f}%)\n"
+            f"  Skipped: {self.skipped} ({self.skipped / self.total * 100:.1f}%)\n"
             f"  Time: {elapsed:.1f}s\n"
-            f"{'='*60}"
+            f"{'=' * 60}"
         )
 
     def get_stats(self) -> dict:
@@ -142,5 +142,7 @@ class CollectionProgress:
             "failed": self.failed,
             "skipped": self.skipped,
             "elapsed_seconds": round(elapsed, 1),
-            "success_rate": round(self.success / self.total * 100, 1) if self.total > 0 else 0,
+            "success_rate": round(self.success / self.total * 100, 1)
+            if self.total > 0
+            else 0,
         }

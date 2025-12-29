@@ -246,11 +246,21 @@ class USCollector(BaseCollector):
                     if pd.notna(row.get("Close")):
                         results[ticker] = {
                             "date": today,
-                            "open": float(row["Open"]) if pd.notna(row.get("Open")) else None,
-                            "high": float(row["High"]) if pd.notna(row.get("High")) else None,
-                            "low": float(row["Low"]) if pd.notna(row.get("Low")) else None,
-                            "close": float(row["Close"]) if pd.notna(row.get("Close")) else None,
-                            "volume": int(row["Volume"]) if pd.notna(row.get("Volume")) else None,
+                            "open": float(row["Open"])
+                            if pd.notna(row.get("Open"))
+                            else None,
+                            "high": float(row["High"])
+                            if pd.notna(row.get("High"))
+                            else None,
+                            "low": float(row["Low"])
+                            if pd.notna(row.get("Low"))
+                            else None,
+                            "close": float(row["Close"])
+                            if pd.notna(row.get("Close"))
+                            else None,
+                            "volume": int(row["Volume"])
+                            if pd.notna(row.get("Volume"))
+                            else None,
                         }
                 except Exception:
                     pass
@@ -275,9 +285,13 @@ class USCollector(BaseCollector):
         """
         results: dict[str, pd.DataFrame] = {}
 
-        self.logger.info(f"Downloading {period} history for {len(tickers)} tickers in bulk...")
+        self.logger.info(
+            f"Downloading {period} history for {len(tickers)} tickers in bulk..."
+        )
 
-        for i in tqdm(range(0, len(tickers), batch_size), desc="Downloading history", leave=False):
+        for i in tqdm(
+            range(0, len(tickers), batch_size), desc="Downloading history", leave=False
+        ):
             batch = tickers[i : i + batch_size]
             try:
                 df = yf.download(
@@ -337,7 +351,13 @@ class USCollector(BaseCollector):
 
         total_batches = (len(tickers) + batch_size - 1) // batch_size
 
-        for batch_idx, i in enumerate(tqdm(range(0, len(tickers), batch_size), desc="Fetching stock data", leave=False)):
+        for batch_idx, i in enumerate(
+            tqdm(
+                range(0, len(tickers), batch_size),
+                desc="Fetching stock data",
+                leave=False,
+            )
+        ):
             batch = tickers[i : i + batch_size]
             batch_success = 0
 
@@ -382,7 +402,9 @@ class USCollector(BaseCollector):
                                 "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
                                 "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
                                 "fifty_day_average": info.get("fiftyDayAverage"),
-                                "two_hundred_day_average": info.get("twoHundredDayAverage"),
+                                "two_hundred_day_average": info.get(
+                                    "twoHundredDayAverage"
+                                ),
                                 "peg_ratio": info.get("trailingPegRatio"),
                                 "eps": eps,
                                 "book_value_per_share": bvps,
@@ -394,8 +416,13 @@ class USCollector(BaseCollector):
                             failed_tickers.append(ticker)
                     except Exception as e:
                         error_msg = str(e).lower()
-                        if "rate limit" in error_msg or "too many requests" in error_msg:
-                            self.logger.warning(f"Rate limit detected in batch {batch_idx + 1}/{total_batches}")
+                        if (
+                            "rate limit" in error_msg
+                            or "too many requests" in error_msg
+                        ):
+                            self.logger.warning(
+                                f"Rate limit detected in batch {batch_idx + 1}/{total_batches}"
+                            )
                             consecutive_failures += 1
                         failed_tickers.append(ticker)
 
@@ -428,7 +455,9 @@ class USCollector(BaseCollector):
 
         # Retry failed tickers with longer delays
         if failed_tickers and consecutive_failures < max_consecutive_failures:
-            self.logger.info(f"Retrying {len(failed_tickers)} failed tickers with longer delays...")
+            self.logger.info(
+                f"Retrying {len(failed_tickers)} failed tickers with longer delays..."
+            )
             retry_failures = 0
             max_retry_failures = 10  # Stop retry if 10 consecutive failures
 
@@ -508,7 +537,9 @@ class USCollector(BaseCollector):
 
         # Phase 2: Bulk download history
         self.logger.info("Phase 2: Downloading history for technical indicators...")
-        history_data = self.fetch_history_bulk(valid_tickers, period="2mo", batch_size=300)
+        history_data = self.fetch_history_bulk(
+            valid_tickers, period="2mo", batch_size=300
+        )
 
         # Phase 3: Batch fetch stock data
         self.logger.info(f"Phase 3: Fetching stock data in batches of {batch_size}...")
@@ -573,7 +604,9 @@ class USCollector(BaseCollector):
                     all_metrics.append(self._build_metrics_record(ticker, validated))
                     if ticker in prices_all:
                         all_prices.append(
-                            self._build_price_record(ticker, prices_all[ticker], validated)
+                            self._build_price_record(
+                                ticker, prices_all[ticker], validated
+                            )
                         )
 
                 progress.update(success=True)
@@ -610,7 +643,11 @@ class USCollector(BaseCollector):
                 checker.print_report(report)
 
                 # Auto-retry missing tickers
-                if auto_retry and report.missing_count > 0 and report.missing_count <= 100:
+                if (
+                    auto_retry
+                    and report.missing_count > 0
+                    and report.missing_count <= 100
+                ):
                     self.logger.info(
                         f"Auto-retrying {report.missing_count} missing tickers..."
                     )

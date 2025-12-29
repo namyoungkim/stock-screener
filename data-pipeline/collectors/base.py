@@ -74,7 +74,9 @@ class BaseCollector(ABC):
         self.retry_queue = RetryQueue()
         self.progress_tracker = ProgressTracker(self.MARKET_PREFIX)
         self._rate_limit_errors = 0
-        self._max_rate_limit_errors = 3  # Exit after this many consecutive rate limit errors
+        self._max_rate_limit_errors = (
+            3  # Exit after this many consecutive rate limit errors
+        )
 
     @abstractmethod
     def get_tickers(self) -> list[str]:
@@ -265,7 +267,9 @@ class BaseCollector(ABC):
                     all_metrics.append(self._build_metrics_record(ticker, validated))
                     if ticker in prices_all:
                         all_prices.append(
-                            self._build_price_record(ticker, prices_all[ticker], validated)
+                            self._build_price_record(
+                                ticker, prices_all[ticker], validated
+                            )
                         )
 
                 progress.update(success=True)
@@ -274,16 +278,22 @@ class BaseCollector(ABC):
 
             except Exception as e:
                 error_msg = str(e).lower()
-                is_rate_limit = "rate limit" in error_msg or "too many requests" in error_msg
+                is_rate_limit = (
+                    "rate limit" in error_msg or "too many requests" in error_msg
+                )
 
                 if is_rate_limit:
                     self._rate_limit_errors += 1
-                    self.logger.warning(f"Rate limit error ({self._rate_limit_errors}/{self._max_rate_limit_errors}): {e}")
+                    self.logger.warning(
+                        f"Rate limit error ({self._rate_limit_errors}/{self._max_rate_limit_errors}): {e}"
+                    )
 
                     if self._rate_limit_errors >= self._max_rate_limit_errors:
                         # Save progress and exit
                         self.progress_tracker.save_progress()
-                        if self.save_csv and (all_companies or all_metrics or all_prices):
+                        if self.save_csv and (
+                            all_companies or all_metrics or all_prices
+                        ):
                             self.storage.save_to_csv(
                                 companies=all_companies,
                                 metrics=all_metrics,
@@ -333,7 +343,11 @@ class BaseCollector(ABC):
                 checker.print_report(report)
 
                 # Auto-retry missing tickers
-                if auto_retry and report.missing_count > 0 and report.missing_count <= 100:
+                if (
+                    auto_retry
+                    and report.missing_count > 0
+                    and report.missing_count <= 100
+                ):
                     self.logger.info(
                         f"Auto-retrying {report.missing_count} missing tickers..."
                     )

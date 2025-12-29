@@ -110,11 +110,30 @@ decoded = jwt.decode(
 | `/api/watchlist` | GET | **Yes** | 워치리스트 조회 |
 | `/api/watchlist` | POST | **Yes** | 워치리스트 추가 |
 | `/api/watchlist/{ticker}` | DELETE | **Yes** | 워치리스트 삭제 |
+| `/api/alerts` | GET/POST/PATCH/DELETE | **Yes** | 알림 관리 |
+
+### 디스코드 봇 엔드포인트
+
+디스코드 봇 전용 API는 JWT 대신 `X-Discord-User-Id` 헤더를 사용합니다.
+
+| 엔드포인트 | 메서드 | 인증 | 설명 |
+|------------|--------|------|------|
+| `/api/discord/watchlist` | GET/POST | Discord ID | 워치리스트 관리 |
+| `/api/discord/watchlist/{ticker}` | DELETE | Discord ID | 워치리스트 삭제 |
+| `/api/discord/alerts` | GET/POST | Discord ID | 알림 관리 |
+| `/api/discord/alerts/{id}` | DELETE | Discord ID | 알림 삭제 |
+| `/api/discord/alerts/{id}/toggle` | POST | Discord ID | 알림 토글 |
 
 ### 인증 헤더 형식
 
+**웹 (JWT)**:
 ```
 Authorization: Bearer <jwt_token>
+```
+
+**디스코드 봇**:
+```
+X-Discord-User-Id: <discord_snowflake_id>
 ```
 
 ### 보안 고려사항

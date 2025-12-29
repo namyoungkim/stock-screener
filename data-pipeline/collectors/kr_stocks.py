@@ -76,7 +76,9 @@ class KRCollector(BaseCollector):
             kosdaq_tickers = pykrx.get_market_ticker_list(today, market="KOSDAQ")
             for ticker in kosdaq_tickers:
                 name = pykrx.get_market_ticker_name(ticker)
-                tickers_data.append({"ticker": ticker, "name": name, "market": "KOSDAQ"})
+                tickers_data.append(
+                    {"ticker": ticker, "name": name, "market": "KOSDAQ"}
+                )
 
         # Build mappings
         for item in tickers_data:
@@ -202,7 +204,9 @@ class KRCollector(BaseCollector):
                     "date": formatted_date,
                     "close": int(row["종가"]) if pd.notna(row["종가"]) else None,
                     "volume": int(row["거래량"]) if pd.notna(row["거래량"]) else None,
-                    "market_cap": int(row["시가총액"]) if pd.notna(row["시가총액"]) else None,
+                    "market_cap": int(row["시가총액"])
+                    if pd.notna(row["시가총액"])
+                    else None,
                 }
 
         return results
@@ -232,9 +236,15 @@ class KRCollector(BaseCollector):
             yf_tickers.append(yf_ticker)
             ticker_map[yf_ticker] = ticker
 
-        self.logger.info(f"Downloading {period} history for {len(tickers)} KR tickers...")
+        self.logger.info(
+            f"Downloading {period} history for {len(tickers)} KR tickers..."
+        )
 
-        for i in tqdm(range(0, len(yf_tickers), batch_size), desc="Downloading history", leave=False):
+        for i in tqdm(
+            range(0, len(yf_tickers), batch_size),
+            desc="Downloading history",
+            leave=False,
+        ):
             batch = yf_tickers[i : i + batch_size]
             try:
                 df = yf.download(
@@ -304,7 +314,13 @@ class KRCollector(BaseCollector):
             ticker_map[yf_ticker] = ticker
 
         total_batches = (len(yf_tickers) + batch_size - 1) // batch_size
-        for batch_idx, i in enumerate(tqdm(range(0, len(yf_tickers), batch_size), desc="yfinance batch", leave=False)):
+        for batch_idx, i in enumerate(
+            tqdm(
+                range(0, len(yf_tickers), batch_size),
+                desc="yfinance batch",
+                leave=False,
+            )
+        ):
             batch = yf_tickers[i : i + batch_size]
             batch_success = 0
 
@@ -322,7 +338,9 @@ class KRCollector(BaseCollector):
                             bvps = info.get("bookValue")
 
                             # Get technicals from pre-fetched history
-                            hist = history_data.get(krx_ticker) if history_data else None
+                            hist = (
+                                history_data.get(krx_ticker) if history_data else None
+                            )
                             if hist is None or hist.empty:
                                 hist = stock.history(period="2mo")
                             technicals = calculate_all_technicals(hist)
@@ -350,7 +368,9 @@ class KRCollector(BaseCollector):
                                 "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
                                 "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
                                 "fifty_day_average": info.get("fiftyDayAverage"),
-                                "two_hundred_day_average": info.get("twoHundredDayAverage"),
+                                "two_hundred_day_average": info.get(
+                                    "twoHundredDayAverage"
+                                ),
                                 "eps": eps,
                                 "book_value_per_share": bvps,
                                 "graham_number": calculate_graham_number(eps, bvps),
@@ -361,8 +381,13 @@ class KRCollector(BaseCollector):
                             failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
                     except Exception as e:
                         error_msg = str(e).lower()
-                        if "rate limit" in error_msg or "too many requests" in error_msg:
-                            self.logger.warning(f"Rate limit detected in batch {batch_idx + 1}/{total_batches}")
+                        if (
+                            "rate limit" in error_msg
+                            or "too many requests" in error_msg
+                        ):
+                            self.logger.warning(
+                                f"Rate limit detected in batch {batch_idx + 1}/{total_batches}"
+                            )
                             consecutive_failures += 1
                         failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
 
@@ -397,11 +422,15 @@ class KRCollector(BaseCollector):
         # Retry failed tickers with longer delays
         if failed_tickers and consecutive_failures < max_consecutive_failures:
             # Only retry if we're not rate limited
-            self.logger.info(f"Retrying {len(failed_tickers)} failed tickers with longer delays...")
+            self.logger.info(
+                f"Retrying {len(failed_tickers)} failed tickers with longer delays..."
+            )
             retry_failures = 0
             max_retry_failures = 10  # Stop retry if 10 consecutive failures
 
-            for yf_ticker, krx_ticker in tqdm(failed_tickers, desc="Fallback", leave=False):
+            for yf_ticker, krx_ticker in tqdm(
+                failed_tickers, desc="Fallback", leave=False
+            ):
                 try:
                     data = self._fetch_yfinance_metrics(yf_ticker, krx_ticker)
                     if data:
@@ -478,7 +507,9 @@ class KRCollector(BaseCollector):
 
         # Phase 2: Bulk download history
         self.logger.info("Phase 2: Downloading history for technical indicators...")
-        history_data = self.fetch_history_bulk(valid_tickers, period="2mo", batch_size=500)
+        history_data = self.fetch_history_bulk(
+            valid_tickers, period="2mo", batch_size=500
+        )
 
         # Phase 3: Batch yfinance metrics
         self.logger.info("Phase 3: Fetching yfinance metrics in batches...")
@@ -535,7 +566,9 @@ class KRCollector(BaseCollector):
                 eps = combined_metrics.get("eps")
                 bvps = combined_metrics.get("book_value_per_share")
                 if eps and bvps and "graham_number" not in combined_metrics:
-                    combined_metrics["graham_number"] = calculate_graham_number(eps, bvps)
+                    combined_metrics["graham_number"] = calculate_graham_number(
+                        eps, bvps
+                    )
 
                 # Validate metrics
                 validated = self.validator.validate(combined_metrics, ticker)
@@ -562,23 +595,33 @@ class KRCollector(BaseCollector):
 
                 # Collect for CSV
                 if self.save_csv:
-                    all_companies.append({
-                        "ticker": ticker,
-                        "name": name,
-                        "market": mkt,
-                        "currency": "KRW",
-                    })
-                    all_metrics.append({
-                        "ticker": ticker,
-                        "date": price_data.get("date", date.today().isoformat()),
-                        "market": mkt,
-                        **{k: v for k, v in validated.items() if k not in ["name", "market", "currency"]},
-                    })
-                    if price_data:
-                        all_prices.append({
+                    all_companies.append(
+                        {
                             "ticker": ticker,
-                            **price_data,
-                        })
+                            "name": name,
+                            "market": mkt,
+                            "currency": "KRW",
+                        }
+                    )
+                    all_metrics.append(
+                        {
+                            "ticker": ticker,
+                            "date": price_data.get("date", date.today().isoformat()),
+                            "market": mkt,
+                            **{
+                                k: v
+                                for k, v in validated.items()
+                                if k not in ["name", "market", "currency"]
+                            },
+                        }
+                    )
+                    if price_data:
+                        all_prices.append(
+                            {
+                                "ticker": ticker,
+                                **price_data,
+                            }
+                        )
 
                 progress.update(success=True)
 
@@ -614,7 +657,11 @@ class KRCollector(BaseCollector):
                 checker.print_report(report)
 
                 # Auto-retry missing tickers
-                if auto_retry and report.missing_count > 0 and report.missing_count <= 100:
+                if (
+                    auto_retry
+                    and report.missing_count > 0
+                    and report.missing_count <= 100
+                ):
                     self.logger.info(
                         f"Auto-retrying {report.missing_count} missing tickers..."
                     )
@@ -685,7 +732,9 @@ def main():
         tickers = collector.get_tickers()
         print(f"\nTotal: {len(tickers)} tickers")
         for t in tickers[:20]:
-            print(f"  {t}: {collector._ticker_names.get(t, '')} ({collector._ticker_markets.get(t, '')})")
+            print(
+                f"  {t}: {collector._ticker_names.get(t, '')} ({collector._ticker_markets.get(t, '')})"
+            )
         return
 
     # Create collector

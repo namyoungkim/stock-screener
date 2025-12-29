@@ -218,7 +218,9 @@ class StorageManager:
                     if value is not None:
                         data[field] = value
 
-            self.client.table("metrics").upsert(data, on_conflict="company_id,date").execute()
+            self.client.table("metrics").upsert(
+                data, on_conflict="company_id,date"
+            ).execute()
             return True
         except Exception as e:
             logger.error(f"Error upserting metrics for company {company_id}: {e}")
@@ -267,7 +269,9 @@ class StorageManager:
             if market_cap is not None:
                 data["market_cap"] = safe_int(market_cap)
 
-            self.client.table("prices").upsert(data, on_conflict="company_id,date").execute()
+            self.client.table("prices").upsert(
+                data, on_conflict="company_id,date"
+            ).execute()
             return True
         except Exception as e:
             logger.error(f"Error upserting price for company {company_id}: {e}")
@@ -351,7 +355,9 @@ class StorageManager:
             logger.warning(f"Error loading completed tickers from {metrics_file}: {e}")
             return set()
 
-    def get_company_id_mapping(self, market: str | None = None) -> dict[tuple[str, str], str]:
+    def get_company_id_mapping(
+        self, market: str | None = None
+    ) -> dict[tuple[str, str], str]:
         """
         Get mapping of (ticker, market) -> company_id from Supabase.
 

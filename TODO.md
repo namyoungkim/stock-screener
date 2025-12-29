@@ -1,8 +1,18 @@
 # TODO - 개선 필요 사항
 
-> 마지막 업데이트: 2025-12-28
+> 마지막 업데이트: 2025-12-29
 
-## 0. 최근 완료 (2025-12-28)
+## 0. 최근 완료 (2025-12-29)
+
+- [x] **디스코드 봇 워치리스트/알림 연동**
+  - 디스코드 전용 테이블 (`discord_watchlist`, `discord_alerts`)
+  - 백엔드 API (`/api/discord/watchlist`, `/api/discord/alerts`)
+  - 봇 명령어: `/watch`, `/unwatch`, `/watchlist`, `/alert`, `/alerts`, `/delalert`, `/togglealert`
+  - 웹 인증과 별도로 Discord User ID 기반 동작
+- [x] **입력 검증 강화** - MetricType Enum 화이트리스트, UUID/범위/길이 검증
+- [x] **API 키 노출 방지** - 환경변수 검증, 로그 마스킹, DB 연결 검증
+
+## 0.1. 이전 완료 (2025-12-28)
 
 - [x] **워크플로우 일일 실행으로 변경**
   - 데이터 수집: 평일 매일 00:00 UTC (09:00 KST)
@@ -242,9 +252,15 @@
 - [x] `/screen {preset}` 명령어 - 프리셋 스크리닝
 - [x] `/presets` 명령어 - 프리셋 목록
 - [x] `/search {query}` 명령어 - 종목 검색
-- [ ] `/watch {ticker}` 명령어 - 워치리스트 추가
-- [ ] `/watchlist` 명령어 - 워치리스트 조회
-- [ ] `/alert {ticker} {metric} {operator} {value}` 명령어
+- [x] `/watch {ticker}` 명령어 - 워치리스트 추가
+- [x] `/unwatch {ticker}` 명령어 - 워치리스트 삭제
+- [x] `/watchlist` 명령어 - 워치리스트 조회
+- [x] `/alert {ticker} {metric} {operator} {value}` 명령어 - 알림 생성
+- [x] `/alerts` 명령어 - 알림 목록 조회
+- [x] `/delalert {alert_id}` 명령어 - 알림 삭제
+- [x] `/togglealert {alert_id}` 명령어 - 알림 활성화/비활성화
+
+> **참고**: 디스코드 봇은 웹 인증과 별도로 작동합니다. `supabase/discord_schema.sql`을 실행해야 합니다.
 
 ---
 
