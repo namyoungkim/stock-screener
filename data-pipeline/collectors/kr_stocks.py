@@ -419,7 +419,7 @@ class KRCollector(BaseCollector):
                     )
                     break
 
-                backoff_time = 30.0 + random.uniform(0, 30.0)  # 30-60 seconds
+                backoff_time = 300.0 + random.uniform(0, 60.0)  # 5-6 minutes
                 self.logger.warning(
                     f"Rate limit detected. Backoff {backoff_count}/{max_backoffs}: "
                     f"waiting {backoff_time:.0f}s... "
