@@ -89,6 +89,6 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 - 디스코드 봇 워치리스트/알림 연동 (/watch, /watchlist, /alert, /alerts 등)
 - 투자 인사이트 (Phase 3.5) - 규칙 기반 점수/신호, 액션 가이드, 리스크 경고
 
-**다음 단계** (M8): Phase 4 AI 분석 (RAG 인프라, Claude API 연동)
+**다음 단계** (M8): Phase 4 AI 분석 (OpenSearch 인프라, Claude Code CLI 연동)
 
 **미구현**: Phase 5 (AI 어드바이저), 운영/인프라 (봇 배포, i18n, 도메인)
