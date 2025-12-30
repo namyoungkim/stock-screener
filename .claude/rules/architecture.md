@@ -74,7 +74,7 @@ stock-screener/
 **Rate Limit 대응**:
 - 배치 크기: 5개씩 (yfinance .info 호출)
 - 배치 간 딜레이: 3-5초
-- Rate limit 감지 시: 30-60초 백오프 후 재시도 (최대 3회)
+- Rate limit 감지 시: 5-6분 백오프 후 재시도 (최대 3회)
 - 중단 시: `--resume` 플래그로 이어서 수집
 
 > 주의: KR, US 동시 실행 시 yfinance Rate Limit에 걸릴 수 있음

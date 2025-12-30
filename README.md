@@ -1,6 +1,6 @@
 # Stock Screener
 
-미국(S&P 500 + 400 + 600 + Russell 2000) 및 한국(KOSPI + KOSDAQ) 시장을 지원하는 가치투자 스크리닝 도구입니다.
+미국(NYSE + NASDAQ 전체 ~6,000개) 및 한국(KOSPI + KOSDAQ ~2,800개) 시장을 지원하는 가치투자 스크리닝 도구입니다.
 
 ## 주요 기능
 
