@@ -323,6 +323,8 @@
 
 ### P1 - Phase 4: AI 분석
 
+> 아키텍처: `docs/PRD.md` 6.2절, `.claude/rules/vision.md` 참조
+
 1. ~~US 티커 유니버스 확장 (~2,800 → ~6,000)~~ ✅
    - [x] NASDAQ FTP 연동 (`get_all_us_tickers()` 재작성)
    - [x] CLI 옵션 추가 (`--index-only`)
@@ -330,15 +332,20 @@
    - [x] 문서 업데이트
    > 완료: `.claude/rules/ticker-strategy.md`
 
-2. RAG 인프라 구축
-   - [ ] Supabase pgvector 활성화
-   - [ ] 종목 데이터 임베딩
-   - [ ] 검색 API 구현
+2. OpenSearch 인프라 구축
+   - [ ] OpenSearch 호스팅 결정 (AWS Serverless / 직접 호스팅)
+   - [ ] 티커별 분석 문서 스키마 설계
+   - [ ] 인덱스 생성
 
-3. AI 종목 분석
-   - [ ] Claude API 연동
+3. AI 종목 분석 파이프라인
+   - [ ] Claude Code CLI 분석 스크립트 작성
    - [ ] 웹검색 기반 뉴스 수집
-   - [ ] 분석 결과 저장
+   - [ ] 분석 결과 OpenSearch 저장
+   - [ ] 분석 대상 범위 결정 (전체 / 워치리스트 / Top N)
+
+4. API + 프론트엔드
+   - [ ] OpenSearch 조회 API 구현
+   - [ ] 종목 상세 페이지에 AI 분석 섹션 추가
 
 ### P2 - Phase 5: AI 어드바이저
 1. [ ] 오늘의 추천 기능
