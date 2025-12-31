@@ -603,12 +603,15 @@ class KRCollector(BaseCollector):
                             combined_metrics[key] = value
 
                 # Calculate Graham Number from available EPS/BPS (pykrx or yfinance)
-                eps = combined_metrics.get("eps")
-                bvps = combined_metrics.get("book_value_per_share")
-                if eps and bvps and "graham_number" not in combined_metrics:
-                    combined_metrics["graham_number"] = calculate_graham_number(
-                        eps, bvps
-                    )
+                eps_val = combined_metrics.get("eps")
+                bvps_val = combined_metrics.get("book_value_per_share")
+                if eps_val and bvps_val and "graham_number" not in combined_metrics:
+                    eps_float = float(eps_val) if isinstance(eps_val, (int, float)) else None
+                    bvps_float = float(bvps_val) if isinstance(bvps_val, (int, float)) else None
+                    if eps_float and bvps_float:
+                        combined_metrics["graham_number"] = calculate_graham_number(
+                            eps_float, bvps_float
+                        )
 
                 # Validate metrics
                 validated = self.validator.validate(combined_metrics, ticker)

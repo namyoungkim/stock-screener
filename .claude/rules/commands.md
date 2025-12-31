@@ -19,14 +19,20 @@ uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --c
 uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --index-only # S&P + Russell만
 uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --sp500      # S&P 500만
 uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test       # 테스트 (3개)
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --batch-size 5  # 배치 크기 지정
 ```
 
 **티커 유니버스**:
 | 옵션 | 소스 | 종목 수 | 예상 시간 |
 |------|------|---------|----------|
-| (기본) | NASDAQ FTP (NYSE + NASDAQ) | ~6,000개 | ~2-3시간 |
-| `--index-only` | S&P 500/400/600 + Russell 2000 | ~2,800개 | ~1-2시간 |
-| `--sp500` | S&P 500만 | ~500개 | ~15-30분 |
+| (기본) | NASDAQ FTP (NYSE + NASDAQ) | ~6,000개 | ~1-1.5시간 |
+| `--index-only` | S&P 500/400/600 + Russell 2000 | ~2,800개 | ~30-45분 |
+| `--sp500` | S&P 500만 | ~500개 | ~10-15분 |
+
+**배치 크기 옵션** (`--batch-size N`):
+- 기본값: 10 (config.py의 `BATCH_SIZE_INFO`)
+- Rate limit 발생 시: 5로 낮춰서 재시도
+- 안정적인 환경: 15까지 증가 가능
 
 ### 한국 주식 수집
 ```bash
@@ -35,7 +41,10 @@ uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --c
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --test      # 테스트 (3개)
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kospi     # KOSPI만
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kosdaq    # KOSDAQ만
+uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --batch-size 5  # 배치 크기 지정
 ```
+
+**예상 시간**: ~20-30분 (pykrx 벌크 수집 + yfinance 배치 10)
 
 ### 로컬 데이터 파이프라인 (권장)
 ```bash
