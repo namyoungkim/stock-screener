@@ -395,13 +395,15 @@ CREATE POLICY "Users can delete own alerts"
 -- ============================================
 
 -- updated_at 자동 갱신 함수
+-- search_path 고정: 스키마 검색 경로 조작 방지
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = public;
 
 -- 각 테이블에 트리거 적용
 CREATE TRIGGER update_companies_updated_at
@@ -421,7 +423,9 @@ CREATE TRIGGER update_alerts_updated_at
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- 최신 지표가 포함된 회사 정보 뷰 (스크리닝용)
-CREATE VIEW company_latest_metrics AS
+-- security_invoker: 쿼리 실행 사용자의 권한으로 실행 (RLS 정책 적용)
+CREATE VIEW company_latest_metrics
+WITH (security_invoker = true) AS
 SELECT
     c.id,
     c.ticker,
