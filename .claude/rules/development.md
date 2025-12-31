@@ -26,6 +26,12 @@
 - 타이포, 1줄 수정 등 사소한 변경은 main 직접 커밋 허용
 - dev 브랜치 불필요 (Vercel Preview가 스테이징 역할)
 
+### Git Worktree (Claude 병렬 작업)
+
+여러 Claude 인스턴스가 동시에 작업할 때 worktree를 활용합니다.
+
+상세 가이드: `.claude/rules/git-worktree.md` 참조
+
 ---
 
 ## 테스트 우선 개발
