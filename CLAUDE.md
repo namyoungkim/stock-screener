@@ -30,6 +30,7 @@
 - 디스코드 봇 가이드: @.claude/rules/discord-bot.md
 - 디스코드 봇 배포 옵션: @.claude/rules/discord-bot-deployment.md
 - 개발 프로세스 가이드: @.claude/rules/development.md
+- Git Worktree 가이드: @.claude/rules/git-worktree.md
 - Self-hosted Runner 설정: @.claude/rules/self-hosted-runner.md
 - 티커 유니버스 확장 전략: @.claude/rules/ticker-strategy.md
 
