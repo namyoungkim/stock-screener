@@ -16,6 +16,7 @@ Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --resume
 """
 
+import contextlib
 import logging
 import random
 import time
@@ -497,13 +498,16 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str] | None = None,
         resume: bool = False,
-        batch_size: int = 5,
+        batch_size: int | None = None,
         is_test: bool = False,
         check_rate_limit_first: bool = True,
         auto_retry: bool = True,
     ) -> dict:
         """
         Collect Korean stock data with optimized batch processing.
+
+        Args:
+            batch_size: Batch size for .info calls (default: BATCH_SIZE_INFO from config)
 
         Phases:
         1. Fetch prices + fundamentals from pykrx (bulk, ~2s)
@@ -514,6 +518,9 @@ class KRCollector(BaseCollector):
         Args:
             auto_retry: If True, retry missing tickers after quality check
         """
+        if batch_size is None:
+            batch_size = BATCH_SIZE_INFO
+
         # Get tickers if not provided
         if tickers is None:
             tickers = self.get_tickers()
@@ -744,6 +751,14 @@ def main():
     is_test = "--test" in args
     log_level = logging.DEBUG if "--verbose" in args else logging.INFO
 
+    # Parse --batch-size N
+    batch_size = None
+    for i, arg in enumerate(args):
+        if arg == "--batch-size" and i + 1 < len(args):
+            with contextlib.suppress(ValueError):
+                batch_size = int(args[i + 1])
+            break
+
     # Determine market
     if "--kospi" in args:
         market = "KOSPI"
@@ -783,6 +798,7 @@ def main():
         stats = collector.collect(
             tickers=["005930", "000660", "035720"],
             is_test=True,
+            batch_size=batch_size,
         )
     else:
         if market == "ALL":
@@ -790,7 +806,7 @@ def main():
         else:
             print(f"Running {market} collection...")
 
-        stats = collector.collect(resume=resume)
+        stats = collector.collect(resume=resume, batch_size=batch_size)
 
     print(f"\nCollection complete: {stats}")
 

@@ -18,6 +18,7 @@ Ticker Sources:
     (default): Full US market via NASDAQ FTP (~6,000-8,000 stocks)
 """
 
+import contextlib
 import logging
 import random
 import time
@@ -674,7 +675,7 @@ class USCollector(BaseCollector):
         self,
         tickers: list[str] | None = None,
         resume: bool = False,
-        batch_size: int = 5,
+        batch_size: int | None = None,
         is_test: bool = False,
         check_rate_limit_first: bool = True,
         auto_retry: bool = True,
@@ -686,8 +687,11 @@ class USCollector(BaseCollector):
         which is significantly faster than individual calls.
 
         Args:
+            batch_size: Batch size for .info calls (default: BATCH_SIZE_INFO from config)
             auto_retry: If True, retry missing tickers after quality check
         """
+        if batch_size is None:
+            batch_size = BATCH_SIZE_INFO
         # Get tickers if not provided
         if tickers is None:
             tickers = self.get_tickers()
@@ -877,6 +881,14 @@ def main():
     is_test = "--test" in args
     log_level = logging.DEBUG if "--verbose" in args else logging.INFO
 
+    # Parse --batch-size N
+    batch_size = None
+    for i, arg in enumerate(args):
+        if arg == "--batch-size" and i + 1 < len(args):
+            with contextlib.suppress(ValueError):
+                batch_size = int(args[i + 1])
+            break
+
     if "--dry-run" in args:
         # Dry run: test without saving
         print("Dry run test with 3 tickers...")
@@ -929,6 +941,7 @@ def main():
         stats = collector.collect(
             tickers=["AAPL", "MSFT", "GOOGL"],
             is_test=True,
+            batch_size=batch_size,
         )
     else:
         if universe == "full":
@@ -942,7 +955,7 @@ def main():
         else:
             print("Running S&P 500 collection...")
 
-        stats = collector.collect(resume=resume)
+        stats = collector.collect(resume=resume, batch_size=batch_size)
 
     print(f"\nCollection complete: {stats}")
 
