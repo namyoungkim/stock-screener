@@ -16,6 +16,7 @@ Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --resume
 """
 
+import contextlib
 import logging
 import random
 import time
@@ -23,6 +24,17 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 import yfinance as yf
+from common.config import (
+    BACKOFF_TIMES,
+    BASE_DELAY_HISTORY,
+    BASE_DELAY_INFO,
+    BATCH_SIZE_HISTORY,
+    BATCH_SIZE_INFO,
+    DELAY_JITTER_HISTORY,
+    DELAY_JITTER_INFO,
+    MAX_BACKOFFS,
+    MAX_CONSECUTIVE_FAILURES,
+)
 from common.indicators import calculate_all_technicals, calculate_graham_number
 from common.logging import CollectionProgress
 from common.retry import RetryConfig, with_retry
@@ -215,15 +227,17 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str],
         period: str = "3mo",
-        batch_size: int = 300,
+        batch_size: int | None = None,
     ) -> dict[str, pd.DataFrame]:
         """Fetch historical data for all KR tickers in bulk using yf.download.
 
         Rate limit handling:
-        - Batch size: 300 (reduced from 500)
-        - Sleep between batches: 1-2 seconds
+        - Batch size: BATCH_SIZE_HISTORY (default 500)
+        - Sleep between batches: BASE_DELAY_HISTORY + jitter
         - yf.download is more lenient than individual ticker.info calls
         """
+        if batch_size is None:
+            batch_size = BATCH_SIZE_HISTORY
         results: dict[str, pd.DataFrame] = {}
 
         # Convert to yfinance format
@@ -272,8 +286,8 @@ class KRCollector(BaseCollector):
                         except Exception:
                             pass
 
-                # Sleep between batches: 1-2 seconds
-                time.sleep(1.0 + random.uniform(0, 1.0))
+                # Sleep between batches
+                time.sleep(BASE_DELAY_HISTORY + random.uniform(0, DELAY_JITTER_HISTORY))
 
             except Exception as e:
                 self.logger.error(f"History batch error: {e}")
@@ -288,22 +302,23 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str],
         history_data: dict[str, pd.DataFrame] | None = None,
-        batch_size: int = 5,
+        batch_size: int | None = None,
     ) -> dict[str, dict]:
         """Fetch yfinance metrics for multiple tickers in batches.
 
         Rate limit handling:
-        - Batch size: 5 (conservative for large collections)
-        - Sleep between batches: 3-5 seconds with jitter
-        - Rate limit detection: Backoff 30-60s on consecutive failures
-        - Max retries: 3 backoffs before stopping
+        - Batch size: BATCH_SIZE_INFO (default 10)
+        - Sleep between batches: BASE_DELAY_INFO + jitter
+        - Rate limit detection: Progressive backoff on consecutive failures
+        - Max retries: MAX_BACKOFFS before stopping
         """
+        if batch_size is None:
+            batch_size = BATCH_SIZE_INFO
+
         results: dict[str, dict] = {}
         failed_tickers: list[tuple[str, str]] = []
         consecutive_failures = 0
-        max_consecutive_failures = 10  # Allow more failures before backoff
         backoff_count = 0
-        max_backoffs = 3  # Stop after 3 backoffs
 
         # Convert to yfinance format
         yf_tickers = []
@@ -410,30 +425,32 @@ class KRCollector(BaseCollector):
                 consecutive_failures = 0  # Reset on any success
 
             # Backoff if rate limited
-            if consecutive_failures >= max_consecutive_failures:
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 backoff_count += 1
-                if backoff_count > max_backoffs:
+                if backoff_count > MAX_BACKOFFS:
                     self.logger.warning(
-                        f"Stopping after {max_backoffs} backoffs. "
+                        f"Stopping after {MAX_BACKOFFS} backoffs. "
                         f"Completed {len(results)}/{len(tickers)} tickers."
                     )
                     break
 
-                backoff_time = 300.0 + random.uniform(0, 60.0)  # 5-6 minutes
+                # Progressive backoff: 1min -> 2min -> 3min -> 5min
+                backoff_idx = min(backoff_count - 1, len(BACKOFF_TIMES) - 1)
+                backoff_time = BACKOFF_TIMES[backoff_idx] + random.uniform(0, 30.0)
                 self.logger.warning(
-                    f"Rate limit detected. Backoff {backoff_count}/{max_backoffs}: "
+                    f"Rate limit detected. Backoff {backoff_count}/{MAX_BACKOFFS}: "
                     f"waiting {backoff_time:.0f}s... "
                     f"(Completed {len(results)}/{len(tickers)} so far)"
                 )
                 time.sleep(backoff_time)
                 consecutive_failures = 0  # Reset after backoff
 
-            # Sleep between batches: 3-5 seconds with random jitter
-            sleep_time = 3.0 + random.uniform(0, 2.0)
+            # Sleep between batches
+            sleep_time = BASE_DELAY_INFO + random.uniform(0, DELAY_JITTER_INFO)
             time.sleep(sleep_time)
 
         # Retry failed tickers with longer delays (only if not stopped by backoff limit)
-        if failed_tickers and backoff_count <= max_backoffs:
+        if failed_tickers and backoff_count <= MAX_BACKOFFS:
             self.logger.info(
                 f"Retrying {len(failed_tickers)} failed tickers with longer delays..."
             )
@@ -472,7 +489,7 @@ class KRCollector(BaseCollector):
 
                 # Longer sleep for fallback: 5-8 seconds
                 time.sleep(5.0 + random.uniform(0, 3.0))
-        elif backoff_count > max_backoffs:
+        elif backoff_count > MAX_BACKOFFS:
             self.logger.info("Skipping fallback retry due to rate limit.")
 
         return results
@@ -481,13 +498,16 @@ class KRCollector(BaseCollector):
         self,
         tickers: list[str] | None = None,
         resume: bool = False,
-        batch_size: int = 5,
+        batch_size: int | None = None,
         is_test: bool = False,
         check_rate_limit_first: bool = True,
         auto_retry: bool = True,
     ) -> dict:
         """
         Collect Korean stock data with optimized batch processing.
+
+        Args:
+            batch_size: Batch size for .info calls (default: BATCH_SIZE_INFO from config)
 
         Phases:
         1. Fetch prices + fundamentals from pykrx (bulk, ~2s)
@@ -498,6 +518,9 @@ class KRCollector(BaseCollector):
         Args:
             auto_retry: If True, retry missing tickers after quality check
         """
+        if batch_size is None:
+            batch_size = BATCH_SIZE_INFO
+
         # Get tickers if not provided
         if tickers is None:
             tickers = self.get_tickers()
@@ -580,12 +603,15 @@ class KRCollector(BaseCollector):
                             combined_metrics[key] = value
 
                 # Calculate Graham Number from available EPS/BPS (pykrx or yfinance)
-                eps = combined_metrics.get("eps")
-                bvps = combined_metrics.get("book_value_per_share")
-                if eps and bvps and "graham_number" not in combined_metrics:
-                    combined_metrics["graham_number"] = calculate_graham_number(
-                        eps, bvps
-                    )
+                eps_val = combined_metrics.get("eps")
+                bvps_val = combined_metrics.get("book_value_per_share")
+                if eps_val and bvps_val and "graham_number" not in combined_metrics:
+                    eps_float = float(eps_val) if isinstance(eps_val, (int, float)) else None
+                    bvps_float = float(bvps_val) if isinstance(bvps_val, (int, float)) else None
+                    if eps_float and bvps_float:
+                        combined_metrics["graham_number"] = calculate_graham_number(
+                            eps_float, bvps_float
+                        )
 
                 # Validate metrics
                 validated = self.validator.validate(combined_metrics, ticker)
@@ -728,6 +754,14 @@ def main():
     is_test = "--test" in args
     log_level = logging.DEBUG if "--verbose" in args else logging.INFO
 
+    # Parse --batch-size N
+    batch_size = None
+    for i, arg in enumerate(args):
+        if arg == "--batch-size" and i + 1 < len(args):
+            with contextlib.suppress(ValueError):
+                batch_size = int(args[i + 1])
+            break
+
     # Determine market
     if "--kospi" in args:
         market = "KOSPI"
@@ -767,6 +801,7 @@ def main():
         stats = collector.collect(
             tickers=["005930", "000660", "035720"],
             is_test=True,
+            batch_size=batch_size,
         )
     else:
         if market == "ALL":
@@ -774,7 +809,7 @@ def main():
         else:
             print(f"Running {market} collection...")
 
-        stats = collector.collect(resume=resume)
+        stats = collector.collect(resume=resume, batch_size=batch_size)
 
     print(f"\nCollection complete: {stats}")
 
