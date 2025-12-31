@@ -2,7 +2,7 @@
 
 > **비전**: 채팅 기반 AI Agent가 가치투자를 제안하고 컨설팅하는 개인 투자 어드바이저
 
-상세: @.claude/rules/vision.md
+상세: `docs/PRD.md` 6절 참조
 
 ---
 

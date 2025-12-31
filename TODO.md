@@ -323,7 +323,7 @@
 
 ### P1 - Phase 4: AI 분석
 
-> 아키텍처: `docs/PRD.md` 6.2절, `.claude/rules/vision.md` 참조
+> 아키텍처: `docs/PRD.md` 6절 참조
 
 1. ~~US 티커 유니버스 확장 (~2,800 → ~6,000)~~ ✅
    - [x] NASDAQ FTP 연동 (`get_all_us_tickers()` 재작성)
