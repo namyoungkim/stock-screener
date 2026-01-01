@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Search, Filter, X, Plus, Trash2 } from "lucide-react";
 import { PresetStrategy, MetricFilter, OperatorType } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -88,6 +88,9 @@ export function FilterPanel({
   const [pendingOperator, setPendingOperator] = useState<OperatorType>("<=");
   const [pendingValue, setPendingValue] = useState("");
 
+  // For Korean IME composition handling
+  const isComposingRef = useRef(false);
+
   // Sync local filters with applied filters when panel opens
   const handleToggleExpand = () => {
     if (!isExpanded) {
@@ -135,7 +138,20 @@ export function FilterPanel({
           type="text"
           placeholder="Search by ticker or name..."
           value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
+          onChange={(e) => {
+            // Skip update during IME composition to prevent duplicate characters
+            if (!isComposingRef.current) {
+              onSearchChange(e.target.value);
+            }
+          }}
+          onCompositionStart={() => {
+            isComposingRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            isComposingRef.current = false;
+            // Update with final composed value
+            onSearchChange(e.currentTarget.value);
+          }}
           className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 py-2 pl-10 pr-4 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
       </div>
