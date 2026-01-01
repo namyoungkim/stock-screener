@@ -63,6 +63,7 @@ async def screen_stocks(
         db=db,
         filters=filters,
         market=screen_request.market,
+        search=screen_request.search,
         limit=screen_request.limit,
         offset=screen_request.offset,
     )

@@ -104,6 +104,7 @@ async def screen_stocks(
     db: Client,
     filters: list[MetricFilter],
     market: MarketType | None = None,
+    search: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[int, list[CompanyWithMetrics]]:
@@ -119,6 +120,10 @@ async def screen_stocks(
     # Apply market filter
     if market:
         query = query.eq("market", market.value)
+
+    # Apply search filter
+    if search:
+        query = query.or_(f"ticker.ilike.%{search}%,name.ilike.%{search}%")
 
     # Apply metric filters
     query = _build_filter_query(query, filters)
