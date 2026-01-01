@@ -7,34 +7,34 @@ import { api, PresetStrategy, ScreenRequest, MetricFilter } from "@/lib/api";
 import { StockTable } from "@/components/StockTable";
 import { FilterPanel } from "@/components/FilterPanel";
 import { Pagination } from "@/components/ui/Pagination";
+import { useUrlParams } from "@/hooks/useUrlParams";
+import { Filter } from "lucide-react";
 
 const ITEMS_PER_PAGE = 50;
 
 function HomeContent() {
   const searchParams = useSearchParams();
-  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
-  const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+  const { params, setPreset, setMarket, setSearch, setPage } = useUrlParams();
   const [customFilters, setCustomFilters] = useState<MetricFilter[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
 
-  // Handle preset from URL (system preset or custom preset from sessionStorage)
+  // Use URL params for state
+  const selectedPreset = params.preset;
+  const selectedMarket = params.market;
+  const searchQuery = params.search;
+  const currentPage = params.page;
+
+  // Handle custom preset from sessionStorage
   useEffect(() => {
-    const presetId = searchParams.get("preset");
     const customPreset = searchParams.get("customPreset");
 
-    if (presetId) {
-      // System preset
-      setSelectedPreset(presetId);
-      setCustomFilters([]);
-    } else if (customPreset === "true") {
+    if (customPreset === "true") {
       // User preset - load filters from sessionStorage
       const storedFilters = sessionStorage.getItem("customFilters");
       if (storedFilters) {
         try {
           const filters = JSON.parse(storedFilters) as MetricFilter[];
           setCustomFilters(filters);
-          setSelectedPreset(null);
           sessionStorage.removeItem("customFilters"); // Clean up after use
         } catch {
           console.error("Failed to parse custom filters from sessionStorage");
@@ -56,6 +56,7 @@ function HomeContent() {
     preset: selectedPreset ?? undefined,
     market: selectedMarket as ScreenRequest["market"],
     filters: customFilters.length > 0 ? customFilters : undefined,
+    search: searchQuery || undefined,
     limit: ITEMS_PER_PAGE,
     offset,
   };
@@ -80,26 +81,30 @@ function HomeContent() {
     },
   });
 
-  // Reset page when filters change
+  // Reset page when filters change (using URL params)
   const handlePresetChange = (preset: string | null) => {
-    setSelectedPreset(preset);
-    setCurrentPage(1);
+    setPreset(preset);
+    if (preset) {
+      setCustomFilters([]); // Clear custom filters when selecting preset
+    }
   };
 
   const handleMarketChange = (market: string | null) => {
-    setSelectedMarket(market);
-    setCurrentPage(1);
+    setMarket(market);
   };
 
   const handleSearchChange = (search: string) => {
-    setSearchQuery(search);
-    setCurrentPage(1);
+    setSearch(search);
   };
 
   const handleApplyFilters = (filters: MetricFilter[]) => {
     setCustomFilters(filters);
-    setSearchQuery(""); // Clear search when applying custom filters
-    setCurrentPage(1);
+    setPreset(null); // Clear preset when applying custom filters
+    setSearch(""); // Clear search when applying custom filters
+  };
+
+  const handlePageChange = (page: number) => {
+    setPage(page);
   };
 
   const totalPages = Math.ceil((stocksData?.total ?? 0) / ITEMS_PER_PAGE);
@@ -113,9 +118,28 @@ function HomeContent() {
         </p>
       </div>
 
+      {/* Mobile filter toggle button */}
+      <div className="lg:hidden mb-4">
+        <button
+          type="button"
+          onClick={() => setShowFilters(!showFilters)}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+          aria-label={showFilters ? "Hide filters" : "Show filters"}
+          aria-expanded={showFilters}
+        >
+          <Filter className="h-4 w-4" />
+          {showFilters ? "Hide Filters" : "Show Filters"}
+          {(selectedPreset || selectedMarket || searchQuery || customFilters.length > 0) && (
+            <span className="ml-1 px-1.5 py-0.5 text-xs bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-full">
+              Active
+            </span>
+          )}
+        </button>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-5">
         {/* Filters */}
-        <div className="lg:col-span-1">
+        <div className={`lg:col-span-1 ${showFilters ? "block" : "hidden lg:block"}`}>
           <FilterPanel
             presets={presets}
             selectedPreset={selectedPreset}
@@ -164,7 +188,7 @@ function HomeContent() {
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}
-                  onPageChange={setCurrentPage}
+                  onPageChange={handlePageChange}
                 />
               </div>
             )}

@@ -56,6 +56,7 @@ export interface ScreenRequest {
   filters?: MetricFilter[];
   preset?: string;
   market?: "US" | "KOSPI" | "KOSDAQ";
+  search?: string;
   limit?: number;
   offset?: number;
 }

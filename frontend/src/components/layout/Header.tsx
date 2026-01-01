@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TrendingUp } from "lucide-react";
+import { TrendingUp, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -16,6 +17,9 @@ const navigation = [
 
 export function Header() {
   const pathname = usePathname();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const closeMobileMenu = () => setIsMobileMenuOpen(false);
 
   return (
     <header className="border-b border-slate-200 bg-slate-800 shadow-md">
@@ -27,6 +31,7 @@ export function Header() {
               <span className="text-xl font-bold text-white">Stock Screener</span>
             </Link>
 
+            {/* Desktop navigation */}
             <nav className="hidden md:flex gap-6">
               {navigation.map((item) => (
                 <Link
@@ -51,8 +56,49 @@ export function Header() {
             </span>
             <ThemeToggle />
             <UserMenu />
+
+            {/* Mobile menu button */}
+            <button
+              type="button"
+              className="md:hidden p-2 text-slate-300 hover:text-white transition-colors"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={isMobileMenuOpen}
+            >
+              {isMobileMenuOpen ? (
+                <X className="h-6 w-6" />
+              ) : (
+                <Menu className="h-6 w-6" />
+              )}
+            </button>
           </div>
         </div>
+
+        {/* Mobile navigation */}
+        {isMobileMenuOpen && (
+          <nav
+            className="md:hidden border-t border-slate-700 py-4"
+            aria-label="Mobile navigation"
+          >
+            <div className="flex flex-col gap-2">
+              {navigation.map((item) => (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  onClick={closeMobileMenu}
+                  className={cn(
+                    "px-4 py-2 text-base font-medium rounded-lg transition-colors",
+                    pathname === item.href
+                      ? "text-emerald-400 bg-slate-700"
+                      : "text-slate-300 hover:text-white hover:bg-slate-700"
+                  )}
+                >
+                  {item.name}
+                </Link>
+              ))}
+            </div>
+          </nav>
+        )}
       </div>
     </header>
   );
