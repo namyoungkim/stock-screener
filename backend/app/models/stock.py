@@ -208,6 +208,7 @@ class ScreenRequest(BaseModel):
     filters: list[MetricFilter] = Field(default_factory=list)
     preset: str | None = None
     market: MarketType | None = None
+    search: str | None = None
     limit: int = Field(default=100, le=500)
     offset: int = Field(default=0, ge=0)
 
