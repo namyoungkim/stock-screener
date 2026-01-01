@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Search, Filter, X, Plus, Trash2 } from "lucide-react";
 import { PresetStrategy, MetricFilter, OperatorType } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -88,8 +88,16 @@ export function FilterPanel({
   const [pendingOperator, setPendingOperator] = useState<OperatorType>("<=");
   const [pendingValue, setPendingValue] = useState("");
 
-  // For Korean IME composition handling
+  // Local state for search input to handle Korean IME properly
+  const [localSearch, setLocalSearch] = useState(searchQuery);
   const isComposingRef = useRef(false);
+
+  // Sync local search with parent when searchQuery changes externally
+  useEffect(() => {
+    if (!isComposingRef.current) {
+      setLocalSearch(searchQuery);
+    }
+  }, [searchQuery]);
 
   // Sync local filters with applied filters when panel opens
   const handleToggleExpand = () => {
@@ -137,11 +145,13 @@ export function FilterPanel({
         <input
           type="text"
           placeholder="Search by ticker or name..."
-          value={searchQuery}
+          value={localSearch}
           onChange={(e) => {
-            // Skip update during IME composition to prevent duplicate characters
+            const value = e.target.value;
+            setLocalSearch(value);
+            // Update parent immediately for non-IME input (English, etc.)
             if (!isComposingRef.current) {
-              onSearchChange(e.target.value);
+              onSearchChange(value);
             }
           }}
           onCompositionStart={() => {
@@ -149,7 +159,7 @@ export function FilterPanel({
           }}
           onCompositionEnd={(e) => {
             isComposingRef.current = false;
-            // Update with final composed value
+            // Update parent with final composed value (Korean, etc.)
             onSearchChange(e.currentTarget.value);
           }}
           className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 py-2 pl-10 pr-4 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
