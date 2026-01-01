@@ -73,7 +73,7 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 - 하이브리드 저장 (Supabase + CSV)
 - yfinance Rate Limit 대처 (진행 상황 저장 + `--resume` 재시작)
 - FastAPI 백엔드 API
-- Next.js 프론트엔드 (Preset 전략, Tooltip UX, 페이지네이션, 모바일 반응형)
+- Next.js 프론트엔드 (Preset 전략, Tooltip UX, 페이지네이션, 모바일 반응형, URL 히스토리, 한글 IME)
 - Vercel + Render 배포
 - 소셜 로그인 (GitHub + Google OAuth, Supabase Auth)
 - 워치리스트 기능 (추가/삭제/조회)
