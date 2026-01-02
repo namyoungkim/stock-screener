@@ -1,12 +1,16 @@
 """
 Korean Stock Data Collector
 
-Collects financial data for Korean stocks using pykrx and yfinance.
+Collects financial data for Korean stocks using FinanceDataReader and yfinance.
 Supports hybrid storage: Supabase for latest data, CSV for history.
 
 Data sources:
-- pykrx: prices, market cap, PER, PBR, EPS, BPS (bulk, fast)
+- CSV (kr_companies.csv): ticker list (fallback when KRX API is blocked)
+- FinanceDataReader: prices, market cap (via Naver Finance)
 - yfinance: ROE, ROA, margins, ratios, technical indicators (bulk)
+
+Note: As of Dec 27, 2025, KRX requires login for data access, breaking pykrx.
+This collector now uses a hybrid approach with FinanceDataReader for prices.
 
 Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks
@@ -21,7 +25,9 @@ import logging
 import random
 import time
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
+import FinanceDataReader as fdr
 import pandas as pd
 import yfinance as yf
 from common.config import (
@@ -30,6 +36,7 @@ from common.config import (
     BASE_DELAY_INFO,
     BATCH_SIZE_HISTORY,
     BATCH_SIZE_INFO,
+    DATA_DIR,
     DELAY_JITTER_HISTORY,
     DELAY_JITTER_INFO,
     MAX_BACKOFFS,
@@ -38,18 +45,26 @@ from common.config import (
 from common.indicators import calculate_all_technicals, calculate_graham_number
 from common.logging import CollectionProgress
 from common.retry import RetryConfig, with_retry
-from pykrx import stock as pykrx  # type: ignore[import-untyped]
 from tqdm import tqdm
 
 from .base import BaseCollector
 
+# pykrx is optional - KRX API blocked since Dec 27, 2025
+try:
+    from pykrx import stock as pykrx  # type: ignore[import-untyped]
+
+    PYKRX_AVAILABLE = True
+except ImportError:
+    pykrx = None
+    PYKRX_AVAILABLE = False
+
 
 class KRCollector(BaseCollector):
-    """Collector for Korean stock data using pykrx + yfinance."""
+    """Collector for Korean stock data using FinanceDataReader + yfinance."""
 
     MARKET = "KOSPI"  # Will be overridden per ticker
     MARKET_PREFIX = "kr"
-    DATA_SOURCE = "yfinance+pykrx"
+    DATA_SOURCE = "yfinance+fdr"
 
     def __init__(
         self,
@@ -74,23 +89,52 @@ class KRCollector(BaseCollector):
         self._fundamentals: dict[str, dict] = {}  # PER, PBR, EPS, BPS from pykrx
 
     def get_tickers(self) -> list[str]:
-        """Get list of KRX tickers based on market setting."""
-        today = datetime.now().strftime("%Y%m%d")
+        """Get list of KRX tickers from CSV file (primary) or pykrx (fallback).
+
+        Since Dec 27, 2025, KRX requires login, breaking pykrx.
+        Primary source is now kr_companies.csv file.
+        """
         tickers_data = []
 
-        if self.market in ("KOSPI", "ALL"):
-            kospi_tickers = pykrx.get_market_ticker_list(today, market="KOSPI")
-            for ticker in kospi_tickers:
-                name = pykrx.get_market_ticker_name(ticker)
-                tickers_data.append({"ticker": ticker, "name": name, "market": "KOSPI"})
+        # Primary: Load from CSV file
+        csv_path = DATA_DIR / "kr_companies.csv"
+        if csv_path.exists():
+            try:
+                df = pd.read_csv(csv_path)
+                for _, row in df.iterrows():
+                    market = row.get("market", "KOSPI")
+                    if self.market == "ALL" or self.market == market:
+                        tickers_data.append({
+                            "ticker": str(row["ticker"]),
+                            "name": row.get("name", ""),
+                            "market": market,
+                        })
+                self.logger.info(f"Loaded {len(tickers_data)} tickers from {csv_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load CSV: {e}")
 
-        if self.market in ("KOSDAQ", "ALL"):
-            kosdaq_tickers = pykrx.get_market_ticker_list(today, market="KOSDAQ")
-            for ticker in kosdaq_tickers:
-                name = pykrx.get_market_ticker_name(ticker)
-                tickers_data.append(
-                    {"ticker": ticker, "name": name, "market": "KOSDAQ"}
-                )
+        # Fallback: Try pykrx if CSV is empty or failed
+        if not tickers_data and PYKRX_AVAILABLE and pykrx is not None:
+            self.logger.info("Trying pykrx as fallback...")
+            today = datetime.now().strftime("%Y%m%d")
+
+            if self.market in ("KOSPI", "ALL"):
+                try:
+                    kospi_tickers = pykrx.get_market_ticker_list(today, market="KOSPI")
+                    for ticker in kospi_tickers:
+                        name = pykrx.get_market_ticker_name(ticker)
+                        tickers_data.append({"ticker": ticker, "name": name, "market": "KOSPI"})
+                except Exception as e:
+                    self.logger.warning(f"pykrx KOSPI failed: {e}")
+
+            if self.market in ("KOSDAQ", "ALL"):
+                try:
+                    kosdaq_tickers = pykrx.get_market_ticker_list(today, market="KOSDAQ")
+                    for ticker in kosdaq_tickers:
+                        name = pykrx.get_market_ticker_name(ticker)
+                        tickers_data.append({"ticker": ticker, "name": name, "market": "KOSDAQ"})
+                except Exception as e:
+                    self.logger.warning(f"pykrx KOSDAQ failed: {e}")
 
         # Build mappings
         for item in tickers_data:
@@ -151,8 +195,16 @@ class KRCollector(BaseCollector):
         }
 
     def _fetch_pykrx_fundamentals(self, trading_date: str) -> dict[str, dict]:
-        """Fetch PER, PBR, EPS, BPS from pykrx for all stocks."""
+        """Fetch PER, PBR, EPS, BPS from pykrx for all stocks.
+
+        Note: This may fail if KRX requires login (since Dec 27, 2025).
+        In that case, fundamentals will come from yfinance instead.
+        """
         results: dict[str, dict] = {}
+
+        if not PYKRX_AVAILABLE or pykrx is None:
+            self.logger.info("pykrx not available, skipping fundamentals fetch")
+            return results
 
         for market_name in ["KOSPI", "KOSDAQ"]:
             if self.market != "ALL" and self.market != market_name:
@@ -182,8 +234,72 @@ class KRCollector(BaseCollector):
         return results
 
     def fetch_prices_batch(self, tickers: list[str]) -> dict[str, dict]:
-        """Fetch price data and fundamentals from pykrx bulk market data."""
+        """Fetch price data using FinanceDataReader (primary) or pykrx (fallback).
+
+        FinanceDataReader fetches from Naver Finance, which works even when KRX API is blocked.
+        """
         results: dict[str, dict] = {}
+        today = datetime.now()
+        start_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
+
+        self.logger.info(f"Fetching prices for {len(tickers)} tickers via FinanceDataReader...")
+
+        # Fetch prices using FinanceDataReader (individual ticker calls)
+        for ticker in tqdm(tickers, desc="Fetching prices", leave=False):
+            try:
+                df = fdr.DataReader(ticker, start_date, end_date)
+                if df.empty:
+                    continue
+
+                # Get the most recent data
+                latest = df.iloc[-1]
+                latest_date = df.index[-1].strftime("%Y-%m-%d")
+
+                # Get market cap from yfinance (FDR doesn't provide it reliably)
+                market = self._ticker_markets.get(ticker, "KOSPI")
+                suffix = ".KS" if market == "KOSPI" else ".KQ"
+                yf_ticker = f"{ticker}{suffix}"
+
+                market_cap = None
+                try:
+                    stock = yf.Ticker(yf_ticker)
+                    info = stock.info
+                    market_cap = info.get("marketCap")
+                except Exception:
+                    pass
+
+                results[ticker] = {
+                    "date": latest_date,
+                    "close": int(latest["Close"]) if pd.notna(latest["Close"]) else None,
+                    "volume": int(latest["Volume"]) if pd.notna(latest["Volume"]) else None,
+                    "market_cap": market_cap,
+                }
+
+            except Exception as e:
+                self.logger.debug(f"FDR failed for {ticker}: {e}")
+                continue
+
+        self.logger.info(f"Fetched prices for {len(results)} tickers")
+
+        # Fallback to pykrx if FDR got very few results
+        if len(results) < len(tickers) * 0.5 and PYKRX_AVAILABLE and pykrx is not None:
+            self.logger.info("FDR got few results, trying pykrx fallback...")
+            pykrx_results = self._fetch_prices_pykrx(tickers)
+            # Merge: only add tickers not already in results
+            for ticker, data in pykrx_results.items():
+                if ticker not in results:
+                    results[ticker] = data
+            self.logger.info(f"After pykrx fallback: {len(results)} tickers")
+
+        return results
+
+    def _fetch_prices_pykrx(self, tickers: list[str]) -> dict[str, dict]:
+        """Fallback: Fetch prices from pykrx (may fail if KRX requires login)."""
+        results: dict[str, dict] = {}
+
+        if not PYKRX_AVAILABLE or pykrx is None:
+            return results
 
         # Find the most recent trading day
         market_df = None
@@ -191,21 +307,23 @@ class KRCollector(BaseCollector):
 
         for i in range(7):
             day = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
-            df = pykrx.get_market_cap(day)
-            if not df.empty and df["시가총액"].sum() > 0:
-                market_df = df
-                trading_date = day
-                break
+            try:
+                df = pykrx.get_market_cap(day)
+                if not df.empty and df["시가총액"].sum() > 0:
+                    market_df = df
+                    trading_date = day
+                    break
+            except Exception:
+                continue
 
         if market_df is None or trading_date is None:
-            self.logger.error("Could not fetch market data")
+            self.logger.warning("pykrx fallback: Could not fetch market data")
             return results
 
-        self.logger.info(f"Fetched bulk market data for {len(market_df)} stocks")
+        self.logger.info(f"pykrx: Fetched bulk market data for {len(market_df)} stocks")
 
         # Fetch fundamentals (PER, PBR, EPS, BPS)
         self._fundamentals = self._fetch_pykrx_fundamentals(trading_date)
-        self.logger.info(f"Fetched fundamentals for {len(self._fundamentals)} stocks")
 
         formatted_date = f"{trading_date[:4]}-{trading_date[4:6]}-{trading_date[6:8]}"
 
@@ -773,8 +891,14 @@ def main():
     if "--dry-run" in args:
         print("Dry run test with 3 tickers...")
         test_tickers = ["005930", "000660", "035720"]
+        # Load names from CSV
+        csv_path = DATA_DIR / "kr_companies.csv"
+        name_map = {}
+        if csv_path.exists():
+            df = pd.read_csv(csv_path)
+            name_map = dict(zip(df["ticker"].astype(str), df["name"]))
         for ticker in test_tickers:
-            name = pykrx.get_market_ticker_name(ticker)
+            name = name_map.get(ticker, "Unknown")
             print(f"\n=== {ticker} ({name}) ===")
         return
 
