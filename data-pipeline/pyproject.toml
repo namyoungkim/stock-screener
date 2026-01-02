@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "yfinance>=0.2.36",
     "pykrx>=1.0.45",
+    "finance-datareader>=0.9.50",
     "requests>=2.31.0",
     "supabase>=2.3.4",
     "pandas>=2.1.4",
