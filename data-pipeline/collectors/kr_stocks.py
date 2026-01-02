@@ -7,10 +7,12 @@ Supports hybrid storage: Supabase for latest data, CSV for history.
 Data sources:
 - CSV (kr_companies.csv): ticker list (fallback when KRX API is blocked)
 - FinanceDataReader: prices, market cap (via Naver Finance)
+- Naver Finance: EPS, BPS, PER, PBR (web scraping)
 - yfinance: ROE, ROA, margins, ratios, technical indicators (bulk)
 
 Note: As of Dec 27, 2025, KRX requires login for data access, breaking pykrx.
-This collector now uses a hybrid approach with FinanceDataReader for prices.
+This collector now uses a hybrid approach with FinanceDataReader for prices
+and Naver Finance scraping for EPS/BPS.
 
 Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks
@@ -23,13 +25,15 @@ Usage:
 import contextlib
 import logging
 import random
+import re
 import time
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import FinanceDataReader as fdr
 import pandas as pd
+import requests
 import yfinance as yf
+from bs4 import BeautifulSoup
 from common.config import (
     BACKOFF_TIMES,
     BASE_DELAY_HISTORY,
@@ -104,11 +108,13 @@ class KRCollector(BaseCollector):
                 for _, row in df.iterrows():
                     market = row.get("market", "KOSPI")
                     if self.market == "ALL" or self.market == market:
-                        tickers_data.append({
-                            "ticker": str(row["ticker"]),
-                            "name": row.get("name", ""),
-                            "market": market,
-                        })
+                        tickers_data.append(
+                            {
+                                "ticker": str(row["ticker"]),
+                                "name": row.get("name", ""),
+                                "market": market,
+                            }
+                        )
                 self.logger.info(f"Loaded {len(tickers_data)} tickers from {csv_path}")
             except Exception as e:
                 self.logger.warning(f"Failed to load CSV: {e}")
@@ -123,16 +129,22 @@ class KRCollector(BaseCollector):
                     kospi_tickers = pykrx.get_market_ticker_list(today, market="KOSPI")
                     for ticker in kospi_tickers:
                         name = pykrx.get_market_ticker_name(ticker)
-                        tickers_data.append({"ticker": ticker, "name": name, "market": "KOSPI"})
+                        tickers_data.append(
+                            {"ticker": ticker, "name": name, "market": "KOSPI"}
+                        )
                 except Exception as e:
                     self.logger.warning(f"pykrx KOSPI failed: {e}")
 
             if self.market in ("KOSDAQ", "ALL"):
                 try:
-                    kosdaq_tickers = pykrx.get_market_ticker_list(today, market="KOSDAQ")
+                    kosdaq_tickers = pykrx.get_market_ticker_list(
+                        today, market="KOSDAQ"
+                    )
                     for ticker in kosdaq_tickers:
                         name = pykrx.get_market_ticker_name(ticker)
-                        tickers_data.append({"ticker": ticker, "name": name, "market": "KOSDAQ"})
+                        tickers_data.append(
+                            {"ticker": ticker, "name": name, "market": "KOSDAQ"}
+                        )
                 except Exception as e:
                     self.logger.warning(f"pykrx KOSDAQ failed: {e}")
 
@@ -233,6 +245,85 @@ class KRCollector(BaseCollector):
 
         return results
 
+    def _fetch_naver_fundamentals(self, tickers: list[str]) -> dict[str, dict]:
+        """Fetch EPS, BPS, PER, PBR from Naver Finance via web scraping.
+
+        This is the primary source for Korean stock fundamentals since KRX API
+        requires login (Dec 27, 2025). Naver Finance provides reliable data.
+        """
+        results: dict[str, dict] = {}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        }
+
+        self.logger.info(
+            f"Fetching fundamentals from Naver Finance for {len(tickers)} tickers..."
+        )
+
+        for ticker in tqdm(tickers, desc="Naver fundamentals", leave=False):
+            try:
+                url = f"https://finance.naver.com/item/main.naver?code={ticker}"
+                resp = requests.get(url, headers=headers, timeout=10)
+                if resp.status_code != 200:
+                    continue
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                data: dict = {}
+
+                # Extract PER from em#_per
+                per_em = soup.find("em", id="_per")
+                if per_em:
+                    try:
+                        data["pe_ratio"] = float(per_em.get_text().replace(",", ""))
+                    except (ValueError, TypeError):
+                        pass
+
+                # Extract EPS from em#_eps
+                eps_em = soup.find("em", id="_eps")
+                if eps_em:
+                    try:
+                        data["eps"] = float(eps_em.get_text().replace(",", ""))
+                    except (ValueError, TypeError):
+                        pass
+
+                # Extract PBR from em#_pbr
+                pbr_em = soup.find("em", id="_pbr")
+                if pbr_em:
+                    try:
+                        data["pb_ratio"] = float(pbr_em.get_text().replace(",", ""))
+                    except (ValueError, TypeError):
+                        pass
+
+                # Extract BPS from per_table (pattern: PBR l BPS ... X.XX배 l XX,XXX원)
+                per_table = soup.find("table", class_="per_table")
+                if per_table:
+                    table_text = per_table.get_text()
+                    bps_match = re.search(
+                        r"PBR.*?l\s*BPS.*?([\d,.]+)배.*?l\s*([\d,]+)원",
+                        table_text,
+                        re.DOTALL,
+                    )
+                    if bps_match:
+                        try:
+                            data["book_value_per_share"] = float(
+                                bps_match.group(2).replace(",", "")
+                            )
+                        except (ValueError, TypeError):
+                            pass
+
+                if data:
+                    results[ticker] = data
+
+                # Small delay to avoid overwhelming the server
+                time.sleep(0.1)
+
+            except Exception as e:
+                self.logger.debug(f"Naver fundamentals failed for {ticker}: {e}")
+                continue
+
+        self.logger.info(f"Fetched Naver fundamentals for {len(results)} tickers")
+        return results
+
     def fetch_prices_batch(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch price data using FinanceDataReader (primary) or pykrx (fallback).
 
@@ -243,7 +334,9 @@ class KRCollector(BaseCollector):
         start_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
         end_date = today.strftime("%Y-%m-%d")
 
-        self.logger.info(f"Fetching prices for {len(tickers)} tickers via FinanceDataReader...")
+        self.logger.info(
+            f"Fetching prices for {len(tickers)} tickers via FinanceDataReader..."
+        )
 
         # Fetch prices using FinanceDataReader (individual ticker calls)
         for ticker in tqdm(tickers, desc="Fetching prices", leave=False):
@@ -271,8 +364,12 @@ class KRCollector(BaseCollector):
 
                 results[ticker] = {
                     "date": latest_date,
-                    "close": int(latest["Close"]) if pd.notna(latest["Close"]) else None,
-                    "volume": int(latest["Volume"]) if pd.notna(latest["Volume"]) else None,
+                    "close": int(latest["Close"])
+                    if pd.notna(latest["Close"])
+                    else None,
+                    "volume": int(latest["Volume"])
+                    if pd.notna(latest["Volume"])
+                    else None,
                     "market_cap": market_cap,
                 }
 
@@ -602,7 +699,9 @@ class KRCollector(BaseCollector):
                         # Backoff on rate limit in fallback
                         if retry_failures % 5 == 0:
                             backoff_time = 30.0 + random.uniform(0, 30.0)
-                            self.logger.warning(f"Fallback backoff: waiting {backoff_time:.0f}s...")
+                            self.logger.warning(
+                                f"Fallback backoff: waiting {backoff_time:.0f}s..."
+                            )
                             time.sleep(backoff_time)
 
                 # Longer sleep for fallback: 5-8 seconds
@@ -626,15 +725,14 @@ class KRCollector(BaseCollector):
 
         Args:
             batch_size: Batch size for .info calls (default: BATCH_SIZE_INFO from config)
+            auto_retry: If True, retry missing tickers after quality check
 
         Phases:
-        1. Fetch prices + fundamentals from pykrx (bulk, ~2s)
-        2. Download history for technical indicators (bulk, ~2min)
-        3. Fetch yfinance metrics (bulk, ~3min)
-        4. Combine and save
-
-        Args:
-            auto_retry: If True, retry missing tickers after quality check
+        1. Fetch prices from FinanceDataReader (via Naver)
+        2. Fetch EPS/BPS from Naver Finance (web scraping)
+        3. Download history for technical indicators (yfinance bulk)
+        4. Fetch yfinance metrics (ROE, ROA, margins, etc.)
+        5. Combine and save
         """
         if batch_size is None:
             batch_size = BATCH_SIZE_INFO
@@ -657,20 +755,27 @@ class KRCollector(BaseCollector):
             self.logger.info("No tickers to collect")
             return {"total": 0, "success": 0, "failed": 0, "skipped": 0}
 
-        # Phase 1: Fetch prices + fundamentals from pykrx
-        self.logger.info("Phase 1: Fetching prices and fundamentals from pykrx...")
+        # Phase 1: Fetch prices from FinanceDataReader
+        self.logger.info("Phase 1: Fetching prices from FinanceDataReader...")
         prices_all = self.fetch_prices_batch(tickers)
         valid_tickers = list(prices_all.keys())
         self.logger.info(f"Found {len(valid_tickers)} tickers with valid prices")
 
-        # Phase 2: Bulk download history
-        self.logger.info("Phase 2: Downloading history for technical indicators...")
+        # Phase 2: Fetch EPS/BPS from Naver Finance
+        self.logger.info("Phase 2: Fetching EPS/BPS from Naver Finance...")
+        naver_fundamentals = self._fetch_naver_fundamentals(valid_tickers)
+        self.logger.info(
+            f"Fetched Naver fundamentals for {len(naver_fundamentals)} tickers"
+        )
+
+        # Phase 3: Bulk download history
+        self.logger.info("Phase 3: Downloading history for technical indicators...")
         history_data = self.fetch_history_bulk(
             valid_tickers, period="2mo", batch_size=500
         )
 
-        # Phase 3: Batch yfinance metrics
-        self.logger.info("Phase 3: Fetching yfinance metrics in batches...")
+        # Phase 4: Batch yfinance metrics
+        self.logger.info("Phase 4: Fetching yfinance metrics in batches...")
         yf_metrics_all = self.fetch_yfinance_batch(
             valid_tickers,
             history_data=history_data,
@@ -678,8 +783,8 @@ class KRCollector(BaseCollector):
         )
         self.logger.info(f"Fetched yfinance metrics for {len(yf_metrics_all)} stocks")
 
-        # Phase 4: Combine and save
-        self.logger.info("Phase 4: Combining data and saving...")
+        # Phase 5: Combine and save
+        self.logger.info("Phase 5: Combining data and saving...")
         progress = CollectionProgress(
             total=len(valid_tickers),
             logger=self.logger,
@@ -697,35 +802,56 @@ class KRCollector(BaseCollector):
                 price_data = prices_all.get(ticker, {})
                 market_cap = price_data.get("market_cap")
 
-                # Get pykrx fundamentals (PER, PBR, EPS, BPS)
-                pykrx_data = self._fundamentals.get(ticker, {})
+                # Get Naver fundamentals (PER, PBR, EPS, BPS)
+                naver_data = naver_fundamentals.get(ticker, {})
 
                 # Get yfinance metrics
                 yf_metrics = yf_metrics_all.get(ticker, {})
 
-                # Combine metrics: pykrx first, then yfinance (yfinance overwrites if available)
+                # Combine metrics: start with base, add naver, then yfinance
                 combined_metrics = {
                     "name": name,
                     "market": mkt,
                     "market_cap": market_cap,
                 }
 
-                # Add pykrx data (PER, PBR, EPS, BPS)
-                if pykrx_data:
-                    combined_metrics.update(pykrx_data)
+                # Add Naver data (PER, PBR, EPS, BPS) - primary source for Korean stocks
+                if naver_data:
+                    combined_metrics.update(naver_data)
 
-                # Add yfinance data (overwrites eps/bvps if available)
+                # Add yfinance data (ROE, ROA, margins, technicals, etc.)
+                # Note: yfinance may overwrite some values, but that's OK
                 if yf_metrics:
                     for key, value in yf_metrics.items():
+                        # Only overwrite if yfinance has a value and current is None
                         if value is not None:
-                            combined_metrics[key] = value
+                            if (
+                                key not in combined_metrics
+                                or combined_metrics.get(key) is None
+                            ) or key in (
+                                "rsi",
+                                "mfi",
+                                "macd",
+                                "macd_signal",
+                                "macd_histogram",
+                                "bb_upper",
+                                "bb_middle",
+                                "bb_lower",
+                                "bb_percent",
+                                "volume_change",
+                            ):
+                                combined_metrics[key] = value
 
                 # Calculate Graham Number from available EPS/BPS (pykrx or yfinance)
                 eps_val = combined_metrics.get("eps")
                 bvps_val = combined_metrics.get("book_value_per_share")
                 if eps_val and bvps_val and "graham_number" not in combined_metrics:
-                    eps_float = float(eps_val) if isinstance(eps_val, (int, float)) else None
-                    bvps_float = float(bvps_val) if isinstance(bvps_val, (int, float)) else None
+                    eps_float = (
+                        float(eps_val) if isinstance(eps_val, (int, float)) else None
+                    )
+                    bvps_float = (
+                        float(bvps_val) if isinstance(bvps_val, (int, float)) else None
+                    )
                     if eps_float and bvps_float:
                         combined_metrics["graham_number"] = calculate_graham_number(
                             eps_float, bvps_float
