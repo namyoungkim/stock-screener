@@ -159,7 +159,7 @@ class StorageManager:
         Args:
             company_id: Company UUID from companies table
             metrics: Dictionary of metric values
-            data_source: Source of the data ("yfinance", "yfinance+pykrx")
+            data_source: Source of the data ("yfinance", "yfinance+fdr")
             metrics_date: Date for metrics (default: today)
 
         Returns:

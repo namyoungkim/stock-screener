@@ -46,10 +46,13 @@ stock-screener/
 - 옵션: `--index-only`로 S&P + Russell만 수집 (~2,800개)
 
 **한국 주식** (~2,800개):
-- 티커 소스: pykrx (KOSPI + KOSDAQ 전체)
-- 가격/시가총액/PER/PBR/EPS/BPS: pykrx (벌크)
+- 티커 소스: CSV (`kr_companies.csv`)
+- 가격: FinanceDataReader (네이버 금융)
+- EPS/BPS/PER/PBR: 네이버 금융 웹 크롤링
 - 재무 지표: yfinance (ROE, ROA, Margins, D/E, Current Ratio 등)
 - 저장: Supabase + CSV
+
+> **Note**: 2025.12.27부터 KRX 로그인 필수화로 pykrx가 작동하지 않아 FDR + 네이버 크롤링으로 전환
 
 **데이터 파이프라인** (`./scripts/collect-and-backup.sh`):
 1. KR 수집 (품질검사 + 자동재수집)
@@ -87,9 +90,9 @@ stock-screener/
 
 | 지표 | US 소스 | KR 소스 |
 |------|---------|---------|
-| P/E (Trailing) | yfinance | pykrx |
+| P/E (Trailing) | yfinance | 네이버 금융 |
 | P/E (Forward) | yfinance | yfinance |
-| P/B | yfinance | pykrx |
+| P/B | yfinance | 네이버 금융 |
 | P/S | yfinance | yfinance |
 | EV/EBITDA | yfinance | yfinance |
 | PEG Ratio | yfinance | yfinance |
@@ -100,8 +103,8 @@ stock-screener/
 | Current Ratio | yfinance | yfinance |
 | Dividend Yield | yfinance | yfinance |
 | Beta | yfinance | yfinance |
-| EPS | yfinance | pykrx |
-| Book Value/Share | yfinance | pykrx |
+| EPS | yfinance | 네이버 금융 |
+| Book Value/Share | yfinance | 네이버 금융 |
 | Graham Number | 계산 | 계산 |
 | 52주 고/저 | yfinance | yfinance |
 | 50일/200일 이동평균 | yfinance | yfinance |
@@ -124,7 +127,7 @@ stock-screener/
 ## 주요 의존성
 
 - 백엔드: FastAPI, asyncpg, Pydantic, httpx
-- 데이터 파이프라인: yfinance, pykrx, pandas, supabase-py
+- 데이터 파이프라인: yfinance, FinanceDataReader, pandas, supabase-py, beautifulsoup4
 - 데이터베이스: Supabase (PostgreSQL)
 
 ## 하이브리드 저장 전략
