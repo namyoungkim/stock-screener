@@ -44,7 +44,7 @@ uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --k
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --batch-size 5  # 배치 크기 지정
 ```
 
-**예상 시간**: ~20-30분 (pykrx 벌크 수집 + yfinance 배치 10)
+**예상 시간**: ~20-30분 (FDR 가격 + 네이버 금융 크롤링 + yfinance 배치 10)
 
 ### 로컬 데이터 파이프라인 (권장)
 ```bash

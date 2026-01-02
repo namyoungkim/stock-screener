@@ -294,7 +294,7 @@ def load_metrics(
             metric = {
                 "company_id": company_id,
                 "date": row["date"],
-                "data_source": "yfinance+pykrx",
+                "data_source": "yfinance+fdr",
             }
             for csv_col, db_col in COLUMN_MAP.items():
                 if csv_col in row.index:

@@ -45,7 +45,7 @@
 - **백엔드**: FastAPI
 - **데이터베이스**: Supabase (PostgreSQL)
 - **봇**: discord.py
-- **데이터**: yfinance, pykrx
+- **데이터**: yfinance, FinanceDataReader, 네이버 금융
 - **배포**: Vercel (Frontend), Render (Backend)
 
 ## 프로젝트 구조

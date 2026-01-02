@@ -50,7 +50,7 @@
 | Backend | FastAPI, Python 3.11+ |
 | Frontend | Next.js 14, TailwindCSS |
 | Database | Supabase (PostgreSQL) |
-| Data | yfinance, pykrx |
+| Data | yfinance, FinanceDataReader, 네이버 금융 |
 | AI (예정) | Claude Code CLI, OpenSearch |
 
 ---

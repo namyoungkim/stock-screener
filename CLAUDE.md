@@ -67,7 +67,7 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 - 통합 데이터 파이프라인 (`./scripts/collect-and-backup.sh`)
   - 수집 → 품질검사 → 자동재수집 → Google Drive 백업 → Supabase 적재
 - 품질검사 자동화 (유니버스 커버리지, 대형주 누락, 지표 완성도)
-- KR 수집기 최적화 (pykrx + yfinance 하이브리드)
+- KR 수집기 (FDR + 네이버 금융 + yfinance, KRX 로그인 필수화 대응)
 - 기술적 지표 수집 (RSI, MFI, MACD, Bollinger Bands, Volume Change)
 - 가치투자 지표 (EPS, BPS, Graham Number)
 - 하이브리드 저장 (Supabase + CSV)
