@@ -11,10 +11,12 @@ Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --index-only
     uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test
     uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --resume
+    uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --tickers-file data/missing_tickers.txt
 
 Ticker Sources:
     --sp500: S&P 500 only (~500 stocks)
     --index-only: S&P 500 + 400 + 600 + Russell 2000 (~2,800 stocks)
+    --tickers-file FILE: Custom ticker list from file (one ticker per line)
     (default): Full US market via NASDAQ FTP (~6,000-8,000 stocks)
 """
 
@@ -893,6 +895,13 @@ def main():
                 batch_size = int(args[i + 1])
             break
 
+    # Parse --tickers-file FILE
+    tickers_file = None
+    for i, arg in enumerate(args):
+        if arg == "--tickers-file" and i + 1 < len(args):
+            tickers_file = args[i + 1]
+            break
+
     if "--dry-run" in args:
         # Dry run: test without saving
         print("Dry run test with 3 tickers...")
@@ -948,6 +957,24 @@ def main():
             is_test=True,
             batch_size=batch_size,
         )
+    elif tickers_file:
+        # Load tickers from file
+        from pathlib import Path
+
+        tickers_path = Path(tickers_file)
+        if not tickers_path.exists():
+            print(f"Error: Tickers file not found: {tickers_file}")
+            return
+        tickers = [
+            line.strip()
+            for line in tickers_path.read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        if not tickers:
+            print(f"Error: No tickers found in {tickers_file}")
+            return
+        print(f"Running collection for {len(tickers)} tickers from {tickers_file}...")
+        stats = collector.collect(tickers=tickers, batch_size=batch_size)
     else:
         if universe == "full":
             print("Running FULL US market collection...")
