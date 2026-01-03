@@ -139,12 +139,20 @@ stock-screener/
 
 ```
 data/
-├── us_companies.csv              # 미국 기업 목록
-├── kr_companies.csv              # 한국 기업 목록
-├── prices/
-│   ├── us_prices_YYYYMMDD.csv    # 미국 일별 가격
-│   └── kr_prices_YYYYMMDD.csv    # 한국 일별 가격
-└── financials/
-    ├── us_metrics_YYYYMMDD.csv   # 미국 일별 지표
-    └── kr_metrics_YYYYMMDD.csv   # 한국 일별 지표
+├── YYYY-MM-DD/                   # 날짜별 디렉토리
+│   ├── v1/                       # 버전별 디렉토리 (재수집 시 v2, v3 ...)
+│   │   ├── us_prices.csv         # 미국 가격
+│   │   ├── us_metrics.csv        # 미국 지표
+│   │   ├── kr_prices.csv         # 한국 가격
+│   │   └── kr_metrics.csv        # 한국 지표
+│   └── current -> v1/            # 해당 날짜의 최신 버전 심링크
+├── companies/                    # 기업 마스터 데이터 (날짜 무관)
+│   ├── us_companies.csv          # 미국 기업 목록
+│   └── kr_companies.csv          # 한국 기업 목록
+└── latest -> YYYY-MM-DD/vN/      # 가장 최신 수집 데이터 심링크
 ```
+
+**버전 관리**:
+- 같은 날 재수집 시 자동으로 새 버전 생성 (v1, v2, ...)
+- `latest` 심링크로 가장 최신 데이터 쉽게 접근
+- 오래된 데이터 정리가 날짜 단위로 쉬움

@@ -43,23 +43,34 @@ jobs:
           key = os.environ['SUPABASE_KEY']
           client = create_client(url, key)
 
-          today = date.today().strftime('%Y%m%d')
-          backup_dir = 'data/backup'
+          # New structure: data/supabase/YYYY-MM-DD/
+          today = date.today().strftime('%Y-%m-%d')
+          backup_dir = f'data/supabase/{today}'
           os.makedirs(backup_dir, exist_ok=True)
 
-          # Export companies
-          result = client.table('companies').select('*').execute()
-          if result.data:
-              df = pd.DataFrame(result.data)
-              df.to_csv(f'{backup_dir}/companies_{today}.csv', index=False)
-              print(f'Exported {len(result.data)} companies')
+          def export_table(client, table_name, output_path):
+              '''Export all rows from a table with pagination.'''
+              all_data = []
+              offset = 0
+              page_size = 1000
 
-          # Export metrics (latest only)
-          result = client.table('metrics').select('*').execute()
-          if result.data:
-              df = pd.DataFrame(result.data)
-              df.to_csv(f'{backup_dir}/metrics_{today}.csv', index=False)
-              print(f'Exported {len(result.data)} metrics')
+              while True:
+                  result = client.table(table_name).select('*').range(offset, offset + page_size - 1).execute()
+                  if not result.data:
+                      break
+                  all_data.extend(result.data)
+                  if len(result.data) < page_size:
+                      break
+                  offset += page_size
+
+              if all_data:
+                  df = pd.DataFrame(all_data)
+                  df.to_csv(output_path, index=False)
+                  print(f'Exported {len(all_data):,} {table_name}')
+
+          export_table(client, 'companies', f'{backup_dir}/companies.csv')
+          export_table(client, 'metrics', f'{backup_dir}/metrics.csv')
+          export_table(client, 'prices', f'{backup_dir}/prices.csv')
           "
 
       - name: Cleanup old prices (keep 1 month)
@@ -87,7 +98,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: supabase-backup-${{ github.run_id }}
-          path: data/backup/*.csv
+          path: data/supabase/
           retention-days: 30
 
       # ============================================================
@@ -115,14 +126,13 @@ jobs:
       - name: Upload to Google Drive
         if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
         run: |
-          # Upload Supabase backup CSVs only
-          # (prices/financials are backed up by update-data.yml)
+          # Upload Supabase backup to gdrive:supabase/YYYY-MM-DD/
           echo "Uploading Supabase backup CSVs to Google Drive..."
-          rclone copy data/backup/ gdrive:backups/ --progress
+          rclone copy data/supabase/ gdrive:supabase/ --progress
           echo "Google Drive backup complete!"
 
       - name: Cleanup old backups (keep 4 weeks rolling)
         if: ${{ env.HAS_RCLONE_CONFIG == 'true' }}
         run: |
           # Delete backups older than 28 days from Google Drive
-          rclone delete gdrive:backups/ --min-age 28d --progress 2>/dev/null || true
+          rclone delete gdrive:supabase/ --min-age 28d --progress 2>/dev/null || true

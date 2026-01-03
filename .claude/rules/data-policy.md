@@ -74,22 +74,24 @@ API 서빙용 최신 데이터만 유지 (무료 티어 제한 대응)
 장기 보관 데이터
 
 > **NOTE**: rclone `gdrive:` 리모트는 `root_folder_id`로 `stock-screener-backup` 폴더를 가리킴.
-> 따라서 `gdrive:prices/`는 실제로 `Google Drive/stock-screener-backup/prices/`를 의미함.
+> 따라서 `gdrive:2026-01-03/v1/`은 `Google Drive/stock-screener-backup/2026-01-03/v1/`을 의미함.
 
 ```
 Google Drive/stock-screener-backup/  (rclone root)
-├── prices/
-│   ├── us_prices_20250101.csv
-│   ├── kr_prices_20250101.csv
-│   └── ...
-├── financials/
-│   ├── us_metrics_20250101.csv
-│   ├── kr_metrics_20250101.csv
-│   └── ...
-└── backups/
-    ├── companies_20250105.csv
-    ├── metrics_20250105.csv
-    └── ...
+├── 2026-01-03/                      # 날짜별 수집 데이터
+│   └── v1/                          # 버전별 디렉토리
+│       ├── us_prices.csv
+│       ├── us_metrics.csv
+│       ├── kr_prices.csv
+│       └── kr_metrics.csv
+├── companies/                       # 기업 마스터 데이터
+│   ├── us_companies.csv
+│   └── kr_companies.csv
+└── supabase/                        # Supabase 백업 (4주 롤링)
+    └── 2026-01-03/
+        ├── companies.csv
+        ├── metrics.csv
+        └── prices.csv
 ```
 
 ---

@@ -177,6 +177,13 @@ class BaseCollector(ABC):
 
         total_tickers = len(tickers)
 
+        # Set up version directory for CSV storage
+        if self.save_csv:
+            if resume:
+                self.storage.resume_version_dir()
+            else:
+                self.storage.get_or_create_version_dir()
+
         # Resume: skip already collected tickers using ProgressTracker
         if resume:
             original_count = len(tickers)
@@ -367,6 +374,9 @@ class BaseCollector(ABC):
                         self.logger.info(
                             f"Retry collected {retry_result['success']} additional tickers"
                         )
+
+                # Update symlinks after successful collection
+                self.storage.update_symlinks()
 
         # Log summary
         progress.log_summary()

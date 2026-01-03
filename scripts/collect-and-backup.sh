@@ -99,23 +99,95 @@ if [[ "$MARKET" == "us" || "$MARKET" == "all" ]]; then
     fi
 fi
 
-# Phase 3: Google Drive 백업
+# Phase 3: Google Drive 백업 (수집 데이터)
 # NOTE: rclone gdrive: 는 root_folder_id로 stock-screener-backup 폴더를 가리킴
-if [[ -d "data/prices" ]] && [[ -n "$(ls -A data/prices/ 2>/dev/null)" ]]; then
+# 새 구조: data/YYYY-MM-DD/vN/ -> gdrive:YYYY-MM-DD/vN/
+if [[ -L "data/latest" ]]; then
     echo ""
-    echo "[3/4] Backing up to Google Drive..."
-    rclone copy data/prices/ gdrive:prices/ --progress
-    rclone copy data/financials/ gdrive:financials/ --progress
-    echo "Backup completed!"
+    echo "[3/5] Backing up collection data to Google Drive..."
+
+    # Get the relative path from 'latest' symlink (e.g., "2026-01-03/v1")
+    LATEST_PATH=$(readlink data/latest)
+    echo "Backing up: $LATEST_PATH"
+
+    # Backup versioned data (e.g., 2026-01-03/v1/)
+    rclone copy "data/$LATEST_PATH" "gdrive:$LATEST_PATH" --progress
+
+    # Backup companies (master data)
+    if [[ -d "data/companies" ]]; then
+        rclone copy data/companies/ gdrive:companies/ --progress
+    fi
+
+    echo "Collection data backup completed!"
 else
     echo ""
-    echo "[3/4] No data to backup, skipping..."
+    echo "[3/5] No 'latest' symlink found, skipping collection backup..."
 fi
 
-# Phase 4: Supabase 적재
+# Phase 4: Supabase 백업
+echo ""
+echo "[4/5] Backing up Supabase to Google Drive..."
+uv run --package stock-screener-data-pipeline python -c "
+import os
+import pandas as pd
+from datetime import date
+from pathlib import Path
+from dotenv import load_dotenv
+from supabase import create_client
+
+load_dotenv()
+
+url = os.environ.get('SUPABASE_URL')
+key = os.environ.get('SUPABASE_KEY')
+
+if not url or not key:
+    print('SUPABASE_URL/KEY not set, skipping Supabase backup')
+    exit(0)
+
+client = create_client(url, key)
+
+# Create backup directory: data/supabase/YYYY-MM-DD/
+today = date.today().strftime('%Y-%m-%d')
+backup_dir = Path('data/supabase') / today
+backup_dir.mkdir(parents=True, exist_ok=True)
+
+def export_table(client, table_name, output_path):
+    '''Export all rows from a table with pagination.'''
+    all_data = []
+    offset = 0
+    page_size = 1000
+
+    while True:
+        result = client.table(table_name).select('*').range(offset, offset + page_size - 1).execute()
+        if not result.data:
+            break
+        all_data.extend(result.data)
+        if len(result.data) < page_size:
+            break
+        offset += page_size
+
+    if all_data:
+        df = pd.DataFrame(all_data)
+        df.to_csv(output_path, index=False)
+        print(f'Exported {len(all_data):,} {table_name}')
+
+export_table(client, 'companies', backup_dir / 'companies.csv')
+export_table(client, 'metrics', backup_dir / 'metrics.csv')
+export_table(client, 'prices', backup_dir / 'prices.csv')
+
+print(f'Supabase backup saved to {backup_dir}')
+"
+
+# Upload Supabase backup to Google Drive
+if [[ -d "data/supabase" ]]; then
+    rclone copy data/supabase/ gdrive:supabase/ --progress
+    echo "Supabase backup uploaded to Google Drive!"
+fi
+
+# Phase 5: Supabase 적재
 if [[ "$SKIP_DB" == false ]]; then
     echo ""
-    echo "[4/4] Loading to Supabase..."
+    echo "[5/5] Loading to Supabase..."
 
     DB_LOAD_ARGS=""
     if [[ "$MARKET" == "kr" ]]; then
@@ -132,7 +204,7 @@ if [[ "$SKIP_DB" == false ]]; then
     fi
 else
     echo ""
-    echo "[4/4] Skipping Supabase loading (--no-db)"
+    echo "[5/5] Skipping Supabase loading (--no-db)"
 fi
 
 echo ""

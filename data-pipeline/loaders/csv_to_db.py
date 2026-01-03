@@ -4,11 +4,24 @@ CSV to Supabase Loader
 Reads CSV files from data/ directory and upserts to Supabase.
 Supports incremental updates and full reloads.
 
+New directory structure:
+    data/
+    ├── YYYY-MM-DD/vN/           # Versioned collection data
+    │   ├── us_metrics.csv
+    │   ├── us_prices.csv
+    │   ├── kr_metrics.csv
+    │   └── kr_prices.csv
+    ├── companies/               # Master company data
+    │   ├── us_companies.csv
+    │   └── kr_companies.csv
+    └── latest -> YYYY-MM-DD/vN/ # Symlink to most recent
+
 Usage:
     uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db
     uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --us-only
     uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --kr-only
-    uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 20251227
+    uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 2026-01-03
+    uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 2026-01-03 --version v1
 """
 
 from __future__ import annotations
@@ -54,8 +67,7 @@ load_dotenv()
 
 # Data directory paths
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
-PRICES_DIR = DATA_DIR / "prices"
-FINANCIALS_DIR = DATA_DIR / "financials"
+COMPANIES_DIR = DATA_DIR / "companies"
 
 # Batch size for Supabase upsert (limit ~1000)
 BATCH_SIZE = 500
@@ -70,11 +82,50 @@ def get_supabase_client() -> Client:
     return create_client(url, key)
 
 
-def find_latest_csv(directory: Path, prefix: str) -> Path | None:
-    """Find the most recent CSV file matching prefix."""
-    pattern = f"{prefix}_*.csv"
-    files = sorted(directory.glob(pattern), reverse=True)
-    return files[0] if files else None
+def find_data_directory(
+    target_date: str | None = None,
+    version: str | None = None,
+) -> Path | None:
+    """
+    Find the appropriate data directory for metrics/prices.
+
+    Args:
+        target_date: Date in YYYY-MM-DD format (optional)
+        version: Version like 'v1', 'v2' (optional)
+
+    Returns:
+        Path to the data directory or None if not found
+    """
+    if target_date:
+        date_dir = DATA_DIR / target_date
+        if not date_dir.exists():
+            return None
+        if version:
+            version_dir = date_dir / version
+            return version_dir if version_dir.exists() else None
+        # Use 'current' symlink or latest version
+        current = date_dir / "current"
+        if current.is_symlink():
+            return current.resolve()
+        versions = sorted(date_dir.glob("v*"))
+        return versions[-1] if versions else None
+
+    # Default: use 'latest' symlink
+    latest = DATA_DIR / "latest"
+    if latest.is_symlink():
+        return latest.resolve()
+
+    # Fallback: find most recent date directory
+    date_dirs = sorted(
+        [d for d in DATA_DIR.iterdir() if d.is_dir() and d.name[0].isdigit()],
+        reverse=True,
+    )
+    for date_dir in date_dirs:
+        versions = sorted(date_dir.glob("v*"))
+        if versions:
+            return versions[-1]
+
+    return None
 
 
 def load_companies(
@@ -396,6 +447,7 @@ def main(
     us_only: bool = False,
     kr_only: bool = False,
     target_date: str | None = None,
+    version: str | None = None,
 ) -> dict:
     """
     Main function to load CSV data to Supabase.
@@ -403,7 +455,8 @@ def main(
     Args:
         us_only: Only load US data
         kr_only: Only load KR data
-        target_date: Specific date to load (YYYYMMDD format). If None, uses latest.
+        target_date: Specific date to load (YYYY-MM-DD format). If None, uses latest.
+        version: Specific version to load (e.g., 'v1', 'v2'). If None, uses latest.
 
     Returns:
         Summary statistics.
@@ -414,36 +467,24 @@ def main(
 
     client = get_supabase_client()
 
-    # Determine files to load
-    us_companies_csv = None if kr_only else DATA_DIR / "us_companies.csv"
-    kr_companies_csv = None if us_only else DATA_DIR / "kr_companies.csv"
+    # Find data directory for metrics/prices
+    data_dir = find_data_directory(target_date, version)
+    if not data_dir:
+        print(f"ERROR: No data directory found for date={target_date}, version={version}")
+        print("Make sure data has been collected first.")
+        return {"companies": 0, "metrics": 0, "prices": 0}
 
-    if target_date:
-        us_metrics_csv = (
-            FINANCIALS_DIR / f"us_metrics_{target_date}.csv" if not kr_only else None
-        )
-        kr_metrics_csv = (
-            FINANCIALS_DIR / f"kr_metrics_{target_date}.csv" if not us_only else None
-        )
-        us_prices_csv = (
-            PRICES_DIR / f"us_prices_{target_date}.csv" if not kr_only else None
-        )
-        kr_prices_csv = (
-            PRICES_DIR / f"kr_prices_{target_date}.csv" if not us_only else None
-        )
-    else:
-        us_metrics_csv = (
-            find_latest_csv(FINANCIALS_DIR, "us_metrics") if not kr_only else None
-        )
-        kr_metrics_csv = (
-            find_latest_csv(FINANCIALS_DIR, "kr_metrics") if not us_only else None
-        )
-        us_prices_csv = (
-            find_latest_csv(PRICES_DIR, "us_prices") if not kr_only else None
-        )
-        kr_prices_csv = (
-            find_latest_csv(PRICES_DIR, "kr_prices") if not us_only else None
-        )
+    print(f"Using data directory: {data_dir}")
+
+    # Companies are in fixed location
+    us_companies_csv = None if kr_only else COMPANIES_DIR / "us_companies.csv"
+    kr_companies_csv = None if us_only else COMPANIES_DIR / "kr_companies.csv"
+
+    # Metrics and prices from versioned directory
+    us_metrics_csv = None if kr_only else data_dir / "us_metrics.csv"
+    kr_metrics_csv = None if us_only else data_dir / "kr_metrics.csv"
+    us_prices_csv = None if kr_only else data_dir / "us_prices.csv"
+    kr_prices_csv = None if us_only else data_dir / "kr_prices.csv"
 
     # Phase 1: Load companies and get ID mapping
     print("\nPhase 1: Loading companies...")
@@ -476,12 +517,24 @@ if __name__ == "__main__":
     us_only = "--us-only" in args
     kr_only = "--kr-only" in args
 
-    # Parse --date YYYYMMDD
+    # Parse --date YYYY-MM-DD
     target_date = None
     if "--date" in args:
         idx = args.index("--date")
         if idx + 1 < len(args):
             target_date = args[idx + 1]
 
-    result = main(us_only=us_only, kr_only=kr_only, target_date=target_date)
+    # Parse --version vN
+    version = None
+    if "--version" in args:
+        idx = args.index("--version")
+        if idx + 1 < len(args):
+            version = args[idx + 1]
+
+    result = main(
+        us_only=us_only,
+        kr_only=kr_only,
+        target_date=target_date,
+        version=version,
+    )
     print(f"\nSummary: {result}")
