@@ -20,6 +20,7 @@ uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --i
 uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --sp500      # S&P 500만
 uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test       # 테스트 (3개)
 uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --batch-size 5  # 배치 크기 지정
+uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --tickers-file data/missing_tickers.txt  # 파일에서 티커 목록 읽기
 ```
 
 **티커 유니버스**:
@@ -42,6 +43,7 @@ uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --t
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kospi     # KOSPI만
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kosdaq    # KOSDAQ만
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --batch-size 5  # 배치 크기 지정
+uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --tickers-file data/missing_kr_tickers.txt  # 파일에서 티커 목록 읽기
 ```
 
 **예상 시간**: ~10분 (FDR + 네이버 병렬화, yfinance 배치 10)
@@ -50,6 +52,7 @@ uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --b
 - `--quiet` / `-q`: 출력 최소화 (tqdm 진행률 비활성화, WARNING 레벨 로깅)
 - `--verbose`: 디버그 레벨 로깅
 - `--batch-size N`: 배치 크기 지정 (기본값: 10)
+- `--tickers-file FILE`: 파일에서 티커 목록 읽기 (한 줄에 하나, #으로 시작하는 줄은 무시)
 
 ### 로컬 데이터 파이프라인 (권장)
 ```bash
