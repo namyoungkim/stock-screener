@@ -313,19 +313,45 @@ class StorageManager:
 
             logger.info(f"Saved {len(companies)} companies to {companies_file}")
 
-        # Save metrics with date
+        # Save metrics with date (merge with existing)
         if metrics:
             metrics_df = pd.DataFrame(metrics)
             metrics_file = self.financials_dir / f"{prefix}_metrics_{today}{suffix}.csv"
-            metrics_df.to_csv(metrics_file, index=False)
-            logger.info(f"Saved {len(metrics)} metrics to {metrics_file}")
 
-        # Save prices with date
+            if not is_test and metrics_file.exists():
+                existing = pd.read_csv(metrics_file)
+                combined = pd.concat([existing, metrics_df]).drop_duplicates(
+                    subset=["ticker"], keep="last"
+                )
+                combined = combined.sort_values("ticker").reset_index(drop=True)
+                combined.to_csv(metrics_file, index=False)
+                logger.info(
+                    f"Merged {len(metrics)} metrics into {metrics_file} "
+                    f"(total: {len(combined)})"
+                )
+            else:
+                metrics_df.to_csv(metrics_file, index=False)
+                logger.info(f"Saved {len(metrics)} metrics to {metrics_file}")
+
+        # Save prices with date (merge with existing)
         if prices:
             prices_df = pd.DataFrame(prices)
             prices_file = self.prices_dir / f"{prefix}_prices_{today}{suffix}.csv"
-            prices_df.to_csv(prices_file, index=False)
-            logger.info(f"Saved {len(prices)} prices to {prices_file}")
+
+            if not is_test and prices_file.exists():
+                existing = pd.read_csv(prices_file)
+                combined = pd.concat([existing, prices_df]).drop_duplicates(
+                    subset=["ticker"], keep="last"
+                )
+                combined = combined.sort_values("ticker").reset_index(drop=True)
+                combined.to_csv(prices_file, index=False)
+                logger.info(
+                    f"Merged {len(prices)} prices into {prices_file} "
+                    f"(total: {len(combined)})"
+                )
+            else:
+                prices_df.to_csv(prices_file, index=False)
+                logger.info(f"Saved {len(prices)} prices to {prices_file}")
 
     def load_completed_tickers(self, target_date: str | None = None) -> set[str]:
         """
