@@ -22,13 +22,16 @@ Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --resume
 """
 
+import asyncio
 import contextlib
 import logging
 import random
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
+import aiohttp
 import FinanceDataReader as fdr
 import pandas as pd
 import requests
@@ -248,88 +251,133 @@ class KRCollector(BaseCollector):
         return results
 
     def _fetch_naver_fundamentals(self, tickers: list[str]) -> dict[str, dict]:
-        """Fetch EPS, BPS, PER, PBR from Naver Finance via web scraping.
+        """Fetch EPS, BPS, PER, PBR from Naver Finance via parallel web scraping.
 
         This is the primary source for Korean stock fundamentals since KRX API
         requires login (Dec 27, 2025). Naver Finance provides reliable data.
+
+        Uses asyncio + aiohttp for parallel requests with rate limiting.
         """
+        self.logger.info(
+            f"Fetching fundamentals from Naver Finance for {len(tickers)} tickers (parallel)..."
+        )
+
+        # Run async function in sync context
+        try:
+            # Check if we're already in an event loop
+            loop = asyncio.get_running_loop()
+            # If we're in an event loop, use nest_asyncio or run in executor
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self._fetch_naver_fundamentals_async(tickers))
+                results = future.result()
+        except RuntimeError:
+            # No event loop running, safe to use asyncio.run()
+            results = asyncio.run(self._fetch_naver_fundamentals_async(tickers))
+
+        self.logger.info(f"Fetched Naver fundamentals for {len(results)} tickers")
+        return results
+
+    async def _fetch_naver_fundamentals_async(self, tickers: list[str]) -> dict[str, dict]:
+        """Async implementation of Naver Finance fundamentals fetching."""
         results: dict[str, dict] = {}
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         }
 
-        self.logger.info(
-            f"Fetching fundamentals from Naver Finance for {len(tickers)} tickers..."
-        )
+        # Semaphore to limit concurrent requests (10 at a time)
+        semaphore = asyncio.Semaphore(10)
+        # Track progress
+        completed = 0
+        total = len(tickers)
 
-        for ticker in tqdm(tickers, desc="Naver fundamentals", leave=False, disable=self.quiet):
-            try:
-                url = f"https://finance.naver.com/item/main.naver?code={ticker}"
-                resp = requests.get(url, headers=headers, timeout=10)
-                if resp.status_code != 200:
-                    continue
+        async def fetch_one(session: aiohttp.ClientSession, ticker: str) -> tuple[str, dict | None]:
+            nonlocal completed
+            async with semaphore:
+                try:
+                    url = f"https://finance.naver.com/item/main.naver?code={ticker}"
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status != 200:
+                            return ticker, None
 
-                soup = BeautifulSoup(resp.text, "html.parser")
-                data: dict = {}
+                        html = await resp.text()
+                        soup = BeautifulSoup(html, "html.parser")
+                        data: dict = {}
 
-                # Extract PER from em#_per
-                per_em = soup.find("em", id="_per")
-                if per_em:
-                    try:
-                        data["pe_ratio"] = float(per_em.get_text().replace(",", ""))
-                    except (ValueError, TypeError):
-                        pass
+                        # Extract PER from em#_per
+                        per_em = soup.find("em", id="_per")
+                        if per_em:
+                            try:
+                                data["pe_ratio"] = float(per_em.get_text().replace(",", ""))
+                            except (ValueError, TypeError):
+                                pass
 
-                # Extract EPS from em#_eps
-                eps_em = soup.find("em", id="_eps")
-                if eps_em:
-                    try:
-                        data["eps"] = float(eps_em.get_text().replace(",", ""))
-                    except (ValueError, TypeError):
-                        pass
+                        # Extract EPS from em#_eps
+                        eps_em = soup.find("em", id="_eps")
+                        if eps_em:
+                            try:
+                                data["eps"] = float(eps_em.get_text().replace(",", ""))
+                            except (ValueError, TypeError):
+                                pass
 
-                # Extract PBR from em#_pbr
-                pbr_em = soup.find("em", id="_pbr")
-                if pbr_em:
-                    try:
-                        data["pb_ratio"] = float(pbr_em.get_text().replace(",", ""))
-                    except (ValueError, TypeError):
-                        pass
+                        # Extract PBR from em#_pbr
+                        pbr_em = soup.find("em", id="_pbr")
+                        if pbr_em:
+                            try:
+                                data["pb_ratio"] = float(pbr_em.get_text().replace(",", ""))
+                            except (ValueError, TypeError):
+                                pass
 
-                # Extract BPS from per_table (pattern: PBR l BPS ... X.XX배 l XX,XXX원)
-                per_table = soup.find("table", class_="per_table")
-                if per_table:
-                    table_text = per_table.get_text()
-                    bps_match = re.search(
-                        r"PBR.*?l\s*BPS.*?([\d,.]+)배.*?l\s*([\d,]+)원",
-                        table_text,
-                        re.DOTALL,
-                    )
-                    if bps_match:
-                        try:
-                            data["book_value_per_share"] = float(
-                                bps_match.group(2).replace(",", "")
+                        # Extract BPS from per_table
+                        per_table = soup.find("table", class_="per_table")
+                        if per_table:
+                            table_text = per_table.get_text()
+                            bps_match = re.search(
+                                r"PBR.*?l\s*BPS.*?([\d,.]+)배.*?l\s*([\d,]+)원",
+                                table_text,
+                                re.DOTALL,
                             )
-                        except (ValueError, TypeError):
-                            pass
+                            if bps_match:
+                                try:
+                                    data["book_value_per_share"] = float(
+                                        bps_match.group(2).replace(",", "")
+                                    )
+                                except (ValueError, TypeError):
+                                    pass
 
+                        # Small delay between requests to be polite
+                        await asyncio.sleep(0.05)
+
+                        completed += 1
+                        if not self.quiet and completed % 100 == 0:
+                            self.logger.info(f"Naver fundamentals: {completed}/{total}")
+
+                        return ticker, data if data else None
+
+                except Exception as e:
+                    self.logger.debug(f"Naver fundamentals failed for {ticker}: {e}")
+                    return ticker, None
+
+        # Create session with connection limit
+        connector = aiohttp.TCPConnector(limit=20)
+        async with aiohttp.ClientSession(headers=headers, connector=connector) as session:
+            tasks = [fetch_one(session, ticker) for ticker in tickers]
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for response in responses:
+                if isinstance(response, Exception):
+                    continue
+                ticker, data = response
                 if data:
                     results[ticker] = data
 
-                # Small delay to avoid overwhelming the server
-                time.sleep(0.1)
-
-            except Exception as e:
-                self.logger.debug(f"Naver fundamentals failed for {ticker}: {e}")
-                continue
-
-        self.logger.info(f"Fetched Naver fundamentals for {len(results)} tickers")
         return results
 
     def fetch_prices_batch(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch price data using FinanceDataReader (primary) or pykrx (fallback).
 
         FinanceDataReader fetches from Naver Finance, which works even when KRX API is blocked.
+        Uses ThreadPoolExecutor for parallel fetching with rate limiting.
         """
         results: dict[str, dict] = {}
         today = datetime.now()
@@ -337,15 +385,15 @@ class KRCollector(BaseCollector):
         end_date = today.strftime("%Y-%m-%d")
 
         self.logger.info(
-            f"Fetching prices for {len(tickers)} tickers via FinanceDataReader..."
+            f"Fetching prices for {len(tickers)} tickers via FinanceDataReader (parallel)..."
         )
 
-        # Fetch prices using FinanceDataReader (individual ticker calls)
-        for ticker in tqdm(tickers, desc="Fetching prices", leave=False, disable=self.quiet):
+        def fetch_one(ticker: str) -> tuple[str, dict | None]:
+            """Fetch price data for a single ticker."""
             try:
                 df = fdr.DataReader(ticker, start_date, end_date)
                 if df.empty:
-                    continue
+                    return ticker, None
 
                 # Get the most recent data
                 latest = df.iloc[-1]
@@ -364,7 +412,7 @@ class KRCollector(BaseCollector):
                 except Exception:
                     pass
 
-                results[ticker] = {
+                return ticker, {
                     "date": latest_date,
                     "close": int(latest["Close"])
                     if pd.notna(latest["Close"])
@@ -377,7 +425,26 @@ class KRCollector(BaseCollector):
 
             except Exception as e:
                 self.logger.debug(f"FDR failed for {ticker}: {e}")
-                continue
+                return ticker, None
+
+        # Parallel fetch with ThreadPoolExecutor (10 workers)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(fetch_one, t): t for t in tickers}
+
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="Fetching prices",
+                leave=False,
+                disable=self.quiet,
+            ):
+                try:
+                    ticker, data = future.result()
+                    if data:
+                        results[ticker] = data
+                except Exception as e:
+                    ticker = futures[future]
+                    self.logger.debug(f"FDR failed for {ticker}: {e}")
 
         self.logger.info(f"Fetched prices for {len(results)} tickers")
 
