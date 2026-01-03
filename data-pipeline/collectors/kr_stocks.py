@@ -20,6 +20,13 @@ Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kospi
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --test
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --resume
+    uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --tickers-file data/missing_kr_tickers.txt
+
+Ticker Sources:
+    --kospi: KOSPI only
+    --kosdaq: KOSDAQ only
+    --tickers-file FILE: Custom ticker list from file (one ticker per line)
+    (default): All (KOSPI + KOSDAQ)
 """
 
 import asyncio
@@ -1078,6 +1085,13 @@ def main():
                 batch_size = int(args[i + 1])
             break
 
+    # Parse --tickers-file FILE
+    tickers_file = None
+    for i, arg in enumerate(args):
+        if arg == "--tickers-file" and i + 1 < len(args):
+            tickers_file = args[i + 1]
+            break
+
     # Determine market
     if "--kospi" in args:
         market = "KOSPI"
@@ -1126,6 +1140,24 @@ def main():
             is_test=True,
             batch_size=batch_size,
         )
+    elif tickers_file:
+        # Load tickers from file
+        from pathlib import Path
+
+        tickers_path = Path(tickers_file)
+        if not tickers_path.exists():
+            print(f"Error: Tickers file not found: {tickers_file}")
+            return
+        tickers = [
+            line.strip()
+            for line in tickers_path.read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        if not tickers:
+            print(f"Error: No tickers found in {tickers_file}")
+            return
+        print(f"Running collection for {len(tickers)} tickers from {tickers_file}...")
+        stats = collector.collect(tickers=tickers, batch_size=batch_size)
     else:
         if market == "ALL":
             print("Running full KRX (KOSPI + KOSDAQ) collection...")
