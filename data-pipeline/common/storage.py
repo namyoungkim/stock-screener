@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 from supabase import Client, create_client
 
-from .config import DATA_DIR
+from .config import COMPANIES_DIR, DATA_DIR, DATE_FORMAT
 
 load_dotenv()
 
@@ -88,13 +88,107 @@ class StorageManager:
         """
         self.client = client
         self.data_dir = data_dir or DATA_DIR
-        self.prices_dir = self.data_dir / "prices"
-        self.financials_dir = self.data_dir / "financials"
+        self.companies_dir = COMPANIES_DIR
         self.market_prefix = market_prefix
 
-        # Ensure directories exist
-        self.prices_dir.mkdir(parents=True, exist_ok=True)
-        self.financials_dir.mkdir(parents=True, exist_ok=True)
+        # Version directory tracking
+        self._current_date_dir: Path | None = None
+        self._current_version_dir: Path | None = None
+
+        # Ensure companies directory exists
+        self.companies_dir.mkdir(parents=True, exist_ok=True)
+
+    def get_or_create_version_dir(self, target_date: date | None = None) -> Path:
+        """
+        Get or create a new version directory for the target date.
+
+        Creates a new version (v1, v2, ...) each time called with a new session.
+
+        Args:
+            target_date: Target date (default: today)
+
+        Returns:
+            Path to the version directory (e.g., data/2026-01-03/v1/)
+        """
+        # If already set (during this session), return it
+        if self._current_version_dir:
+            return self._current_version_dir
+
+        target = target_date or date.today()
+        date_str = target.strftime(DATE_FORMAT)
+        date_dir = self.data_dir / date_str
+
+        # Find next version number
+        if date_dir.exists():
+            existing = sorted(date_dir.glob("v*"))
+            if existing:
+                last_v = existing[-1].name
+                next_v = int(last_v[1:]) + 1
+            else:
+                next_v = 1
+        else:
+            next_v = 1
+
+        version_dir = date_dir / f"v{next_v}"
+        version_dir.mkdir(parents=True, exist_ok=True)
+
+        self._current_version_dir = version_dir
+        self._current_date_dir = date_dir
+        logger.info(f"Created version directory: {version_dir}")
+        return version_dir
+
+    def resume_version_dir(self, target_date: date | None = None) -> Path:
+        """
+        Resume to the latest version directory for the target date.
+
+        Used for --resume functionality.
+
+        Args:
+            target_date: Target date (default: today)
+
+        Returns:
+            Path to the version directory
+        """
+        target = target_date or date.today()
+        date_str = target.strftime(DATE_FORMAT)
+        date_dir = self.data_dir / date_str
+
+        if date_dir.exists():
+            existing = sorted(date_dir.glob("v*"))
+            if existing:
+                self._current_version_dir = existing[-1]
+                self._current_date_dir = date_dir
+                logger.info(f"Resuming to version directory: {self._current_version_dir}")
+                return self._current_version_dir
+
+        # No existing version, create v1
+        return self.get_or_create_version_dir(target_date)
+
+    def update_symlinks(self) -> None:
+        """Update current and latest symlinks after successful collection."""
+        if not self._current_version_dir or not self._current_date_dir:
+            logger.warning("No version directory set, skipping symlink update")
+            return
+
+        # Update date/current symlink
+        current_link = self._current_date_dir / "current"
+        if current_link.is_symlink() or current_link.exists():
+            current_link.unlink()
+        current_link.symlink_to(self._current_version_dir.name)
+        logger.info(f"Updated symlink: {current_link} -> {self._current_version_dir.name}")
+
+        # Update data/latest symlink
+        latest_link = self.data_dir / "latest"
+        if latest_link.is_symlink() or latest_link.exists():
+            latest_link.unlink()
+        # Use relative path for portability
+        relative_path = self._current_version_dir.relative_to(self.data_dir)
+        latest_link.symlink_to(relative_path)
+        logger.info(f"Updated symlink: {latest_link} -> {relative_path}")
+
+    def get_current_version_dir(self) -> Path | None:
+        """Get the current version directory if set."""
+        return self._current_version_dir
 
     def upsert_company(
         self,
@@ -287,20 +381,27 @@ class StorageManager:
         """
         Save collected data to CSV files.
 
+        New structure:
+        - companies -> data/companies/{prefix}_companies.csv
+        - metrics -> data/YYYY-MM-DD/vN/{prefix}_metrics.csv
+        - prices -> data/YYYY-MM-DD/vN/{prefix}_prices.csv
+
         Args:
             companies: List of company dictionaries
             metrics: List of metrics dictionaries
             prices: List of price dictionaries
             is_test: If True, append "_test" to filenames
         """
-        today = date.today().strftime("%Y%m%d")
         suffix = "_test" if is_test else ""
         prefix = self.market_prefix
 
-        # Save companies (merge with existing)
+        # Get version directory (creates if needed)
+        version_dir = self.get_or_create_version_dir()
+
+        # Save companies to companies/ directory (merge with existing)
         if companies:
             companies_df = pd.DataFrame(companies)
-            companies_file = self.data_dir / f"{prefix}_companies{suffix}.csv"
+            companies_file = self.companies_dir / f"{prefix}_companies{suffix}.csv"
 
             if not is_test and companies_file.exists():
                 existing = pd.read_csv(companies_file)
@@ -313,10 +414,10 @@ class StorageManager:
 
             logger.info(f"Saved {len(companies)} companies to {companies_file}")
 
-        # Save metrics with date (merge with existing)
+        # Save metrics to version directory (merge for resume)
         if metrics:
             metrics_df = pd.DataFrame(metrics)
-            metrics_file = self.financials_dir / f"{prefix}_metrics_{today}{suffix}.csv"
+            metrics_file = version_dir / f"{prefix}_metrics{suffix}.csv"
 
             if not is_test and metrics_file.exists():
                 existing = pd.read_csv(metrics_file)
@@ -333,10 +434,10 @@ class StorageManager:
                 metrics_df.to_csv(metrics_file, index=False)
                 logger.info(f"Saved {len(metrics)} metrics to {metrics_file}")
 
-        # Save prices with date (merge with existing)
+        # Save prices to version directory (merge for resume)
         if prices:
             prices_df = pd.DataFrame(prices)
-            prices_file = self.prices_dir / f"{prefix}_prices_{today}{suffix}.csv"
+            prices_file = version_dir / f"{prefix}_prices{suffix}.csv"
 
             if not is_test and prices_file.exists():
                 existing = pd.read_csv(prices_file)
@@ -357,17 +458,31 @@ class StorageManager:
         """
         Load tickers that have already been collected (for resume functionality).
 
+        Reads from the current version directory.
+
         Args:
-            target_date: Date string (YYYYMMDD format). Default: today.
+            target_date: Date string (YYYY-MM-DD format). Default: today.
 
         Returns:
             Set of ticker symbols that have been collected
         """
-        target = target_date or date.today().strftime("%Y%m%d")
         prefix = self.market_prefix
 
-        # Check metrics file for the target date
-        metrics_file = self.financials_dir / f"{prefix}_metrics_{target}.csv"
+        # Use current version directory if set
+        version_dir = self._current_version_dir
+        if not version_dir:
+            # Try to find latest version for the target date
+            target = target_date or date.today().strftime(DATE_FORMAT)
+            date_dir = self.data_dir / target
+            if date_dir.exists():
+                existing = sorted(date_dir.glob("v*"))
+                if existing:
+                    version_dir = existing[-1]
+
+        if not version_dir or not version_dir.exists():
+            return set()
+
+        metrics_file = version_dir / f"{prefix}_metrics.csv"
 
         if not metrics_file.exists():
             return set()

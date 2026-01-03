@@ -4,8 +4,10 @@ from pathlib import Path
 
 # Data directories
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
-PRICES_DIR = DATA_DIR / "prices"
-FINANCIALS_DIR = DATA_DIR / "financials"
+COMPANIES_DIR = DATA_DIR / "companies"
+
+# Date format for directory naming
+DATE_FORMAT = "%Y-%m-%d"
 
 # =============================================================================
 # Rate Limit 설정 (수집기 공통)

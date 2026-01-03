@@ -6,7 +6,6 @@ checking universe coverage, missing tickers, and metric completeness.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date
 
 import pandas as pd
 from common.config import DATA_DIR
@@ -251,6 +250,8 @@ class DataQualityChecker:
     ) -> None:
         """Merge new collection results into existing CSV files.
 
+        Uses the 'latest' symlink to find the current version directory.
+
         Args:
             market: Market identifier ("US" or "KR")
             new_metrics: List of new metrics records
@@ -260,11 +261,21 @@ class DataQualityChecker:
             self.logger.info("No new data to merge")
             return
 
-        today = date.today().strftime("%Y%m%d")
         prefix = market.lower()
 
+        # Find the current version directory via 'latest' symlink
+        latest_link = DATA_DIR / "latest"
+        if not latest_link.is_symlink():
+            self.logger.warning("No 'latest' symlink found, skipping merge")
+            return
+
+        version_dir = latest_link.resolve()
+        if not version_dir.exists():
+            self.logger.warning(f"Version directory not found: {version_dir}")
+            return
+
         # Merge metrics
-        metrics_file = DATA_DIR / "financials" / f"{prefix}_metrics_{today}.csv"
+        metrics_file = version_dir / f"{prefix}_metrics.csv"
         if metrics_file.exists() and new_metrics:
             existing_df = pd.read_csv(metrics_file)
             new_df = pd.DataFrame(new_metrics)
@@ -285,7 +296,7 @@ class DataQualityChecker:
             )
 
         # Merge prices
-        prices_file = DATA_DIR / "prices" / f"{prefix}_prices_{today}.csv"
+        prices_file = version_dir / f"{prefix}_prices.csv"
         if prices_file.exists() and new_prices:
             existing_df = pd.read_csv(prices_file)
             new_df = pd.DataFrame(new_prices)

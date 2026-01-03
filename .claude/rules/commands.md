@@ -82,10 +82,11 @@ uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --t
 
 ### CSV → Supabase 로딩
 ```bash
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db              # 전체 (US + KR)
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --us-only    # US만
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --kr-only    # KR만
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 20251227  # 특정 날짜
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db                           # 전체 (latest 사용)
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --us-only                 # US만
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --kr-only                 # KR만
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 2026-01-03         # 특정 날짜
+uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 2026-01-03 --version v1  # 특정 버전
 ```
 
 ## 프론트엔드
