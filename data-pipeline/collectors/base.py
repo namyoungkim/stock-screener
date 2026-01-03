@@ -43,6 +43,7 @@ class BaseCollector(ABC):
         save_csv: bool = True,
         log_level: int = logging.INFO,
         log_dir: Path | None = None,
+        quiet: bool = False,
     ):
         """
         Initialize the collector.
@@ -52,14 +53,17 @@ class BaseCollector(ABC):
             save_csv: Whether to save to CSV files
             log_level: Logging level
             log_dir: Directory for log files (optional)
+            quiet: If True, minimize output (disable tqdm, reduce logging)
         """
         self.save_db = save_db
         self.save_csv = save_csv
+        self.quiet = quiet
 
-        # Setup logger
+        # Setup logger (WARNING level if quiet)
+        effective_log_level = logging.WARNING if quiet else log_level
         self.logger = setup_logger(
             self.__class__.__name__,
-            level=log_level,
+            level=effective_log_level,
             log_dir=log_dir,
         )
 

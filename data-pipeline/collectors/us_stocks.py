@@ -280,6 +280,7 @@ class USCollector(BaseCollector):
         save_db: bool = True,
         save_csv: bool = True,
         log_level: int = logging.INFO,
+        quiet: bool = False,
     ):
         """
         Initialize US stock collector.
@@ -292,8 +293,9 @@ class USCollector(BaseCollector):
             save_db: Whether to save to Supabase
             save_csv: Whether to save to CSV files
             log_level: Logging level
+            quiet: If True, minimize output (disable tqdm, reduce logging)
         """
-        super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level)
+        super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level, quiet=quiet)
         self.universe = universe
         self._ticker_membership: dict[str, list[str]] = {}
 
@@ -374,7 +376,7 @@ class USCollector(BaseCollector):
         )
 
         for i in tqdm(
-            range(0, len(tickers), batch_size), desc="Fetching prices", leave=False
+            range(0, len(tickers), batch_size), desc="Fetching prices", leave=False, disable=self.quiet
         ):
             batch = tickers[i : i + batch_size]
             try:
@@ -448,7 +450,7 @@ class USCollector(BaseCollector):
         )
 
         for i in tqdm(
-            range(0, len(tickers), batch_size), desc="Downloading history", leave=False
+            range(0, len(tickers), batch_size), desc="Downloading history", leave=False, disable=self.quiet
         ):
             batch = tickers[i : i + batch_size]
             try:
@@ -517,6 +519,7 @@ class USCollector(BaseCollector):
                 range(0, len(tickers), batch_size),
                 desc="Fetching stock data",
                 leave=False,
+                disable=self.quiet,
             )
         ):
             batch = tickers[i : i + batch_size]
@@ -635,7 +638,7 @@ class USCollector(BaseCollector):
             retry_failures = 0
             max_retry_failures = 20  # Allow more retries
 
-            for ticker in tqdm(failed_tickers, desc="Fallback", leave=False):
+            for ticker in tqdm(failed_tickers, desc="Fallback", leave=False, disable=self.quiet):
                 try:
                     data = self._fetch_single_stock_info(ticker)
                     if data:
@@ -879,6 +882,7 @@ def main():
     index_only = "--index-only" in args
     resume = "--resume" in args
     is_test = "--test" in args
+    quiet = "--quiet" in args or "-q" in args
     log_level = logging.DEBUG if "--verbose" in args else logging.INFO
 
     # Parse --batch-size N
@@ -934,6 +938,7 @@ def main():
         save_db=not csv_only,
         save_csv=True,
         log_level=log_level,
+        quiet=quiet,
     )
 
     if is_test:
