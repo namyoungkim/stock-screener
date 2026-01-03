@@ -34,6 +34,10 @@ uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --b
 - Rate limit 발생 시: 5로 낮춰서 재시도
 - 안정적인 환경: 15까지 증가 가능
 
+**출력 옵션**:
+- `--quiet` / `-q`: 출력 최소화 (tqdm 진행률 비활성화, WARNING 레벨 로깅)
+- Claude Code에서 수집 시 토큰 소모를 줄이려면 `--quiet` 사용 권장
+
 ### 한국 주식 수집
 ```bash
 uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks             # 전체 (DB + CSV)

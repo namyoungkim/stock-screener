@@ -76,6 +76,7 @@ class KRCollector(BaseCollector):
         save_db: bool = True,
         save_csv: bool = True,
         log_level: int = logging.INFO,
+        quiet: bool = False,
     ):
         """
         Initialize KR stock collector.
@@ -85,8 +86,9 @@ class KRCollector(BaseCollector):
             save_db: Whether to save to Supabase
             save_csv: Whether to save to CSV files
             log_level: Logging level
+            quiet: If True, minimize output (disable tqdm, reduce logging)
         """
-        super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level)
+        super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level, quiet=quiet)
         self.market = market
         self._ticker_markets: dict[str, str] = {}
         self._ticker_names: dict[str, str] = {}
@@ -260,7 +262,7 @@ class KRCollector(BaseCollector):
             f"Fetching fundamentals from Naver Finance for {len(tickers)} tickers..."
         )
 
-        for ticker in tqdm(tickers, desc="Naver fundamentals", leave=False):
+        for ticker in tqdm(tickers, desc="Naver fundamentals", leave=False, disable=self.quiet):
             try:
                 url = f"https://finance.naver.com/item/main.naver?code={ticker}"
                 resp = requests.get(url, headers=headers, timeout=10)
@@ -339,7 +341,7 @@ class KRCollector(BaseCollector):
         )
 
         # Fetch prices using FinanceDataReader (individual ticker calls)
-        for ticker in tqdm(tickers, desc="Fetching prices", leave=False):
+        for ticker in tqdm(tickers, desc="Fetching prices", leave=False, disable=self.quiet):
             try:
                 df = fdr.DataReader(ticker, start_date, end_date)
                 if df.empty:
@@ -473,6 +475,7 @@ class KRCollector(BaseCollector):
             range(0, len(yf_tickers), batch_size),
             desc="Downloading history",
             leave=False,
+            disable=self.quiet,
         ):
             batch = yf_tickers[i : i + batch_size]
             try:
@@ -551,6 +554,7 @@ class KRCollector(BaseCollector):
                 range(0, len(yf_tickers), batch_size),
                 desc="yfinance batch",
                 leave=False,
+                disable=self.quiet,
             )
         ):
             batch = yf_tickers[i : i + batch_size]
@@ -673,7 +677,7 @@ class KRCollector(BaseCollector):
             max_retry_failures = 20  # Allow more retries
 
             for yf_ticker, krx_ticker in tqdm(
-                failed_tickers, desc="Fallback", leave=False
+                failed_tickers, desc="Fallback", leave=False, disable=self.quiet
             ):
                 try:
                     data = self._fetch_yfinance_metrics(yf_ticker, krx_ticker)
@@ -996,6 +1000,7 @@ def main():
     csv_only = "--csv-only" in args
     resume = "--resume" in args
     is_test = "--test" in args
+    quiet = "--quiet" in args or "-q" in args
     log_level = logging.DEBUG if "--verbose" in args else logging.INFO
 
     # Parse --batch-size N
@@ -1044,6 +1049,7 @@ def main():
         save_db=not csv_only,
         save_csv=True,
         log_level=log_level,
+        quiet=quiet,
     )
 
     if is_test:

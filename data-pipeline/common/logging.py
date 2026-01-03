@@ -4,6 +4,25 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import TextIO
+
+
+class _FlushingStream:
+    """Wrapper that flushes after every write for real-time output."""
+
+    def __init__(self, stream: TextIO):
+        self._stream = stream
+
+    def write(self, data: str) -> int:
+        result = self._stream.write(data)
+        self._stream.flush()
+        return result
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def __getattr__(self, name: str):
+        return getattr(self._stream, name)
 
 
 def setup_logger(
@@ -36,10 +55,11 @@ def setup_logger(
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Console handler
+    # Console handler with immediate flush
     if console:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
+        console_handler.stream = _FlushingStream(sys.stdout)
         logger.addHandler(console_handler)
 
     # File handler
