@@ -29,14 +29,10 @@ uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --b
 | `--index-only` | S&P 500/400/600 + Russell 2000 | ~2,800개 | ~30-45분 |
 | `--sp500` | S&P 500만 | ~500개 | ~10-15분 |
 
-**배치 크기 옵션** (`--batch-size N`):
+**배치 크기 권장**:
 - 기본값: 10 (config.py의 `BATCH_SIZE_INFO`)
 - Rate limit 발생 시: 5로 낮춰서 재시도
 - 안정적인 환경: 15까지 증가 가능
-
-**출력 옵션**:
-- `--quiet` / `-q`: 출력 최소화 (tqdm 진행률 비활성화, WARNING 레벨 로깅)
-- Claude Code에서 수집 시 토큰 소모를 줄이려면 `--quiet` 사용 권장
 
 ### 한국 주식 수집
 ```bash
@@ -49,6 +45,11 @@ uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --b
 ```
 
 **예상 시간**: ~20-30분 (FDR 가격 + 네이버 금융 크롤링 + yfinance 배치 10)
+
+**공통 옵션** (US/KR 동일):
+- `--quiet` / `-q`: 출력 최소화 (tqdm 진행률 비활성화, WARNING 레벨 로깅)
+- `--verbose`: 디버그 레벨 로깅
+- `--batch-size N`: 배치 크기 지정 (기본값: 10)
 
 ### 로컬 데이터 파이프라인 (권장)
 ```bash
