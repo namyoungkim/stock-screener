@@ -53,9 +53,14 @@ from common.rate_limit import (
     get_stock_info_with_timeout,
 )
 from common.retry import RetryConfig, with_retry
+from common.session import create_browser_session
 from tqdm import tqdm
 
 from .base import BaseCollector
+
+# Rate limit retry settings
+MAX_RETRY_ROUNDS = 10  # Maximum retry rounds for rate-limited tickers
+RATE_LIMIT_WAIT_SECONDS = 600  # 10 minutes wait between retry rounds
 
 # ============================================================
 # Ticker Source Functions
@@ -310,6 +315,8 @@ class USCollector(BaseCollector):
         super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level, quiet=quiet)
         self.universe = universe
         self._ticker_membership: dict[str, list[str]] = {}
+        # Create browser session to bypass TLS fingerprinting
+        self._session = create_browser_session()
 
     def get_tickers(self) -> list[str]:
         """Get list of US tickers based on universe setting."""
@@ -332,7 +339,7 @@ class USCollector(BaseCollector):
     @with_retry(RetryConfig(max_retries=3, base_delay=1.0, max_delay=60.0))
     def _fetch_single_stock_info(self, ticker: str) -> dict | None:
         """Internal method with retry decorator."""
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(ticker, session=self._session)
         info = get_stock_info_with_timeout(stock)
 
         if not info or info.get("regularMarketPrice") is None:
@@ -550,11 +557,9 @@ class USCollector(BaseCollector):
             batch_success = 0
 
             try:
-                tickers_obj = yf.Tickers(" ".join(batch))
-
                 for ticker in batch:
                     try:
-                        stock = tickers_obj.tickers[ticker]
+                        stock = yf.Ticker(ticker, session=self._session)
                         info = get_stock_info_with_timeout(stock)
 
                         if info and info.get("regularMarketPrice") is not None:
@@ -772,13 +777,54 @@ class USCollector(BaseCollector):
             valid_tickers, period="2mo", batch_size=300
         )
 
-        # Phase 3: Batch fetch stock data
+        # Phase 3: Batch fetch stock data with retry loop for rate-limited tickers
         self.logger.info(f"Phase 3: Fetching stock data in batches of {batch_size}...")
-        stock_data_all = self.fetch_stock_data_batch(
-            valid_tickers,
-            history_data=history_data,
-            batch_size=batch_size,
-        )
+
+        retry_round = 0
+        remaining_tickers = valid_tickers.copy()
+        stock_data_all: dict[str, dict] = {}
+
+        while remaining_tickers and retry_round <= MAX_RETRY_ROUNDS:
+            if retry_round > 0:
+                wait_time = RATE_LIMIT_WAIT_SECONDS + random.uniform(0, 60)
+                self.logger.info(
+                    f"Rate limit retry {retry_round}/{MAX_RETRY_ROUNDS}: "
+                    f"{len(remaining_tickers)} tickers remaining. "
+                    f"Waiting {wait_time / 60:.1f} minutes..."
+                )
+                time.sleep(wait_time)
+
+            batch_result = self.fetch_stock_data_batch(
+                remaining_tickers,
+                history_data=history_data,
+                batch_size=batch_size,
+            )
+            stock_data_all.update(batch_result)
+
+            # Find tickers that weren't collected (potential rate limit failures)
+            missing_tickers = [t for t in remaining_tickers if t not in batch_result]
+
+            if not missing_tickers:
+                remaining_tickers = []  # Clear before break for accurate warning check
+                break  # All tickers collected successfully
+
+            # Check if we made any progress
+            collected_this_round = len(batch_result)
+            if collected_this_round == 0 and retry_round > 0:
+                self.logger.warning(
+                    f"No progress in retry round {retry_round}. "
+                    f"Rate limit may still be active."
+                )
+
+            remaining_tickers = missing_tickers
+            retry_round += 1
+
+        if remaining_tickers:
+            self.logger.warning(
+                f"Failed to collect {len(remaining_tickers)} tickers after "
+                f"{MAX_RETRY_ROUNDS} retry rounds"
+            )
+
         self.logger.info(f"Fetched data for {len(stock_data_all)} stocks")
 
         # Phase 4: Process and save

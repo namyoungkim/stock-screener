@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,66 @@ from .config import (
     YFINANCE_HISTORY_TIMEOUT,
     YFINANCE_INFO_TIMEOUT,
 )
+
+
+class FailureType(Enum):
+    """Type of failure during data collection."""
+
+    RATE_LIMIT = "rate_limit"  # Retryable - wait and retry
+    TIMEOUT = "timeout"  # Retryable - may succeed on retry
+    NO_DATA = "no_data"  # Not retryable - ticker has no data (delisted, etc.)
+    OTHER = "other"  # Not retryable - unknown error
+
+
+def classify_failure(error: Exception) -> FailureType:
+    """Classify the type of failure based on error message.
+
+    Args:
+        error: The exception that occurred
+
+    Returns:
+        FailureType indicating whether the error is retryable
+    """
+    error_msg = str(error).lower()
+
+    # Rate limit indicators
+    if any(
+        indicator in error_msg
+        for indicator in ["rate limit", "429", "too many requests", "ratelimit"]
+    ):
+        return FailureType.RATE_LIMIT
+
+    # Timeout indicators
+    if any(indicator in error_msg for indicator in ["timeout", "timed out", "deadline"]):
+        return FailureType.TIMEOUT
+
+    # No data indicators
+    if any(
+        indicator in error_msg
+        for indicator in [
+            "no data",
+            "not found",
+            "delisted",
+            "no price data",
+            "no timezone",
+            "symbol may be delisted",
+        ]
+    ):
+        return FailureType.NO_DATA
+
+    return FailureType.OTHER
+
+
+def is_retryable(failure_type: FailureType) -> bool:
+    """Check if a failure type should be retried.
+
+    Args:
+        failure_type: The type of failure
+
+    Returns:
+        True if the failure should be retried, False otherwise
+    """
+    return failure_type in (FailureType.RATE_LIMIT, FailureType.TIMEOUT)
 
 
 class RateLimitError(Exception):
