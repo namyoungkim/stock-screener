@@ -102,6 +102,8 @@ fi
 # Phase 3: Google Drive 백업 (수집 데이터)
 # NOTE: rclone gdrive: 는 root_folder_id로 stock-screener-backup 폴더를 가리킴
 # 새 구조: data/YYYY-MM-DD/vN/ -> gdrive:YYYY-MM-DD/vN/
+# YYYY-MM-DD = 실제 거래일 (파이프라인 실행일 아님)
+# 예: 일요일(2026-01-05)에 실행 시 -> 2026-01-03/ (금요일 거래일) 백업
 if [[ -L "data/latest" ]]; then
     echo ""
     echo "[3/5] Backing up collection data to Google Drive..."
@@ -147,6 +149,8 @@ if not url or not key:
 client = create_client(url, key)
 
 # Create backup directory: data/supabase/YYYY-MM-DD/
+# NOTE: Supabase 백업은 실행일(today) 기준 (point-in-time 백업)
+# 수집 데이터(data/YYYY-MM-DD/)와 달리 거래일이 아닌 실행일 사용
 today = date.today().strftime('%Y-%m-%d')
 backup_dir = Path('data/supabase') / today
 backup_dir.mkdir(parents=True, exist_ok=True)
