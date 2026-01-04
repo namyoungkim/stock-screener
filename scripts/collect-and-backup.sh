@@ -14,7 +14,17 @@
 #   1 - 일반 오류
 #   2 - Rate Limit 감지 (진행 상황 저장됨, --resume으로 재시작 가능)
 
-MARKET=${1:-all}
+# MARKET 결정: kr, us, all 중 하나만 허용
+MARKET="all"
+for arg in "$@"; do
+    case "$arg" in
+        kr|us|all)
+            MARKET="$arg"
+            break
+            ;;
+    esac
+done
+
 RESUME_FLAG=""
 SKIP_DB=false
 LIMIT=""
