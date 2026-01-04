@@ -2,7 +2,7 @@
 
 > **비전**: 채팅 기반 AI Agent가 가치투자를 제안하고 컨설팅하는 개인 투자 어드바이저
 
-상세: `docs/PRD.md` 6절 참조
+상세: `docs/PRD.md` 8절 참조
 
 ---
 
@@ -26,7 +26,7 @@
 | M1-M6 | MVP ~ 워치리스트 | ✅ |
 | M7 | 알림 시스템 | ✅ |
 | M7.5 | 투자 인사이트 | ✅ |
-| M8 | ~~티커 확장~~ ✅ + Phase 4: OpenSearch + AI 종목 분석 | 진행 예정 |
+| M8 | ~~티커 확장~~ ✅ + Phase 4: OpenSearch + AI 분석 + 스크리닝 조건 확장 | 진행 예정 |
 | M9 | Phase 5: AI 어드바이저 | 예정 |
 | M10 | 운영/인프라 (봇 배포, i18n 등) | 낮음 |
 
@@ -40,6 +40,7 @@
 - i18n (한/영)
 - 커스텀 도메인
 - 프리셋 고급 기능
+- 티커 요청 기능
 
 ---
 
@@ -51,7 +52,7 @@
 | Frontend | Next.js 14, TailwindCSS |
 | Database | Supabase (PostgreSQL) |
 | Data | yfinance, FinanceDataReader, 네이버 금융 |
-| AI (예정) | Claude Code CLI, OpenSearch |
+| AI (예정) | Claude Code CLI (배치), LangGraph (채팅), OpenSearch |
 
 ---
 
