@@ -1,12 +1,13 @@
 #!/bin/bash
 # 로컬 데이터 파이프라인: 수집 → 품질검사 → 백업 → DB 적재
 #
-# 사용법: ./scripts/collect-and-backup.sh [kr|us|all] [--resume] [--no-db]
+# 사용법: ./scripts/collect-and-backup.sh [kr|us|all] [--resume] [--no-db] [--limit N]
 #
 # 옵션:
 #   kr|us|all  - 수집할 시장 (기본값: all)
 #   --resume   - Rate Limit 후 이어서 수집
 #   --no-db    - Supabase 적재 건너뛰기
+#   --limit N  - 각 시장별 N개만 수집 (테스트용)
 #
 # Exit codes:
 #   0 - 성공
@@ -16,15 +17,25 @@
 MARKET=${1:-all}
 RESUME_FLAG=""
 SKIP_DB=false
+LIMIT=""
 
 # 플래그 파싱
-for arg in "$@"; do
+args=("$@")
+for i in "${!args[@]}"; do
+    arg="${args[$i]}"
     case "$arg" in
         --resume)
             RESUME_FLAG="--resume"
             ;;
         --no-db)
             SKIP_DB=true
+            ;;
+        --limit)
+            # 다음 인자에서 숫자 가져오기
+            next_idx=$((i + 1))
+            if [[ $next_idx -lt ${#args[@]} ]]; then
+                LIMIT="${args[$next_idx]}"
+            fi
             ;;
     esac
 done
@@ -39,6 +50,7 @@ echo "Stock Data Pipeline"
 echo "Market: $MARKET"
 echo "Resume: ${RESUME_FLAG:-no}"
 echo "Skip DB: $SKIP_DB"
+echo "Limit: ${LIMIT:-all}"
 echo "Time: $(date)"
 echo "============================================"
 
@@ -60,7 +72,18 @@ KR_SUCCESS=true
 if [[ "$MARKET" == "kr" || "$MARKET" == "all" ]]; then
     echo ""
     echo "[1/4] Collecting KR stocks..."
-    if uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --csv-only $RESUME_FLAG; then
+
+    # --limit 옵션 처리
+    KR_TICKERS_ARGS=""
+    if [[ -n "$LIMIT" ]]; then
+        echo "Limiting to $LIMIT tickers..."
+        KR_TICKERS_FILE="/tmp/kr_limit_tickers.txt"
+        uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --list-tickers 2>/dev/null | head -$LIMIT > "$KR_TICKERS_FILE"
+        KR_TICKERS_ARGS="--tickers-file $KR_TICKERS_FILE"
+        echo "Created ticker file with $(wc -l < "$KR_TICKERS_FILE") tickers"
+    fi
+
+    if uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --csv-only $RESUME_FLAG $KR_TICKERS_ARGS; then
         echo "KR collection completed!"
     else
         exit_code=$?
@@ -82,7 +105,18 @@ US_SUCCESS=true
 if [[ "$MARKET" == "us" || "$MARKET" == "all" ]]; then
     echo ""
     echo "[2/4] Collecting US stocks..."
-    if uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only $RESUME_FLAG; then
+
+    # --limit 옵션 처리
+    US_TICKERS_ARGS=""
+    if [[ -n "$LIMIT" ]]; then
+        echo "Limiting to $LIMIT tickers..."
+        US_TICKERS_FILE="/tmp/us_limit_tickers.txt"
+        uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --list-tickers 2>/dev/null | head -$LIMIT > "$US_TICKERS_FILE"
+        US_TICKERS_ARGS="--tickers-file $US_TICKERS_FILE"
+        echo "Created ticker file with $(wc -l < "$US_TICKERS_FILE") tickers"
+    fi
+
+    if uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only $RESUME_FLAG $US_TICKERS_ARGS; then
         echo "US collection completed!"
     else
         exit_code=$?
