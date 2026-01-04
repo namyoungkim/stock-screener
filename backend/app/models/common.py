@@ -61,6 +61,10 @@ class MetricType(str, Enum):
     BOOK_VALUE_PER_SHARE = "book_value_per_share"
     GRAHAM_NUMBER = "graham_number"
 
+    # Momentum / Trend
+    PRICE_TO_52W_HIGH_PCT = "price_to_52w_high_pct"
+    MA_TREND = "ma_trend"
+
     # Price (for alerts)
     LATEST_PRICE = "latest_price"
     MARKET_CAP = "market_cap"

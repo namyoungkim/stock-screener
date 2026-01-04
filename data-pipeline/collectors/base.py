@@ -440,6 +440,8 @@ class BaseCollector(ABC):
             "bb_lower": data.get("bb_lower"),
             "bb_percent": data.get("bb_percent"),
             "mfi": data.get("mfi"),
+            "price_to_52w_high_pct": data.get("price_to_52w_high_pct"),
+            "ma_trend": data.get("ma_trend"),
         }
 
     def _build_price_record(

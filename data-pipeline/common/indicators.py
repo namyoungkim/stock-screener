@@ -243,6 +243,55 @@ def calculate_mfi(hist: pd.DataFrame, period: int = 14) -> float | None:
         return None
 
 
+def calculate_price_to_52w_high_pct(
+    current_price: float | None,
+    fifty_two_week_high: float | None,
+) -> float | None:
+    """
+    Calculate current price as percentage of 52-week high.
+
+    Used for momentum screening: stocks near 52-week high (>=90%) are in strong uptrend.
+
+    Args:
+        current_price: Current stock price
+        fifty_two_week_high: 52-week high price
+
+    Returns:
+        Percentage (0-100+) or None if inputs are invalid
+        Example: 95.5 means current price is 95.5% of 52-week high
+    """
+    if current_price is None or fifty_two_week_high is None:
+        return None
+    if fifty_two_week_high <= 0:
+        return None
+    return round((current_price / fifty_two_week_high) * 100, 2)
+
+
+def calculate_ma_trend(
+    fifty_day_average: float | None,
+    two_hundred_day_average: float | None,
+) -> float | None:
+    """
+    Calculate MA trend: difference between MA50 and MA200 as percentage.
+
+    Positive value = Golden Cross (bullish): MA50 > MA200
+    Negative value = Death Cross (bearish): MA50 < MA200
+
+    Args:
+        fifty_day_average: 50-day moving average
+        two_hundred_day_average: 200-day moving average
+
+    Returns:
+        Percentage difference or None if inputs are invalid
+        Example: 5.2 means MA50 is 5.2% above MA200 (bullish)
+    """
+    if fifty_day_average is None or two_hundred_day_average is None:
+        return None
+    if two_hundred_day_average <= 0:
+        return None
+    return round((fifty_day_average / two_hundred_day_average - 1) * 100, 2)
+
+
 def calculate_all_technicals(hist: pd.DataFrame) -> dict:
     """
     Calculate all technical indicators from a single history DataFrame.

@@ -17,7 +17,7 @@ PRESETS: dict[str, PresetStrategy] = {
     "graham": PresetStrategy(
         id="graham",
         name="Graham Classic",
-        description="Benjamin Graham's classic value criteria: P/E < 15, P/B < 1.5, D/E < 0.5",
+        description="Benjamin Graham's classic value criteria: P/E < 15, P/B < 1.5, D/E < 0.5, Current Ratio > 1.5",
         filters=[
             MetricFilter(
                 metric=MetricType.PE_RATIO, operator=OperatorType.LT, value=15
@@ -27,6 +27,9 @@ PRESETS: dict[str, PresetStrategy] = {
             ),
             MetricFilter(
                 metric=MetricType.DEBT_EQUITY, operator=OperatorType.LT, value=0.5
+            ),
+            MetricFilter(
+                metric=MetricType.CURRENT_RATIO, operator=OperatorType.GT, value=1.5
             ),
         ],
     ),
@@ -59,6 +62,28 @@ PRESETS: dict[str, PresetStrategy] = {
             MetricFilter(metric=MetricType.PB_RATIO, operator=OperatorType.LT, value=1),
             MetricFilter(
                 metric=MetricType.PE_RATIO, operator=OperatorType.LT, value=10
+            ),
+        ],
+    ),
+    "momentum_high": PresetStrategy(
+        id="momentum_high",
+        name="52W High Momentum",
+        description="Stocks near 52-week high (≥90%): Strong uptrend momentum",
+        filters=[
+            MetricFilter(
+                metric=MetricType.PRICE_TO_52W_HIGH_PCT,
+                operator=OperatorType.GTE,
+                value=90,
+            ),
+        ],
+    ),
+    "golden_cross": PresetStrategy(
+        id="golden_cross",
+        name="Golden Cross",
+        description="MA50 > MA200: Bullish trend signal (Golden Cross)",
+        filters=[
+            MetricFilter(
+                metric=MetricType.MA_TREND, operator=OperatorType.GT, value=0
             ),
         ],
     ),

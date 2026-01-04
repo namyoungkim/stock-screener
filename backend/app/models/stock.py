@@ -103,6 +103,10 @@ class CompanyWithMetrics(Company):
     # MFI
     mfi: float | None = None
 
+    # Momentum / Trend
+    price_to_52w_high_pct: float | None = None
+    ma_trend: float | None = None
+
 
 class Metrics(BaseModel):
     """Metrics model."""
@@ -167,6 +171,10 @@ class Metrics(BaseModel):
 
     # MFI
     mfi: float | None = None
+
+    # Momentum / Trend
+    price_to_52w_high_pct: float | None = None
+    ma_trend: float | None = None
 
     data_source: str | None = None
 

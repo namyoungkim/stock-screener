@@ -37,6 +37,9 @@ const FILTER_METRICS = [
   // Price
   { value: "fifty_two_week_high", label: "52W High", category: "Price" },
   { value: "fifty_two_week_low", label: "52W Low", category: "Price" },
+  // Momentum / Trend
+  { value: "price_to_52w_high_pct", label: "Price to 52W High %", category: "Momentum" },
+  { value: "ma_trend", label: "MA Trend (50/200)", category: "Momentum" },
 ];
 
 const OPERATORS: { value: OperatorType; label: string }[] = [

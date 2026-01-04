@@ -51,6 +51,12 @@ export const metricsGlossary: Record<string, string> = {
   bb_lower: "볼린저 하단. 20일 SMA - 2×표준편차. 지지선 역할",
   bb_percent: "볼린저 %B. 밴드 내 위치(%). 0% 이하 과매도, 100% 이상 과매수",
   mfi: "MFI(자금흐름지수). 거래량 가중 RSI. 20 이하 과매도, 80 이상 과매수",
+
+  // Momentum / Trend
+  price_to_52w_high_pct:
+    "52주 고가 대비 현재가(%). 90% 이상이면 52주 신고가 근접. 강한 상승 추세 신호",
+  ma_trend:
+    "MA 추세(50일/200일). 양수면 골든크로스(상승), 음수면 데드크로스(하락). MA50이 MA200 대비 몇 % 높은지 표시",
 };
 
 // Table header labels to glossary key mapping
@@ -87,31 +93,51 @@ export const headerToGlossaryKey: Record<string, string> = {
   "BB Lower": "bb_lower",
   "BB %": "bb_percent",
   MFI: "mfi",
+  "Price to 52W High %": "price_to_52w_high_pct",
+  "MA Trend": "ma_trend",
+  "MA Trend (50/200)": "ma_trend",
 };
 
 // Preset strategies glossary (Korean explanations)
 export const presetGlossary: Record<string, string> = {
   graham_classic:
-    "벤저민 그레이엄의 가치투자 전략. 낮은 P/E(<15), 낮은 P/B(<1.5), 안정적 재무구조를 가진 저평가 종목 발굴",
+    "벤저민 그레이엄의 가치투자 전략. P/E<15, P/B<1.5, D/E<0.5, 유동비율>1.5. 안정적 재무구조 저평가 종목 발굴",
+  graham:
+    "벤저민 그레이엄의 가치투자 전략. P/E<15, P/B<1.5, D/E<0.5, 유동비율>1.5. 안정적 재무구조 저평가 종목 발굴",
   buffett_quality:
+    "워렌 버핏 스타일 투자. 높은 ROE(>15%), 안정적 수익, 지속적 경쟁우위를 가진 우량 기업 선별",
+  buffett:
     "워렌 버핏 스타일 투자. 높은 ROE(>15%), 안정적 수익, 지속적 경쟁우위를 가진 우량 기업 선별",
   dividend_value:
     "배당 가치투자 전략. 높은 배당수익률과 안정적인 배당 지속성을 가진 종목 선별",
+  dividend:
+    "배당 가치투자 전략. 배당수익률 3% 이상 종목 선별",
   deep_value:
-    "심층 가치투자 전략. 극도로 저평가된 주식 발굴. 낮은 P/B(<1), 낮은 EV/EBITDA 기준",
+    "심층 가치투자 전략. 극도로 저평가된 주식 발굴. 낮은 P/B(<1), 낮은 P/E(<10) 기준",
+  momentum_high:
+    "52주 신고가 모멘텀 전략. 현재가가 52주 고가의 90% 이상인 강한 상승 추세 종목 선별",
+  golden_cross:
+    "골든크로스 전략. MA50 > MA200 상태인 종목. 장기 상승 추세 전환 신호",
 };
 
 // Preset ID to glossary key mapping
 export const presetIdToGlossaryKey: Record<string, string> = {
   graham_classic: "graham_classic",
+  graham: "graham",
   buffett_quality: "buffett_quality",
+  buffett: "buffett",
   dividend_value: "dividend_value",
+  dividend: "dividend",
   deep_value: "deep_value",
+  momentum_high: "momentum_high",
+  golden_cross: "golden_cross",
   // Alternative naming conventions
   "Graham Classic": "graham_classic",
   "Buffett Quality": "buffett_quality",
   "Dividend Value": "dividend_value",
   "Deep Value": "deep_value",
+  "52W High Momentum": "momentum_high",
+  "Golden Cross": "golden_cross",
 };
 
 // Helper function to get metric tooltip

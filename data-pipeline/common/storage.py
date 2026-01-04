@@ -304,6 +304,8 @@ class StorageManager:
                 "bb_lower",
                 "bb_percent",
                 "mfi",
+                "price_to_52w_high_pct",
+                "ma_trend",
             ]
 
             for field in metric_fields:
