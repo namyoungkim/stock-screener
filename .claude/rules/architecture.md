@@ -25,7 +25,8 @@ stock-screener/
 │   │   ├── retry.py      # @with_retry 데코레이터
 │   │   ├── indicators.py # 기술적 지표 계산
 │   │   ├── storage.py    # StorageManager
-│   │   └── rate_limit.py # Rate Limit 감지 + ProgressTracker
+│   │   ├── session.py    # curl_cffi 브라우저 세션 (TLS fingerprinting 우회)
+│   │   └── rate_limit.py # Rate Limit 감지 + ProgressTracker + FailureType
 │   ├── loaders/
 │   │   └── csv_to_db.py  # CSV → Supabase 로딩
 │   └── processors/
@@ -75,12 +76,23 @@ stock-screener/
 | US (--index-only) | ~2,800개 | ~30-45분 |
 | US (--sp500) | ~500개 | ~10-15분 |
 
-**Rate Limit 대응**:
-- 배치 크기: 10개씩 (yfinance .info 호출, `--batch-size`로 조정 가능)
-- 배치 간 딜레이: 2.5-3.5초
-- 점진적 백오프: 1분 → 2분 → 3분 → 5분 (연속 실패 시)
-- 최대 백오프 횟수: 3회 초과 시 중단
-- 중단 시: `--resume` 플래그로 이어서 수집
+**Rate Limit 대응** (2단계 전략):
+
+1. **1차 방어: TLS Fingerprinting 우회**
+   - curl_cffi 라이브러리로 Chrome 브라우저 세션 모방
+   - Yahoo Finance의 자동화 탐지 우회
+
+2. **2차 방어: 자동 재시도 루프**
+   - Rate limit 실패 티커만 별도 재수집
+   - 최대 10회 재시도 (10분 대기 후 재시도)
+   - 실패 유형 분류: RATE_LIMIT, TIMEOUT (재시도) vs NO_DATA, OTHER (스킵)
+
+| 설정 | 값 | 설명 |
+|------|-----|------|
+| 배치 크기 | 10 | `--batch-size`로 조정 가능 |
+| 배치 간 딜레이 | 2.5-3.5초 | 랜덤 지터 |
+| 재시도 대기 | 10분 | Rate limit 리셋 대기 |
+| 최대 재시도 | 10회 | 무한 루프 방지 |
 
 > 주의: KR, US 동시 실행 시 yfinance Rate Limit에 걸릴 수 있음
 
@@ -127,7 +139,7 @@ stock-screener/
 ## 주요 의존성
 
 - 백엔드: FastAPI, asyncpg, Pydantic, httpx
-- 데이터 파이프라인: yfinance, FinanceDataReader, pandas, supabase-py, beautifulsoup4
+- 데이터 파이프라인: yfinance, FinanceDataReader, pandas, supabase-py, beautifulsoup4, curl-cffi
 - 데이터베이스: Supabase (PostgreSQL)
 
 ## 하이브리드 저장 전략

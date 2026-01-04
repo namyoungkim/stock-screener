@@ -69,9 +69,14 @@ from common.rate_limit import (
     get_stock_info_with_timeout,
 )
 from common.retry import RetryConfig, with_retry
+from common.session import create_browser_session
 from tqdm import tqdm
 
 from .base import BaseCollector
+
+# Rate limit retry settings
+MAX_RETRY_ROUNDS = 10  # Maximum retry rounds for rate-limited tickers
+RATE_LIMIT_WAIT_SECONDS = 600  # 10 minutes wait between retry rounds
 
 # pykrx is optional - KRX API blocked since Dec 27, 2025
 # Suppress pkg_resources deprecation warning from pykrx
@@ -116,6 +121,8 @@ class KRCollector(BaseCollector):
         self._ticker_markets: dict[str, str] = {}
         self._ticker_names: dict[str, str] = {}
         self._fundamentals: dict[str, dict] = {}  # PER, PBR, EPS, BPS from pykrx
+        # Create browser session to bypass TLS fingerprinting
+        self._session = create_browser_session()
 
     def get_tickers(self) -> list[str]:
         """Get list of KRX tickers from CSV file (primary) or pykrx (fallback).
@@ -193,7 +200,7 @@ class KRCollector(BaseCollector):
     @with_retry(RetryConfig(max_retries=3, base_delay=1.0, max_delay=60.0))
     def _fetch_yfinance_metrics(self, yf_ticker: str, krx_ticker: str) -> dict | None:
         """Fetch yfinance metrics with retry and timeout."""
-        stock = yf.Ticker(yf_ticker)
+        stock = yf.Ticker(yf_ticker, session=self._session)
         info = get_stock_info_with_timeout(stock)
 
         if not info or info.get("regularMarketPrice") is None:
@@ -426,7 +433,7 @@ class KRCollector(BaseCollector):
 
                 market_cap = None
                 try:
-                    stock = yf.Ticker(yf_ticker)
+                    stock = yf.Ticker(yf_ticker, session=self._session)
                     info = stock.info
                     market_cap = info.get("marketCap")
                 except Exception:
@@ -648,11 +655,9 @@ class KRCollector(BaseCollector):
             batch_success = 0
 
             try:
-                tickers_obj = yf.Tickers(" ".join(batch))
-
                 for yf_ticker in batch:
                     try:
-                        stock = tickers_obj.tickers[yf_ticker]
+                        stock = yf.Ticker(yf_ticker, session=self._session)
                         info = get_stock_info_with_timeout(stock)
 
                         if info and info.get("regularMarketPrice") is not None:
@@ -887,13 +892,54 @@ class KRCollector(BaseCollector):
             valid_tickers, period="2mo", batch_size=500
         )
 
-        # Phase 4: Batch yfinance metrics
+        # Phase 4: Batch yfinance metrics with retry loop for rate-limited tickers
         self.logger.info("Phase 4: Fetching yfinance metrics in batches...")
-        yf_metrics_all = self.fetch_yfinance_batch(
-            valid_tickers,
-            history_data=history_data,
-            batch_size=batch_size,
-        )
+
+        retry_round = 0
+        remaining_tickers = valid_tickers.copy()
+        yf_metrics_all: dict[str, dict] = {}
+
+        while remaining_tickers and retry_round <= MAX_RETRY_ROUNDS:
+            if retry_round > 0:
+                wait_time = RATE_LIMIT_WAIT_SECONDS + random.uniform(0, 60)
+                self.logger.info(
+                    f"Rate limit retry {retry_round}/{MAX_RETRY_ROUNDS}: "
+                    f"{len(remaining_tickers)} tickers remaining. "
+                    f"Waiting {wait_time / 60:.1f} minutes..."
+                )
+                time.sleep(wait_time)
+
+            batch_result = self.fetch_yfinance_batch(
+                remaining_tickers,
+                history_data=history_data,
+                batch_size=batch_size,
+            )
+            yf_metrics_all.update(batch_result)
+
+            # Find tickers that weren't collected (potential rate limit failures)
+            missing_tickers = [t for t in remaining_tickers if t not in batch_result]
+
+            if not missing_tickers:
+                remaining_tickers = []  # Clear before break for accurate warning check
+                break  # All tickers collected successfully
+
+            # Check if we made any progress
+            collected_this_round = len(batch_result)
+            if collected_this_round == 0 and retry_round > 0:
+                self.logger.warning(
+                    f"No progress in retry round {retry_round}. "
+                    f"Rate limit may still be active."
+                )
+
+            remaining_tickers = missing_tickers
+            retry_round += 1
+
+        if remaining_tickers:
+            self.logger.warning(
+                f"Failed to collect {len(remaining_tickers)} tickers after "
+                f"{MAX_RETRY_ROUNDS} retry rounds"
+            )
+
         self.logger.info(f"Fetched yfinance metrics for {len(yf_metrics_all)} stocks")
 
         # Phase 5: Combine and save
