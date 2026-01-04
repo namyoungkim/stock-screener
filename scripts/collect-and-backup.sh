@@ -78,7 +78,12 @@ if [[ "$MARKET" == "kr" || "$MARKET" == "all" ]]; then
     if [[ -n "$LIMIT" ]]; then
         echo "Limiting to $LIMIT tickers..."
         KR_TICKERS_FILE="/tmp/kr_limit_tickers.txt"
-        uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --list-tickers 2>/dev/null | head -$LIMIT > "$KR_TICKERS_FILE"
+        # --list-tickers 출력에서 티커만 추출 (형식: "  TICKER: NAME (MARKET)")
+        uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --list-tickers 2>/dev/null \
+            | grep -E "^  [0-9A-Z]" \
+            | awk -F: '{print $1}' \
+            | tr -d ' ' \
+            | head -$LIMIT > "$KR_TICKERS_FILE"
         KR_TICKERS_ARGS="--tickers-file $KR_TICKERS_FILE"
         echo "Created ticker file with $(wc -l < "$KR_TICKERS_FILE") tickers"
     fi
@@ -111,7 +116,12 @@ if [[ "$MARKET" == "us" || "$MARKET" == "all" ]]; then
     if [[ -n "$LIMIT" ]]; then
         echo "Limiting to $LIMIT tickers..."
         US_TICKERS_FILE="/tmp/us_limit_tickers.txt"
-        uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --list-tickers 2>/dev/null | head -$LIMIT > "$US_TICKERS_FILE"
+        # --list-tickers 출력에서 티커만 추출 (형식: "  TICKER: ['EXCHANGE']")
+        uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --list-tickers 2>/dev/null \
+            | grep -E "^  [A-Z]" \
+            | awk -F: '{print $1}' \
+            | tr -d ' ' \
+            | head -$LIMIT > "$US_TICKERS_FILE"
         US_TICKERS_ARGS="--tickers-file $US_TICKERS_FILE"
         echo "Created ticker file with $(wc -l < "$US_TICKERS_FILE") tickers"
     fi
