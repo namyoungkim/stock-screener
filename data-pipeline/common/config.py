@@ -31,3 +31,8 @@ MAX_CONSECUTIVE_FAILURES = 10  # 이 횟수만큼 연속 실패 시 백오프
 # 점진적 백오프 시간 (초) - 인덱스는 backoff_count
 BACKOFF_TIMES = [60, 120, 180, 300]  # 1분, 2분, 3분, 5분
 MAX_BACKOFFS = 3  # 최대 백오프 횟수 (초과 시 중단)
+
+# 타임아웃 설정 (초)
+YFINANCE_INFO_TIMEOUT = 30  # stock.info 호출 타임아웃
+YFINANCE_HISTORY_TIMEOUT = 60  # stock.history 호출 타임아웃
+YFINANCE_DOWNLOAD_TIMEOUT = 120  # yf.download 호출 타임아웃
