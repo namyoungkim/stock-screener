@@ -1,6 +1,6 @@
 # TODO - 개선 필요 사항
 
-> 마지막 업데이트: 2026-01-01
+> 마지막 업데이트: 2026-01-04
 
 ## 0. 최근 완료 (2026-01-01)
 
@@ -245,17 +245,8 @@
 
 ## 4.5. Self-hosted Runner 설정 ✅
 
-> yfinance rate limit 회피를 위해 EC2에 Self-hosted Runner 설정 완료 (2025-12-28)
+> EC2 Self-hosted Runner 설정 완료. 현재는 로컬 Mac에서 수동 실행 중.
 > 가이드: `.claude/rules/self-hosted-runner.md`
-
-- [x] EC2 인스턴스 생성 (t3.micro 또는 t3.small)
-- [x] 초기 환경 설정 (uv, Python 3.11, rclone)
-- [x] rclone 설정 (Google Drive 연동)
-- [x] GitHub Actions Runner 설치 및 서비스 등록
-- [x] 환경 변수 설정 (GitHub Secrets 사용)
-- [x] 워크플로우 테스트 (workflow_dispatch로 수동 실행)
-- [x] 수집기 속도 최적화 (3mo→2mo, sleep 감소)
-- [ ] 정상 동작 확인 후 스케줄 활성화
 
 ---
 
@@ -276,21 +267,7 @@
 - [x] `/togglealert {alert_id}` 명령어 - 알림 활성화/비활성화
 
 > **참고**: 디스코드 봇은 웹 인증과 별도로 작동합니다. `supabase/discord_schema.sql`을 실행해야 합니다.
-
-### 배포 (의사결정 필요)
-
-현재 로컬 Mac에서 수동 실행 중. 24/7 운영을 위한 배포 방식 결정 필요.
-
-- [ ] 배포 방식 결정
-  - Mac 자체 호스팅 (무료, Mac 항상 켜야 함)
-  - AWS EC2 (무료 1년 → $8/월, 안정적)
-  - Fly.io (무료, 설정 간단)
-  - Railway ($5 크레딧, 자동 배포)
-  - Oracle Cloud (무료, 계정 생성 어려움)
-- [ ] 선택한 방식으로 배포 설정
-- [ ] 24/7 운영 확인
-
-> **상세 가이드**: `.claude/rules/discord-bot-deployment.md`
+> **배포**: P3에서 진행. 상세 가이드: `.claude/rules/discord-bot-deployment.md`
 
 ---
 
@@ -308,7 +285,8 @@
 - [x] 페이지네이션 컴포넌트
 - [x] 다크모드 (Tailwind class 전략)
 - [x] 프리셋 관리 페이지 + PresetForm 컴포넌트
-- [ ] 한/영 i18n
+
+> **i18n**: P3에서 진행
 
 ---
 
@@ -316,9 +294,10 @@
 
 - [x] Vercel 배포 설정 (프론트엔드) - https://stock-screener-inky.vercel.app
 - [x] Render 배포 설정 (백엔드) - https://stock-screener-api-c0kc.onrender.com
-- [ ] 도메인 연결
 - [x] GitHub Actions 워크플로우 개선 (병렬 실행, 수동 트리거 옵션)
 - [x] Supabase CLI 설정 (`supabase/config.toml`)
+
+> **도메인 연결**: P3에서 진행
 
 ---
 
@@ -332,7 +311,7 @@
 
 ### P1 - Phase 4: AI 분석
 
-> 아키텍처: `docs/PRD.md` 6절 참조
+> 아키텍처: `docs/PRD.md` 8절 참조
 
 1. ~~US 티커 유니버스 확장 (~2,800 → ~6,000)~~ ✅
    - [x] NASDAQ FTP 연동 (`get_all_us_tickers()` 재작성)
@@ -343,79 +322,51 @@
 
 2. OpenSearch 인프라 구축
    - [ ] OpenSearch 호스팅 결정 (AWS Serverless / 직접 호스팅)
-   - [ ] 티커별 분석 문서 스키마 설계
+   - [ ] 보고서 스키마 설계 (`docs/PRD.md` 5절 기준)
+     - 밸류에이션: fair_value, current_price, upside, method
+     - 매매 기준: buy_price, target_price, stop_loss
+     - 뉴스/동향: sentiment_score, highlights, sector_trend
+     - 추가 정보: screening_tags, embedding
    - [ ] 인덱스 생성
 
 3. AI 종목 분석 파이프라인
    - [ ] Claude Code CLI 분석 스크립트 작성
-   - [ ] 웹검색 기반 뉴스 수집
    - [ ] 분석 결과 OpenSearch 저장
    - [ ] 분석 대상 범위 결정 (전체 / 워치리스트 / Top N)
 
-4. API + 프론트엔드
+4. 스크리닝 조건 확장 (현재 데이터로 구현 가능)
+   - [ ] 그레이엄 스타일: 유동비율 > 1.5 조건 추가
+   - [ ] 모멘텀: 52주 신고가 근접 (90% 이상)
+   - [ ] 모멘텀: 골든크로스 (MA50 > MA200)
+
+5. API + 프론트엔드
    - [ ] OpenSearch 조회 API 구현
    - [ ] 종목 상세 페이지에 AI 분석 섹션 추가
 
 ### P2 - Phase 5: AI 어드바이저
-1. [ ] 오늘의 추천 기능
-2. [ ] 개인화 추천 (워치리스트 기반)
-3. [ ] 채팅 UI
+1. [ ] LangGraph Agent 구현 (실시간 채팅용)
+2. [ ] AI Agent Tools 구현 (`docs/PRD.md` 8.3절 참조)
+   - get_recommendations, get_report, search_reports, search_news, get_watchlist, compare_stocks
+3. [ ] 오늘의 추천 기능
+4. [ ] 개인화 추천 (워치리스트 기반)
+5. [ ] 채팅 UI
+6. [ ] 뉴스 수집 파이프라인 결정 (Finnhub API / RSS / 웹검색)
+
+### P2.5 - 스크리닝 조건 확장 (추가 데이터 수집 필요)
+
+> `docs/PRD.md` 4절 참조. 현재 데이터로 구현 가능한 조건은 P1-4로 이동됨.
+
+- [ ] 배당 가치주: 연속 배당 연수 > 5년
+- [ ] 퀄리티 가치주: 3년 이익 성장률 > 0
+- [ ] 거래량 급증: 5일 평균 > 20일 평균 × 2
+- [ ] 수급 시그널: 외국인/기관 순매수 (KRX 데이터 필요)
+- [ ] 턴어라운드: 적자→흑자 전환, 영업이익률 개선 (분기 데이터 필요)
 
 ### P3 - 운영/인프라
-1. [ ] 티커 요청 기능 (GitHub Issue 링크)
-2. [ ] 디스코드 봇 24/7 배포
+1. [ ] 디스코드 봇 24/7 배포 (`.claude/rules/discord-bot-deployment.md`)
+2. [ ] Self-hosted Runner 스케줄 활성화 (현재 로컬 Mac 수동 실행)
 3. [ ] i18n (한/영)
-4. [ ] 프리셋 고급 기능 (수정/공유/복제)
-5. [ ] 도메인 연결
+4. [ ] 도메인 연결
+5. [ ] 티커 요청 기능 (GitHub Issue 링크)
+6. [ ] 프리셋 고급 기능 (수정/공유/복제)
 
----
-
-## 🔮 지표 확장 계획 (의사결정 필요)
-
-> 데이터 수집이 오래 걸리므로, 필요한 지표를 미리 설계하여 한 번에 수집하는 것이 효율적.
-
-### 현재 수집 중 (표시만 추가 필요)
-| 지표 | 필드명 | 작업 |
-|------|--------|------|
-| ~~52주 최고~~ | `fifty_two_week_high` | ✅ 완료 |
-| ~~52주 최저~~ | `fifty_two_week_low` | ✅ 완료 |
-| ~~Beta~~ | `beta` | ✅ 완료 |
-
-### 옵션 1: yfinance 직접 제공 (권장 - 빠름) ✅ 완료
-- ~~50일/200일 이동평균~~: `fiftyDayAverage`, `twoHundredDayAverage` ✅ 완료
-- ~~PEG Ratio~~: `trailingPegRatio` ✅ 완료
-- 수집 시간 거의 증가 없음
-
-### 옵션 2: Phase 2 (타이밍 지표) ✅ 완료
-- ~~RSI (14일)~~: `rsi` ✅ 완료
-- ~~거래량 변화율~~: `volume_change` ✅ 완료
-- 수집 시간 증가
-
-### 옵션 3: Phase 3 전체 (고급 분석) ✅ 완료
-- ~~MACD~~: `macd`, `macd_signal`, `macd_histogram` ✅ 완료
-- ~~볼린저 밴드~~: `bb_upper`, `bb_middle`, `bb_lower`, `bb_percent` ✅ 완료
-- ~~Money Flow Index~~: `mfi` ✅ 완료
-- 히스토리 60일 필요
-- 수집 시간 대폭 증가
-
-### 결정 사항 ✅ 완료
-- [x] 어떤 옵션으로 진행할지 결정 → 모든 옵션 구현 완료
-- [x] 데이터 수집 전 스키마 미리 설계
-
----
-
-## 8. 데이터 수집 및 백업 (2025-12-28) ✅ 완료
-
-### 수집기 최적화
-- [x] US 수집기 API 호출 최적화 (히스토리 1회 호출로 통합)
-- [x] KR 수집기 기술적 지표 추가 (RSI, MFI, MACD, Bollinger, 이동평균)
-
-### 데이터 수집 상태
-- [x] US 전체 데이터 수집 (1,882개 종목)
-- [x] KR 전체 데이터 수집 (2,788개 종목)
-- [x] Supabase 스키마 마이그레이션 (기술적 지표 컬럼 + precision 수정)
-
-### 백업 전략
-- [x] Google Drive 백업 워크플로우 구현 (OAuth 인증, `RCLONE_CONFIG` secret)
-- [x] backup.yml 워크플로우 수정 (평일 매일 01:00 UTC)
-- [x] OAuth 설정 가이드 문서화 (`.claude/rules/data-policy.md`)
