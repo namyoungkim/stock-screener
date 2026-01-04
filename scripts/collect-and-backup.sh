@@ -88,11 +88,9 @@ if [[ "$MARKET" == "kr" || "$MARKET" == "all" ]]; then
     if [[ -n "$LIMIT" ]]; then
         echo "Limiting to $LIMIT tickers..."
         KR_TICKERS_FILE="/tmp/kr_limit_tickers.txt"
-        # --list-tickers 출력에서 티커만 추출 (형식: "  TICKER: NAME (MARKET)")
-        uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --list-tickers 2>/dev/null \
-            | grep -E "^  [0-9A-Z]" \
-            | awk -F: '{print $1}' \
-            | tr -d ' ' \
+        # CSV 파일에서 직접 티커 추출 (헤더 제외, 첫 번째 열)
+        tail -n +2 "$PROJECT_DIR/data/companies/kr_companies.csv" \
+            | cut -d',' -f1 \
             | head -$LIMIT > "$KR_TICKERS_FILE"
         KR_TICKERS_ARGS="--tickers-file $KR_TICKERS_FILE"
         echo "Created ticker file with $(wc -l < "$KR_TICKERS_FILE") tickers"
@@ -126,11 +124,9 @@ if [[ "$MARKET" == "us" || "$MARKET" == "all" ]]; then
     if [[ -n "$LIMIT" ]]; then
         echo "Limiting to $LIMIT tickers..."
         US_TICKERS_FILE="/tmp/us_limit_tickers.txt"
-        # --list-tickers 출력에서 티커만 추출 (형식: "  TICKER: ['EXCHANGE']")
-        uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --list-tickers 2>/dev/null \
-            | grep -E "^  [A-Z]" \
-            | awk -F: '{print $1}' \
-            | tr -d ' ' \
+        # CSV 파일에서 직접 티커 추출 (헤더 제외, 첫 번째 열)
+        tail -n +2 "$PROJECT_DIR/data/companies/us_companies.csv" \
+            | cut -d',' -f1 \
             | head -$LIMIT > "$US_TICKERS_FILE"
         US_TICKERS_ARGS="--tickers-file $US_TICKERS_FILE"
         echo "Created ticker file with $(wc -l < "$US_TICKERS_FILE") tickers"
