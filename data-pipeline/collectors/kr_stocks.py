@@ -35,13 +35,13 @@ import logging
 import random
 import re
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
 import aiohttp
 import FinanceDataReader as fdr
 import pandas as pd
-import requests
 import yfinance as yf
 from bs4 import BeautifulSoup
 from common.config import (
@@ -69,6 +69,9 @@ from tqdm import tqdm
 from .base import BaseCollector
 
 # pykrx is optional - KRX API blocked since Dec 27, 2025
+# Suppress pkg_resources deprecation warning from pykrx
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
+
 try:
     from pykrx import stock as pykrx  # type: ignore[import-untyped]
 
@@ -285,7 +288,7 @@ class KRCollector(BaseCollector):
         # Run async function in sync context
         try:
             # Check if we're already in an event loop
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             # If we're in an event loop, use nest_asyncio or run in executor
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -327,26 +330,20 @@ class KRCollector(BaseCollector):
                         # Extract PER from em#_per
                         per_em = soup.find("em", id="_per")
                         if per_em:
-                            try:
+                            with contextlib.suppress(ValueError, TypeError):
                                 data["pe_ratio"] = float(per_em.get_text().replace(",", ""))
-                            except (ValueError, TypeError):
-                                pass
 
                         # Extract EPS from em#_eps
                         eps_em = soup.find("em", id="_eps")
                         if eps_em:
-                            try:
+                            with contextlib.suppress(ValueError, TypeError):
                                 data["eps"] = float(eps_em.get_text().replace(",", ""))
-                            except (ValueError, TypeError):
-                                pass
 
                         # Extract PBR from em#_pbr
                         pbr_em = soup.find("em", id="_pbr")
                         if pbr_em:
-                            try:
+                            with contextlib.suppress(ValueError, TypeError):
                                 data["pb_ratio"] = float(pbr_em.get_text().replace(",", ""))
-                            except (ValueError, TypeError):
-                                pass
 
                         # Extract BPS from per_table
                         per_table = soup.find("table", class_="per_table")
@@ -358,12 +355,10 @@ class KRCollector(BaseCollector):
                                 re.DOTALL,
                             )
                             if bps_match:
-                                try:
+                                with contextlib.suppress(ValueError, TypeError):
                                     data["book_value_per_share"] = float(
                                         bps_match.group(2).replace(",", "")
                                     )
-                                except (ValueError, TypeError):
-                                    pass
 
                         # Small delay between requests to be polite
                         await asyncio.sleep(0.05)
@@ -929,27 +924,30 @@ class KRCollector(BaseCollector):
                 # Add yfinance data (ROE, ROA, margins, technicals, etc.)
                 # Note: yfinance may overwrite some values, but that's OK
                 if yf_metrics:
+                    # Technical indicators that should always use yfinance values
+                    technical_keys = {
+                        "rsi",
+                        "mfi",
+                        "macd",
+                        "macd_signal",
+                        "macd_histogram",
+                        "bb_upper",
+                        "bb_middle",
+                        "bb_lower",
+                        "bb_percent",
+                        "volume_change",
+                        "price_to_52w_high_pct",
+                        "ma_trend",
+                    }
                     for key, value in yf_metrics.items():
-                        # Only overwrite if yfinance has a value and current is None
-                        if value is not None:
-                            if (
-                                key not in combined_metrics
-                                or combined_metrics.get(key) is None
-                            ) or key in (
-                                "rsi",
-                                "mfi",
-                                "macd",
-                                "macd_signal",
-                                "macd_histogram",
-                                "bb_upper",
-                                "bb_middle",
-                                "bb_lower",
-                                "bb_percent",
-                                "volume_change",
-                                "price_to_52w_high_pct",
-                                "ma_trend",
-                            ):
-                                combined_metrics[key] = value
+                        # Only overwrite if yfinance has a value and current is None,
+                        # or if it's a technical indicator
+                        if value is not None and (
+                            key not in combined_metrics
+                            or combined_metrics.get(key) is None
+                            or key in technical_keys
+                        ):
+                            combined_metrics[key] = value
 
                 # Calculate Graham Number from available EPS/BPS (pykrx or yfinance)
                 eps_val = combined_metrics.get("eps")
@@ -1139,7 +1137,7 @@ def main():
         name_map = {}
         if csv_path.exists():
             df = pd.read_csv(csv_path)
-            name_map = dict(zip(df["ticker"].astype(str), df["name"]))
+            name_map = dict(zip(df["ticker"].astype(str), df["name"], strict=False))
         for ticker in test_tickers:
             name = name_map.get(ticker, "Unknown")
             print(f"\n=== {ticker} ({name}) ===")
