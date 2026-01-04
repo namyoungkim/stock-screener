@@ -56,7 +56,12 @@ from common.config import (
     MAX_BACKOFFS,
     MAX_CONSECUTIVE_FAILURES,
 )
-from common.indicators import calculate_all_technicals, calculate_graham_number
+from common.indicators import (
+    calculate_all_technicals,
+    calculate_graham_number,
+    calculate_ma_trend,
+    calculate_price_to_52w_high_pct,
+)
 from common.logging import CollectionProgress
 from common.retry import RetryConfig, with_retry
 from tqdm import tqdm
@@ -188,6 +193,10 @@ class KRCollector(BaseCollector):
 
         eps = info.get("trailingEps")
         bvps = info.get("bookValue")
+        current_price = info.get("regularMarketPrice")
+        fifty_two_week_high = info.get("fiftyTwoWeekHigh")
+        fifty_day_average = info.get("fiftyDayAverage")
+        two_hundred_day_average = info.get("twoHundredDayAverage")
 
         return {
             "name": self._ticker_names.get(krx_ticker, ""),
@@ -209,13 +218,17 @@ class KRCollector(BaseCollector):
             # Other
             "dividend_yield": info.get("dividendYield"),
             "beta": info.get("beta"),
-            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_high": fifty_two_week_high,
             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-            "fifty_day_average": info.get("fiftyDayAverage"),
-            "two_hundred_day_average": info.get("twoHundredDayAverage"),
+            "fifty_day_average": fifty_day_average,
+            "two_hundred_day_average": two_hundred_day_average,
             "eps": eps,
             "book_value_per_share": bvps,
             "graham_number": calculate_graham_number(eps, bvps),
+            "price_to_52w_high_pct": calculate_price_to_52w_high_pct(
+                current_price, fifty_two_week_high
+            ),
+            "ma_trend": calculate_ma_trend(fifty_day_average, two_hundred_day_average),
         }
 
     def _fetch_pykrx_fundamentals(self, trading_date: str) -> dict[str, dict]:
@@ -646,6 +659,10 @@ class KRCollector(BaseCollector):
                             krx_ticker = ticker_map[yf_ticker]
                             eps = info.get("trailingEps")
                             bvps = info.get("bookValue")
+                            current_price = info.get("regularMarketPrice")
+                            fifty_two_week_high = info.get("fiftyTwoWeekHigh")
+                            fifty_day_average = info.get("fiftyDayAverage")
+                            two_hundred_day_average = info.get("twoHundredDayAverage")
 
                             # Get technicals from pre-fetched history
                             hist = (
@@ -675,15 +692,19 @@ class KRCollector(BaseCollector):
                                 # Other
                                 "dividend_yield": info.get("dividendYield"),
                                 "beta": info.get("beta"),
-                                "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                                "fifty_two_week_high": fifty_two_week_high,
                                 "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-                                "fifty_day_average": info.get("fiftyDayAverage"),
-                                "two_hundred_day_average": info.get(
-                                    "twoHundredDayAverage"
-                                ),
+                                "fifty_day_average": fifty_day_average,
+                                "two_hundred_day_average": two_hundred_day_average,
                                 "eps": eps,
                                 "book_value_per_share": bvps,
                                 "graham_number": calculate_graham_number(eps, bvps),
+                                "price_to_52w_high_pct": calculate_price_to_52w_high_pct(
+                                    current_price, fifty_two_week_high
+                                ),
+                                "ma_trend": calculate_ma_trend(
+                                    fifty_day_average, two_hundred_day_average
+                                ),
                                 **technicals,
                             }
                             batch_success += 1
@@ -917,6 +938,8 @@ class KRCollector(BaseCollector):
                                 "bb_lower",
                                 "bb_percent",
                                 "volume_change",
+                                "price_to_52w_high_pct",
+                                "ma_trend",
                             ):
                                 combined_metrics[key] = value
 

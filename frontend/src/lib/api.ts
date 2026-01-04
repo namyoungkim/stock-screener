@@ -44,6 +44,8 @@ export interface CompanyWithMetrics extends Company {
   bb_lower?: number;
   bb_percent?: number;
   mfi?: number;
+  price_to_52w_high_pct?: number;
+  ma_trend?: number;
 }
 
 export interface MetricFilter {
@@ -106,6 +108,8 @@ export interface Metrics {
   bb_lower?: number;
   bb_percent?: number;
   mfi?: number;
+  price_to_52w_high_pct?: number;
+  ma_trend?: number;
 }
 
 export interface Price {

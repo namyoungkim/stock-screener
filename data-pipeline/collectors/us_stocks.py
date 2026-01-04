@@ -41,7 +41,12 @@ from common.config import (
     MAX_BACKOFFS,
     MAX_CONSECUTIVE_FAILURES,
 )
-from common.indicators import calculate_all_technicals, calculate_graham_number
+from common.indicators import (
+    calculate_all_technicals,
+    calculate_graham_number,
+    calculate_ma_trend,
+    calculate_price_to_52w_high_pct,
+)
 from common.retry import RetryConfig, with_retry
 from tqdm import tqdm
 
@@ -330,6 +335,10 @@ class USCollector(BaseCollector):
 
         eps = info.get("trailingEps")
         bvps = info.get("bookValue")
+        current_price = info.get("regularMarketPrice")
+        fifty_two_week_high = info.get("fiftyTwoWeekHigh")
+        fifty_day_average = info.get("fiftyDayAverage")
+        two_hundred_day_average = info.get("twoHundredDayAverage")
 
         return {
             "name": info.get("longName"),
@@ -351,14 +360,18 @@ class USCollector(BaseCollector):
             "fcf": info.get("freeCashflow"),
             "dividend_yield": info.get("dividendYield"),
             "beta": info.get("beta"),
-            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_high": fifty_two_week_high,
             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-            "fifty_day_average": info.get("fiftyDayAverage"),
-            "two_hundred_day_average": info.get("twoHundredDayAverage"),
+            "fifty_day_average": fifty_day_average,
+            "two_hundred_day_average": two_hundred_day_average,
             "peg_ratio": info.get("trailingPegRatio"),
             "eps": eps,
             "book_value_per_share": bvps,
             "graham_number": calculate_graham_number(eps, bvps),
+            "price_to_52w_high_pct": calculate_price_to_52w_high_pct(
+                current_price, fifty_two_week_high
+            ),
+            "ma_trend": calculate_ma_trend(fifty_day_average, two_hundred_day_average),
         }
 
     def fetch_prices_batch(
@@ -538,6 +551,10 @@ class USCollector(BaseCollector):
                         if info and info.get("regularMarketPrice") is not None:
                             eps = info.get("trailingEps")
                             bvps = info.get("bookValue")
+                            current_price = info.get("regularMarketPrice")
+                            fifty_two_week_high = info.get("fiftyTwoWeekHigh")
+                            fifty_day_average = info.get("fiftyDayAverage")
+                            two_hundred_day_average = info.get("twoHundredDayAverage")
 
                             # Use pre-fetched history if available
                             hist = history_data.get(ticker) if history_data else None
@@ -565,16 +582,20 @@ class USCollector(BaseCollector):
                                 "fcf": info.get("freeCashflow"),
                                 "dividend_yield": info.get("dividendYield"),
                                 "beta": info.get("beta"),
-                                "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                                "fifty_two_week_high": fifty_two_week_high,
                                 "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-                                "fifty_day_average": info.get("fiftyDayAverage"),
-                                "two_hundred_day_average": info.get(
-                                    "twoHundredDayAverage"
-                                ),
+                                "fifty_day_average": fifty_day_average,
+                                "two_hundred_day_average": two_hundred_day_average,
                                 "peg_ratio": info.get("trailingPegRatio"),
                                 "eps": eps,
                                 "book_value_per_share": bvps,
                                 "graham_number": calculate_graham_number(eps, bvps),
+                                "price_to_52w_high_pct": calculate_price_to_52w_high_pct(
+                                    current_price, fifty_two_week_high
+                                ),
+                                "ma_trend": calculate_ma_trend(
+                                    fifty_day_average, two_hundred_day_average
+                                ),
                                 **technicals,
                             }
                             batch_success += 1

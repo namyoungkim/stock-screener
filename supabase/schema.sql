@@ -198,6 +198,10 @@ CREATE TABLE metrics (
     bb_lower NUMERIC(16, 4),            -- Bollinger Band Lower (SMA20 - 2σ)
     bb_percent NUMERIC(8, 4),           -- Bollinger %B
 
+    -- Momentum / Trend (모멘텀 / 추세)
+    price_to_52w_high_pct NUMERIC(8, 2), -- 52주 고가 대비 현재가 (%)
+    ma_trend NUMERIC(8, 2),              -- MA 추세 (MA50/MA200 - 1) * 100
+
     -- Growth (성장성) - YoY
     revenue_growth_yoy NUMERIC(8, 4),   -- 매출 성장률 (전년대비)
     earnings_growth_yoy NUMERIC(8, 4),  -- 이익 성장률 (전년대비)
@@ -467,6 +471,8 @@ SELECT
     m.bb_middle,
     m.bb_lower,
     m.bb_percent,
+    m.price_to_52w_high_pct,
+    m.ma_trend,
     p.close AS latest_price,
     p.market_cap
 FROM companies c
