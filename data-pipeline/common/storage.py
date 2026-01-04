@@ -98,14 +98,18 @@ class StorageManager:
         # Ensure companies directory exists
         self.companies_dir.mkdir(parents=True, exist_ok=True)
 
-    def get_or_create_version_dir(self, target_date: date | None = None) -> Path:
+    def get_or_create_version_dir(
+        self, target_date: date | None = None, force_new: bool = False
+    ) -> Path:
         """
-        Get or create a new version directory for the target date.
+        Get or create a version directory for the target date.
 
-        Creates a new version (v1, v2, ...) each time called with a new session.
+        By default, reuses the latest existing version for the same date.
+        Use force_new=True to create a new version explicitly.
 
         Args:
             target_date: Target date (default: today)
+            force_new: If True, always create a new version (v2, v3, ...)
 
         Returns:
             Path to the version directory (e.g., data/2026-01-03/v1/)
@@ -118,30 +122,42 @@ class StorageManager:
         date_str = target.strftime(DATE_FORMAT)
         date_dir = self.data_dir / date_str
 
-        # Find next version number
+        # Check for existing versions
         if date_dir.exists():
             existing = sorted(date_dir.glob("v*"))
             if existing:
-                last_v = existing[-1].name
-                next_v = int(last_v[1:]) + 1
+                if force_new:
+                    # Create new version
+                    last_v = existing[-1].name
+                    next_v = int(last_v[1:]) + 1
+                    version_dir = date_dir / f"v{next_v}"
+                    version_dir.mkdir(parents=True, exist_ok=True)
+                    logger.info(f"Created new version directory: {version_dir}")
+                else:
+                    # Reuse latest version
+                    version_dir = existing[-1]
+                    logger.info(f"Using existing version directory: {version_dir}")
             else:
-                next_v = 1
+                # No versions yet, create v1
+                version_dir = date_dir / "v1"
+                version_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created version directory: {version_dir}")
         else:
-            next_v = 1
-
-        version_dir = date_dir / f"v{next_v}"
-        version_dir.mkdir(parents=True, exist_ok=True)
+            # Date directory doesn't exist, create v1
+            version_dir = date_dir / "v1"
+            version_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created version directory: {version_dir}")
 
         self._current_version_dir = version_dir
         self._current_date_dir = date_dir
-        logger.info(f"Created version directory: {version_dir}")
         return version_dir
 
     def resume_version_dir(self, target_date: date | None = None) -> Path:
         """
         Resume to the latest version directory for the target date.
 
-        Used for --resume functionality.
+        Note: This is now equivalent to get_or_create_version_dir() since
+        the default behavior is to reuse existing versions.
 
         Args:
             target_date: Target date (default: today)
@@ -149,20 +165,7 @@ class StorageManager:
         Returns:
             Path to the version directory
         """
-        target = target_date or date.today()
-        date_str = target.strftime(DATE_FORMAT)
-        date_dir = self.data_dir / date_str
-
-        if date_dir.exists():
-            existing = sorted(date_dir.glob("v*"))
-            if existing:
-                self._current_version_dir = existing[-1]
-                self._current_date_dir = date_dir
-                logger.info(f"Resuming to version directory: {self._current_version_dir}")
-                return self._current_version_dir
-
-        # No existing version, create v1
-        return self.get_or_create_version_dir(target_date)
+        return self.get_or_create_version_dir(target_date, force_new=False)
 
     def update_symlinks(self) -> None:
         """Update current and latest symlinks after successful collection."""
