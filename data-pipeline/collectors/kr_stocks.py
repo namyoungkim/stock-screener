@@ -50,6 +50,7 @@ from common.config import (
     BASE_DELAY_INFO,
     BATCH_SIZE_HISTORY,
     BATCH_SIZE_INFO,
+    COMPANIES_DIR,
     DATA_DIR,
     DELAY_JITTER_HISTORY,
     DELAY_JITTER_INFO,
@@ -121,7 +122,7 @@ class KRCollector(BaseCollector):
         tickers_data = []
 
         # Primary: Load from CSV file
-        csv_path = DATA_DIR / "kr_companies.csv"
+        csv_path = COMPANIES_DIR / "kr_companies.csv"
         if csv_path.exists():
             try:
                 df = pd.read_csv(csv_path)
@@ -1133,7 +1134,7 @@ def main():
         print("Dry run test with 3 tickers...")
         test_tickers = ["005930", "000660", "035720"]
         # Load names from CSV
-        csv_path = DATA_DIR / "kr_companies.csv"
+        csv_path = COMPANIES_DIR / "kr_companies.csv"
         name_map = {}
         if csv_path.exists():
             df = pd.read_csv(csv_path)
