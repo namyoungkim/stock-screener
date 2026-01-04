@@ -860,6 +860,14 @@ class KRCollector(BaseCollector):
         valid_tickers = list(prices_all.keys())
         self.logger.info(f"Found {len(valid_tickers)} tickers with valid prices")
 
+        # Set up version directory (based on trading date from prices)
+        if self.save_csv:
+            trading_date = self._extract_trading_date_from_prices(prices_all)
+            if resume:
+                self.storage.resume_version_dir(target_date=trading_date)
+            else:
+                self.storage.get_or_create_version_dir(target_date=trading_date)
+
         # Phase 2: Fetch EPS/BPS from Naver Finance
         self.logger.info("Phase 2: Fetching EPS/BPS from Naver Finance...")
         naver_fundamentals = self._fetch_naver_fundamentals(valid_tickers)

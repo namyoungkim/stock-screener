@@ -384,7 +384,7 @@ class USCollector(BaseCollector):
             batch_size: Number of tickers per batch (default 500)
         """
         results: dict[str, dict] = {}
-        today = date.today().isoformat()
+        trading_date: str | None = None  # Will be extracted from yfinance data
 
         self.logger.info(
             f"Fetching prices for {len(tickers)} tickers in batches of {batch_size}..."
@@ -402,6 +402,10 @@ class USCollector(BaseCollector):
                 if df.empty:
                     continue
 
+                # Extract trading date from DataFrame index (first batch only)
+                if trading_date is None and len(df.index) > 0:
+                    trading_date = df.index[-1].strftime("%Y-%m-%d")
+
                 for ticker in batch:
                     try:
                         if len(batch) == 1:
@@ -413,7 +417,7 @@ class USCollector(BaseCollector):
 
                         if pd.notna(row.get("Close")):
                             results[ticker] = {
-                                "date": today,
+                                "date": trading_date or date.today().isoformat(),
                                 "open": float(row["Open"])
                                 if pd.notna(row.get("Open"))
                                 else None,
@@ -743,6 +747,14 @@ class USCollector(BaseCollector):
         valid_tickers = list(prices_all.keys())
         self.logger.info(f"Found {len(valid_tickers)} tickers with valid prices")
 
+        # Set up version directory (based on trading date from prices)
+        if self.save_csv:
+            trading_date = self._extract_trading_date_from_prices(prices_all)
+            if resume:
+                self.storage.resume_version_dir(target_date=trading_date)
+            else:
+                self.storage.get_or_create_version_dir(target_date=trading_date)
+
         # Phase 2: Bulk download history
         self.logger.info("Phase 2: Downloading history for technical indicators...")
         history_data = self.fetch_history_bulk(
@@ -809,7 +821,10 @@ class USCollector(BaseCollector):
                 # Collect for CSV
                 if self.save_csv:
                     all_companies.append(self._build_company_record(ticker, validated))
-                    all_metrics.append(self._build_metrics_record(ticker, validated))
+                    trading_date_str = prices_all.get(ticker, {}).get("date")
+                    all_metrics.append(
+                        self._build_metrics_record(ticker, validated, trading_date_str)
+                    )
                     if ticker in prices_all:
                         all_prices.append(
                             self._build_price_record(

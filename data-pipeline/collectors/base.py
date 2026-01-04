@@ -12,6 +12,7 @@ It handles common functionality like:
 
 import logging
 from abc import ABC, abstractmethod
+from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -177,13 +178,6 @@ class BaseCollector(ABC):
 
         total_tickers = len(tickers)
 
-        # Set up version directory for CSV storage
-        if self.save_csv:
-            if resume:
-                self.storage.resume_version_dir()
-            else:
-                self.storage.get_or_create_version_dir()
-
         # Resume: skip already collected tickers using ProgressTracker
         if resume:
             original_count = len(tickers)
@@ -208,6 +202,14 @@ class BaseCollector(ABC):
             f"Found {len(valid_tickers)} tickers with valid prices "
             f"(out of {len(tickers)})"
         )
+
+        # Set up version directory for CSV storage (based on trading date from prices)
+        if self.save_csv:
+            trading_date = self._extract_trading_date_from_prices(prices_all)
+            if resume:
+                self.storage.resume_version_dir(target_date=trading_date)
+            else:
+                self.storage.get_or_create_version_dir(target_date=trading_date)
 
         # Phase 2: Bulk download history for technical indicators
         self.logger.info("Phase 2: Downloading history for technical indicators...")
@@ -275,7 +277,10 @@ class BaseCollector(ABC):
                 # Collect for CSV
                 if self.save_csv:
                     all_companies.append(self._build_company_record(ticker, validated))
-                    all_metrics.append(self._build_metrics_record(ticker, validated))
+                    trading_date_str = prices_all.get(ticker, {}).get("date")
+                    all_metrics.append(
+                        self._build_metrics_record(ticker, validated, trading_date_str)
+                    )
                     if ticker in prices_all:
                         all_prices.append(
                             self._build_price_record(
@@ -394,6 +399,20 @@ class BaseCollector(ABC):
 
         return progress.get_stats()
 
+    def _extract_trading_date_from_prices(self, prices: dict[str, dict]) -> date | None:
+        """Extract trading date from prices dictionary.
+
+        Returns the most common date from the prices dictionary.
+        Falls back to None if no valid date found.
+        """
+        dates = [p.get("date") for p in prices.values() if p.get("date")]
+        if not dates:
+            return None
+        most_common = Counter(dates).most_common(1)
+        if most_common:
+            return date.fromisoformat(most_common[0][0])
+        return None
+
     def _build_company_record(self, ticker: str, data: dict) -> dict:
         """Build company record for CSV."""
         return {
@@ -404,12 +423,14 @@ class BaseCollector(ABC):
             "currency": data.get("currency", "USD"),
         }
 
-    def _build_metrics_record(self, ticker: str, data: dict) -> dict:
+    def _build_metrics_record(
+        self, ticker: str, data: dict, trading_date: str | None = None
+    ) -> dict:
         """Build metrics record for CSV."""
-        today = date.today().isoformat()
+        record_date = trading_date or date.today().isoformat()
         return {
             "ticker": ticker,
-            "date": today,
+            "date": record_date,
             "pe_ratio": data.get("pe_ratio"),
             "pb_ratio": data.get("pb_ratio"),
             "ps_ratio": data.get("ps_ratio"),
