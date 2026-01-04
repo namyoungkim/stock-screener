@@ -40,6 +40,8 @@ from common.config import (
     DELAY_JITTER_INFO,
     MAX_BACKOFFS,
     MAX_CONSECUTIVE_FAILURES,
+    RATE_LIMIT_WAIT_HISTORY,
+    RATE_LIMIT_WAIT_INFO,
 )
 from common.indicators import (
     calculate_all_technicals,
@@ -60,7 +62,6 @@ from .base import BaseCollector
 
 # Rate limit retry settings
 MAX_RETRY_ROUNDS = 10  # Maximum retry rounds for rate-limited tickers
-RATE_LIMIT_WAIT_SECONDS = 600  # 10 minutes wait between retry rounds
 
 # ============================================================
 # Ticker Source Functions
@@ -771,11 +772,50 @@ class USCollector(BaseCollector):
             else:
                 self.storage.get_or_create_version_dir(target_date=trading_date)
 
-        # Phase 2: Bulk download history
+        # Phase 2: Bulk download history with retry loop
         self.logger.info("Phase 2: Downloading history for technical indicators...")
-        history_data = self.fetch_history_bulk(
-            valid_tickers, period="2mo", batch_size=300
-        )
+        history_retry_round = 0
+        remaining_history_tickers = valid_tickers.copy()
+        history_data: dict[str, pd.DataFrame] = {}
+
+        while remaining_history_tickers and history_retry_round <= MAX_RETRY_ROUNDS:
+            if history_retry_round > 0:
+                wait_time = RATE_LIMIT_WAIT_HISTORY + random.uniform(0, 30)
+                self.logger.info(
+                    f"History retry {history_retry_round}/{MAX_RETRY_ROUNDS}: "
+                    f"{len(remaining_history_tickers)} tickers remaining. "
+                    f"Waiting {wait_time / 60:.1f} minutes..."
+                )
+                time.sleep(wait_time)
+
+            batch_result = self.fetch_history_bulk(
+                remaining_history_tickers, period="2mo", batch_size=300
+            )
+            history_data.update(batch_result)
+
+            # Find tickers that weren't collected
+            missing_tickers = [
+                t for t in remaining_history_tickers if t not in batch_result
+            ]
+
+            if not missing_tickers:
+                break
+
+            # Check if we made any progress
+            if len(batch_result) == 0 and history_retry_round > 0:
+                self.logger.warning(
+                    f"No progress in history retry round {history_retry_round}. "
+                    f"Rate limit may still be active."
+                )
+
+            remaining_history_tickers = missing_tickers
+            history_retry_round += 1
+
+        if remaining_history_tickers:
+            self.logger.warning(
+                f"Failed to collect history for {len(remaining_history_tickers)} tickers "
+                f"after {MAX_RETRY_ROUNDS} retry rounds"
+            )
 
         # Phase 3: Batch fetch stock data with retry loop for rate-limited tickers
         self.logger.info(f"Phase 3: Fetching stock data in batches of {batch_size}...")
@@ -786,7 +826,7 @@ class USCollector(BaseCollector):
 
         while remaining_tickers and retry_round <= MAX_RETRY_ROUNDS:
             if retry_round > 0:
-                wait_time = RATE_LIMIT_WAIT_SECONDS + random.uniform(0, 60)
+                wait_time = RATE_LIMIT_WAIT_INFO + random.uniform(0, 60)
                 self.logger.info(
                     f"Rate limit retry {retry_round}/{MAX_RETRY_ROUNDS}: "
                     f"{len(remaining_tickers)} tickers remaining. "
