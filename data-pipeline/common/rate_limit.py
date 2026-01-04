@@ -1,21 +1,117 @@
 """Rate limit detection and handling utilities.
 
-This module provides utilities for detecting and handling yfinance rate limits.
+This module provides utilities for detecting and handling yfinance rate limits,
+including timeout wrappers to prevent deadlocks from unresponsive API calls.
 """
 
 import sys
 import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
+from typing import Any
 
 import yfinance as yf
 
-from .config import DATA_DIR
+from .config import (
+    DATA_DIR,
+    YFINANCE_HISTORY_TIMEOUT,
+    YFINANCE_INFO_TIMEOUT,
+)
 
 
 class RateLimitError(Exception):
     """Raised when yfinance rate limit is detected."""
 
     pass
+
+
+class YFinanceTimeoutError(Exception):
+    """Raised when yfinance call times out."""
+
+    pass
+
+
+def run_with_timeout(func: Callable[..., Any], timeout: float, *args: Any, **kwargs: Any) -> Any:
+    """
+    Run a function with a timeout using ThreadPoolExecutor.
+
+    Args:
+        func: Function to execute
+        timeout: Timeout in seconds
+        *args: Positional arguments for func
+        **kwargs: Keyword arguments for func
+
+    Returns:
+        Result of func(*args, **kwargs)
+
+    Raises:
+        YFinanceTimeoutError: If function doesn't complete within timeout
+    """
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except FuturesTimeoutError as err:
+            func_name = getattr(func, "__name__", "unknown")
+            raise YFinanceTimeoutError(
+                f"Function {func_name} timed out after {timeout}s"
+            ) from err
+
+
+def get_stock_info_with_timeout(
+    stock: yf.Ticker,
+    timeout: float = YFINANCE_INFO_TIMEOUT,
+) -> dict[str, Any] | None:
+    """
+    Get stock.info with timeout protection.
+
+    Args:
+        stock: yfinance Ticker object
+        timeout: Timeout in seconds (default: YFINANCE_INFO_TIMEOUT)
+
+    Returns:
+        Stock info dict or None if failed/timeout
+
+    Raises:
+        YFinanceTimeoutError: If call times out
+    """
+    try:
+        return run_with_timeout(lambda: stock.info, timeout)
+    except YFinanceTimeoutError:
+        raise
+    except Exception:
+        return None
+
+
+def get_stock_history_with_timeout(
+    stock: yf.Ticker,
+    period: str = "2mo",
+    timeout: float = YFINANCE_HISTORY_TIMEOUT,
+):
+    """
+    Get stock.history with timeout protection.
+
+    Args:
+        stock: yfinance Ticker object
+        period: History period (default: "2mo")
+        timeout: Timeout in seconds (default: YFINANCE_HISTORY_TIMEOUT)
+
+    Returns:
+        DataFrame with history or empty DataFrame if failed/timeout
+
+    Raises:
+        YFinanceTimeoutError: If call times out
+    """
+    import pandas as pd
+
+    try:
+        return run_with_timeout(lambda: stock.history(period=period), timeout)
+    except YFinanceTimeoutError:
+        raise
+    except Exception:
+        return pd.DataFrame()
 
 
 def check_rate_limit(test_ticker: str = "AAPL") -> bool:

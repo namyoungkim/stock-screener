@@ -47,6 +47,11 @@ from common.indicators import (
     calculate_ma_trend,
     calculate_price_to_52w_high_pct,
 )
+from common.rate_limit import (
+    YFinanceTimeoutError,
+    get_stock_history_with_timeout,
+    get_stock_info_with_timeout,
+)
 from common.retry import RetryConfig, with_retry
 from tqdm import tqdm
 
@@ -328,7 +333,7 @@ class USCollector(BaseCollector):
     def _fetch_single_stock_info(self, ticker: str) -> dict | None:
         """Internal method with retry decorator."""
         stock = yf.Ticker(ticker)
-        info = stock.info
+        info = get_stock_info_with_timeout(stock)
 
         if not info or info.get("regularMarketPrice") is None:
             return None
@@ -550,7 +555,7 @@ class USCollector(BaseCollector):
                 for ticker in batch:
                     try:
                         stock = tickers_obj.tickers[ticker]
-                        info = stock.info
+                        info = get_stock_info_with_timeout(stock)
 
                         if info and info.get("regularMarketPrice") is not None:
                             eps = info.get("trailingEps")
@@ -563,7 +568,7 @@ class USCollector(BaseCollector):
                             # Use pre-fetched history if available
                             hist = history_data.get(ticker) if history_data else None
                             if hist is None or hist.empty:
-                                hist = stock.history(period="2mo")
+                                hist = get_stock_history_with_timeout(stock, period="2mo")
                             technicals = calculate_all_technicals(hist)
 
                             results[ticker] = {
@@ -605,6 +610,12 @@ class USCollector(BaseCollector):
                             batch_success += 1
                         else:
                             failed_tickers.append(ticker)
+                    except YFinanceTimeoutError:
+                        self.logger.warning(
+                            f"Timeout for {ticker} in batch {batch_idx + 1}/{total_batches}"
+                        )
+                        consecutive_failures += 1
+                        failed_tickers.append(ticker)
                     except Exception as e:
                         error_msg = str(e).lower()
                         if (
@@ -886,6 +897,20 @@ class USCollector(BaseCollector):
                         self.logger.info(
                             f"Retry collected {retry_result['success']} additional tickers"
                         )
+
+                # Save missing tickers to file for manual retry
+                if report.missing_count > 0:
+                    from common.config import DATA_DIR
+
+                    missing_file = DATA_DIR / f"missing_{self.MARKET_PREFIX}_tickers.txt"
+                    with open(missing_file, "w") as f:
+                        f.write(f"# Missing {self.MARKET} tickers ({report.missing_count})\n")
+                        f.write("# Generated after collection\n")
+                        for ticker in report.missing_tickers:
+                            f.write(f"{ticker}\n")
+                    self.logger.info(
+                        f"Saved {report.missing_count} missing tickers to {missing_file}"
+                    )
 
         progress.log_summary()
 

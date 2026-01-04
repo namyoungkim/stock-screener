@@ -51,7 +51,6 @@ from common.config import (
     BATCH_SIZE_HISTORY,
     BATCH_SIZE_INFO,
     COMPANIES_DIR,
-    DATA_DIR,
     DELAY_JITTER_HISTORY,
     DELAY_JITTER_INFO,
     MAX_BACKOFFS,
@@ -64,6 +63,11 @@ from common.indicators import (
     calculate_price_to_52w_high_pct,
 )
 from common.logging import CollectionProgress
+from common.rate_limit import (
+    YFinanceTimeoutError,
+    get_stock_history_with_timeout,
+    get_stock_info_with_timeout,
+)
 from common.retry import RetryConfig, with_retry
 from tqdm import tqdm
 
@@ -188,9 +192,9 @@ class KRCollector(BaseCollector):
 
     @with_retry(RetryConfig(max_retries=3, base_delay=1.0, max_delay=60.0))
     def _fetch_yfinance_metrics(self, yf_ticker: str, krx_ticker: str) -> dict | None:
-        """Fetch yfinance metrics with retry."""
+        """Fetch yfinance metrics with retry and timeout."""
         stock = yf.Ticker(yf_ticker)
-        info = stock.info
+        info = get_stock_info_with_timeout(stock)
 
         if not info or info.get("regularMarketPrice") is None:
             return None
@@ -649,7 +653,7 @@ class KRCollector(BaseCollector):
                 for yf_ticker in batch:
                     try:
                         stock = tickers_obj.tickers[yf_ticker]
-                        info = stock.info
+                        info = get_stock_info_with_timeout(stock)
 
                         if info and info.get("regularMarketPrice") is not None:
                             krx_ticker = ticker_map[yf_ticker]
@@ -665,7 +669,7 @@ class KRCollector(BaseCollector):
                                 history_data.get(krx_ticker) if history_data else None
                             )
                             if hist is None or hist.empty:
-                                hist = stock.history(period="2mo")
+                                hist = get_stock_history_with_timeout(stock, period="2mo")
                             technicals = calculate_all_technicals(hist)
 
                             results[krx_ticker] = {
@@ -706,6 +710,12 @@ class KRCollector(BaseCollector):
                             batch_success += 1
                         else:
                             failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
+                    except YFinanceTimeoutError:
+                        self.logger.warning(
+                            f"Timeout for {yf_ticker} in batch {batch_idx + 1}/{total_batches}"
+                        )
+                        consecutive_failures += 1
+                        failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
                     except Exception as e:
                         error_msg = str(e).lower()
                         if (
@@ -1072,6 +1082,20 @@ class KRCollector(BaseCollector):
                         self.logger.info(
                             f"Retry collected {retry_result['success']} additional tickers"
                         )
+
+                # Save missing tickers to file for manual retry
+                if report.missing_count > 0:
+                    from common.config import DATA_DIR
+
+                    missing_file = DATA_DIR / f"missing_{self.MARKET_PREFIX}_tickers.txt"
+                    with open(missing_file, "w") as f:
+                        f.write(f"# Missing {self.MARKET} tickers ({report.missing_count})\n")
+                        f.write("# Generated after collection\n")
+                        for ticker in report.missing_tickers:
+                            f.write(f"{ticker}\n")
+                    self.logger.info(
+                        f"Saved {report.missing_count} missing tickers to {missing_file}"
+                    )
 
         progress.log_summary()
 
