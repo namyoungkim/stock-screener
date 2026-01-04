@@ -29,8 +29,12 @@ DELAY_JITTER_HISTORY = 0.5  # history 랜덤 지터
 MAX_CONSECUTIVE_FAILURES = 10  # 이 횟수만큼 연속 실패 시 백오프
 
 # 점진적 백오프 시간 (초) - 인덱스는 backoff_count
-BACKOFF_TIMES = [60, 120, 180, 300]  # 1분, 2분, 3분, 5분
-MAX_BACKOFFS = 3  # 최대 백오프 횟수 (초과 시 중단)
+BACKOFF_TIMES = [60, 120, 180, 300, 600]  # 1분, 2분, 3분, 5분, 10분
+MAX_BACKOFFS = 5  # 최대 백오프 횟수 (초과 시 중단)
+
+# 전체 라운드 재시도 대기 시간 (초)
+RATE_LIMIT_WAIT_HISTORY = 120  # 2분 (history용 - yf.download는 관대함)
+RATE_LIMIT_WAIT_INFO = 600  # 10분 (metrics용 - .info()는 민감함)
 
 # 타임아웃 설정 (초)
 YFINANCE_INFO_TIMEOUT = 30  # stock.info 호출 타임아웃

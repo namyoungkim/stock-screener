@@ -12,7 +12,6 @@ It handles common functionality like:
 
 import logging
 from abc import ABC, abstractmethod
-from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -402,16 +401,13 @@ class BaseCollector(ABC):
     def _extract_trading_date_from_prices(self, prices: dict[str, dict]) -> date | None:
         """Extract trading date from prices dictionary.
 
-        Returns the most common date from the prices dictionary.
+        Returns the latest date from the prices dictionary.
         Falls back to None if no valid date found.
         """
         dates = [p.get("date") for p in prices.values() if p.get("date")]
         if not dates:
             return None
-        most_common = Counter(dates).most_common(1)
-        if most_common:
-            return date.fromisoformat(most_common[0][0])
-        return None
+        return date.fromisoformat(max(dates))
 
     def _build_company_record(self, ticker: str, data: dict) -> dict:
         """Build company record for CSV."""
