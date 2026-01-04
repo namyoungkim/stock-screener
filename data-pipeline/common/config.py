@@ -1,10 +1,30 @@
 """Common configuration for data pipeline."""
 
+import os
 from pathlib import Path
 
 # Data directories
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 COMPANIES_DIR = DATA_DIR / "companies"
+
+# =============================================================================
+# KIS API 설정 (한국투자증권 Open API)
+# =============================================================================
+
+# API 인증 정보 (환경 변수에서 로드)
+KIS_APP_KEY = os.environ.get("KIS_APP_KEY", "")
+KIS_APP_SECRET = os.environ.get("KIS_APP_SECRET", "")
+KIS_PAPER_TRADING = os.environ.get("KIS_PAPER_TRADING", "false").lower() == "true"
+
+# Rate Limit 설정
+KIS_RATE_LIMIT = 15  # 초당 요청 수 (KIS API는 약 15-20/초 허용)
+
+# =============================================================================
+# FinanceDataReader 설정
+# =============================================================================
+
+# MA200 계산을 위한 히스토리 기간 (일)
+FDR_HISTORY_DAYS = 210  # 약 7개월 (MA200 + 여유분)
 
 # Date format for directory naming
 DATE_FORMAT = "%Y-%m-%d"
