@@ -3,6 +3,11 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# .env 파일에서 환경 변수 로드
+load_dotenv()
+
 # Data directories
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 COMPANIES_DIR = DATA_DIR / "companies"
@@ -24,7 +29,12 @@ KIS_RATE_LIMIT = 15  # 초당 요청 수 (KIS API는 약 15-20/초 허용)
 # =============================================================================
 
 # MA200 계산을 위한 히스토리 기간 (일)
-FDR_HISTORY_DAYS = 210  # 약 7개월 (MA200 + 여유분)
+# 200 trading days ≈ 280 calendar days (200 * 7/5)
+# Adding buffer for holidays: 300 days (약 10개월)
+FDR_HISTORY_DAYS = 300
+
+# FDR 개별 요청 타임아웃 (초)
+FDR_REQUEST_TIMEOUT = 10
 
 # Date format for directory naming
 DATE_FORMAT = "%Y-%m-%d"

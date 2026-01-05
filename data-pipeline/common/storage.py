@@ -429,6 +429,7 @@ class StorageManager:
                 combined = pd.concat([existing, metrics_df]).drop_duplicates(
                     subset=["ticker"], keep="last"
                 )
+                combined["ticker"] = combined["ticker"].astype(str)
                 combined = combined.sort_values("ticker").reset_index(drop=True)
                 combined.to_csv(metrics_file, index=False)
                 logger.info(
@@ -449,6 +450,7 @@ class StorageManager:
                 combined = pd.concat([existing, prices_df]).drop_duplicates(
                     subset=["ticker"], keep="last"
                 )
+                combined["ticker"] = combined["ticker"].astype(str)
                 combined = combined.sort_values("ticker").reset_index(drop=True)
                 combined.to_csv(prices_file, index=False)
                 logger.info(

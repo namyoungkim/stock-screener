@@ -1,18 +1,18 @@
 """
 Korean Stock Data Collector
 
-Collects financial data for Korean stocks using FinanceDataReader and yfinance.
+Collects financial data for Korean stocks using FDR + KIS API (yfinance-free).
 Supports hybrid storage: Supabase for latest data, CSV for history.
 
 Data sources:
-- CSV (kr_companies.csv): ticker list (fallback when KRX API is blocked)
-- FinanceDataReader: prices, market cap (via Naver Finance)
-- Naver Finance: EPS, BPS, PER, PBR (web scraping)
-- yfinance: ROE, ROA, margins, ratios, technical indicators (bulk)
+- CSV (kr_companies.csv): ticker list
+- FinanceDataReader (FDR): prices, 10-month OHLCV history (via Naver Finance)
+- KIS API (primary): PER, PBR, EPS, BPS, 52w high/low, market_cap
+- Naver Finance (fallback): PER, PBR, EPS, BPS, ROE, ROA, market_cap (web scraping)
+- Local calculation: RSI, MACD, Bollinger Bands, MFI, MA50/MA200, Beta (vs KOSPI)
 
-Note: As of Dec 27, 2025, KRX requires login for data access, breaking pykrx.
-This collector now uses a hybrid approach with FinanceDataReader for prices
-and Naver Finance scraping for EPS/BPS.
+Note: yfinance is NOT used for main data collection (removed due to rate limits).
+KOSPI index data for Beta calculation uses yfinance as fallback only.
 
 Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks
@@ -32,11 +32,10 @@ Ticker Sources:
 import asyncio
 import contextlib
 import logging
-import random
 import re
-import time
+import socket
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import date, datetime, timedelta
 
 import aiohttp
@@ -45,39 +44,26 @@ import pandas as pd
 import yfinance as yf
 from bs4 import BeautifulSoup
 from common.config import (
-    BACKOFF_TIMES,
-    BASE_DELAY_HISTORY,
-    BASE_DELAY_INFO,
-    BATCH_SIZE_HISTORY,
-    BATCH_SIZE_INFO,
     COMPANIES_DIR,
-    DELAY_JITTER_HISTORY,
-    DELAY_JITTER_INFO,
-    MAX_BACKOFFS,
-    MAX_CONSECUTIVE_FAILURES,
-    RATE_LIMIT_WAIT_HISTORY,
-    RATE_LIMIT_WAIT_INFO,
+    FDR_HISTORY_DAYS,
+    FDR_REQUEST_TIMEOUT,
+    KIS_RATE_LIMIT,
 )
 from common.indicators import (
+    calculate_52_week_high_low,
     calculate_all_technicals,
+    calculate_beta,
     calculate_graham_number,
     calculate_ma_trend,
+    calculate_moving_averages,
     calculate_price_to_52w_high_pct,
 )
+from common.kis_client import KISClient
 from common.logging import CollectionProgress
-from common.rate_limit import (
-    YFinanceTimeoutError,
-    get_stock_history_with_timeout,
-    get_stock_info_with_timeout,
-)
-from common.retry import RetryConfig, with_retry
-from common.session import create_browser_session
+from common.naver_finance import NaverFinanceClient
 from tqdm import tqdm
 
 from .base import BaseCollector
-
-# Rate limit retry settings
-MAX_RETRY_ROUNDS = 10  # Maximum retry rounds for rate-limited tickers
 
 # pykrx is optional - KRX API blocked since Dec 27, 2025
 # Suppress pkg_resources deprecation warning from pykrx
@@ -93,11 +79,11 @@ except ImportError:
 
 
 class KRCollector(BaseCollector):
-    """Collector for Korean stock data using FinanceDataReader + yfinance."""
+    """Collector for Korean stock data using FDR + KIS API (yfinance-free)."""
 
     MARKET = "KOSPI"  # Will be overridden per ticker
     MARKET_PREFIX = "kr"
-    DATA_SOURCE = "yfinance+fdr"
+    DATA_SOURCE = "fdr+kis"
 
     def __init__(
         self,
@@ -122,8 +108,27 @@ class KRCollector(BaseCollector):
         self._ticker_markets: dict[str, str] = {}
         self._ticker_names: dict[str, str] = {}
         self._fundamentals: dict[str, dict] = {}  # PER, PBR, EPS, BPS from pykrx
-        # Create browser session to bypass TLS fingerprinting
-        self._session = create_browser_session()
+
+    def fetch_stock_info(self, ticker: str) -> dict | None:
+        """Fetch stock information for a single ticker.
+
+        Note: Not used in yfinance-free collection. Implemented for BaseCollector compatibility.
+        Use collect() method instead which uses FDR + Naver Finance.
+        """
+        return None
+
+    def fetch_history_bulk(
+        self,
+        tickers: list[str],
+        period: str = "2mo",
+        batch_size: int | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        """Fetch historical data for multiple tickers.
+
+        Note: Not used in yfinance-free collection. Use fetch_fdr_history() instead.
+        Implemented for BaseCollector compatibility.
+        """
+        return self.fetch_fdr_history(tickers, days=FDR_HISTORY_DAYS)
 
     def get_tickers(self) -> list[str]:
         """Get list of KRX tickers from CSV file (primary) or pykrx (fallback).
@@ -137,7 +142,7 @@ class KRCollector(BaseCollector):
         csv_path = COMPANIES_DIR / "kr_companies.csv"
         if csv_path.exists():
             try:
-                df = pd.read_csv(csv_path)
+                df = pd.read_csv(csv_path, dtype={"ticker": str})
                 for _, row in df.iterrows():
                     market = row.get("market", "KOSPI")
                     if self.market == "ALL" or self.market == market:
@@ -190,63 +195,6 @@ class KRCollector(BaseCollector):
         self.logger.info(f"Found {len(tickers)} {self.market} tickers")
         return tickers
 
-    def fetch_stock_info(self, ticker: str) -> dict | None:
-        """Fetch stock information for a single ticker."""
-        market = self._ticker_markets.get(ticker, "KOSPI")
-        suffix = ".KS" if market == "KOSPI" else ".KQ"
-        yf_ticker = f"{ticker}{suffix}"
-
-        return self._fetch_yfinance_metrics(yf_ticker, ticker)
-
-    @with_retry(RetryConfig(max_retries=3, base_delay=1.0, max_delay=60.0))
-    def _fetch_yfinance_metrics(self, yf_ticker: str, krx_ticker: str) -> dict | None:
-        """Fetch yfinance metrics with retry and timeout."""
-        stock = yf.Ticker(yf_ticker, session=self._session)
-        info = get_stock_info_with_timeout(stock)
-
-        if not info or info.get("regularMarketPrice") is None:
-            return None
-
-        eps = info.get("trailingEps")
-        bvps = info.get("bookValue")
-        current_price = info.get("regularMarketPrice")
-        fifty_two_week_high = info.get("fiftyTwoWeekHigh")
-        fifty_day_average = info.get("fiftyDayAverage")
-        two_hundred_day_average = info.get("twoHundredDayAverage")
-
-        return {
-            "name": self._ticker_names.get(krx_ticker, ""),
-            "market": self._ticker_markets.get(krx_ticker, "KOSPI"),
-            "currency": "KRW",
-            # Valuation from yfinance
-            "ps_ratio": info.get("priceToSalesTrailing12Months"),
-            "forward_pe": info.get("forwardPE"),
-            "peg_ratio": info.get("trailingPegRatio"),
-            "ev_ebitda": info.get("enterpriseToEbitda"),
-            # Profitability
-            "roe": info.get("returnOnEquity"),
-            "roa": info.get("returnOnAssets"),
-            "gross_margin": info.get("grossMargins"),
-            "net_margin": info.get("profitMargins"),
-            # Financial health
-            "debt_equity": info.get("debtToEquity"),
-            "current_ratio": info.get("currentRatio"),
-            # Other
-            "dividend_yield": info.get("dividendYield"),
-            "beta": info.get("beta"),
-            "fifty_two_week_high": fifty_two_week_high,
-            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-            "fifty_day_average": fifty_day_average,
-            "two_hundred_day_average": two_hundred_day_average,
-            "eps": eps,
-            "book_value_per_share": bvps,
-            "graham_number": calculate_graham_number(eps, bvps),
-            "price_to_52w_high_pct": calculate_price_to_52w_high_pct(
-                current_price, fifty_two_week_high
-            ),
-            "ma_trend": calculate_ma_trend(fifty_day_average, two_hundred_day_average),
-        }
-
     def _fetch_pykrx_fundamentals(self, trading_date: str) -> dict[str, dict]:
         """Fetch PER, PBR, EPS, BPS from pykrx for all stocks.
 
@@ -286,11 +234,85 @@ class KRCollector(BaseCollector):
 
         return results
 
+    async def _fetch_kis_fundamentals_async(self, tickers: list[str]) -> dict[str, dict]:
+        """Fetch PER, PBR, EPS, BPS, 52w high/low from KIS API.
+
+        KIS API is faster and more reliable than Naver web scraping.
+        Rate limit: ~15 requests/second - processes in batches to avoid memory issues.
+        """
+        results: dict[str, dict] = {}
+
+        async with KISClient() as client:
+            if not client.is_configured():
+                self.logger.warning("KIS API not configured, will use Naver Finance fallback")
+                return results
+
+            self.logger.info(f"Fetching fundamentals from KIS API for {len(tickers)} tickers...")
+
+            async def fetch_one(ticker: str) -> tuple[str, dict | None]:
+                """Fetch data for a single ticker."""
+                try:
+                    quote = await client.get_domestic_quote(ticker)
+                    if quote and quote.get("current_price") is not None:
+                        data: dict = {}
+
+                        # Map KIS fields to our schema
+                        if quote.get("per") is not None:
+                            data["pe_ratio"] = quote["per"]
+                        if quote.get("pbr") is not None:
+                            data["pb_ratio"] = quote["pbr"]
+                        if quote.get("eps") is not None:
+                            data["eps"] = quote["eps"]
+                        if quote.get("bps") is not None:
+                            data["book_value_per_share"] = quote["bps"]
+                        if quote.get("high_52w") is not None:
+                            data["fifty_two_week_high"] = quote["high_52w"]
+                        if quote.get("low_52w") is not None:
+                            data["fifty_two_week_low"] = quote["low_52w"]
+                        if quote.get("market_cap") is not None:
+                            # KIS returns in 억원, convert to 원
+                            data["market_cap"] = quote["market_cap"] * 100_000_000
+
+                        return ticker, data if data else None
+                    return ticker, None
+                except Exception as e:
+                    self.logger.debug(f"KIS failed for {ticker}: {e}")
+                    return ticker, None
+
+            # Process in batches to avoid creating too many coroutines at once
+            batch_size = KIS_RATE_LIMIT  # 15 concurrent requests
+            progress_bar = tqdm(
+                total=len(tickers),
+                desc="KIS fundamentals",
+                leave=False,
+                disable=self.quiet,
+            )
+
+            for i in range(0, len(tickers), batch_size):
+                batch = tickers[i : i + batch_size]
+                tasks = [fetch_one(ticker) for ticker in batch]
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Collect results from this batch
+                for result in batch_results:
+                    if isinstance(result, Exception):
+                        continue
+                    ticker, data = result
+                    if data:
+                        results[ticker] = data
+
+                progress_bar.update(len(batch))
+
+            progress_bar.close()
+
+        self.logger.info(f"Fetched KIS fundamentals for {len(results)} tickers")
+        return results
+
     def _fetch_naver_fundamentals(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch EPS, BPS, PER, PBR from Naver Finance via parallel web scraping.
 
-        This is the primary source for Korean stock fundamentals since KRX API
-        requires login (Dec 27, 2025). Naver Finance provides reliable data.
+        This is the fallback source for Korean stock fundamentals when KIS API
+        is not configured. Naver Finance provides reliable data but is slower.
 
         Uses asyncio + aiohttp for parallel requests with rate limiting.
         """
@@ -393,11 +415,12 @@ class KRCollector(BaseCollector):
             responses = await asyncio.gather(*tasks, return_exceptions=True)
 
             for response in responses:
-                if isinstance(response, Exception):
+                if isinstance(response, BaseException):
                     continue
-                ticker, data = response
-                if data:
-                    results[ticker] = data
+                if isinstance(response, tuple):
+                    ticker, data = response
+                    if data:
+                        results[ticker] = data
 
         return results
 
@@ -405,7 +428,7 @@ class KRCollector(BaseCollector):
         """Fetch price data using FinanceDataReader (primary) or pykrx (fallback).
 
         FinanceDataReader fetches from Naver Finance, which works even when KRX API is blocked.
-        Uses ThreadPoolExecutor for parallel fetching with rate limiting.
+        Uses ThreadPoolExecutor with batch-based timeout to skip slow tickers.
         """
         results: dict[str, dict] = {}
         today = datetime.now()
@@ -415,6 +438,10 @@ class KRCollector(BaseCollector):
         self.logger.info(
             f"Fetching prices for {len(tickers)} tickers via FinanceDataReader (parallel)..."
         )
+
+        # Set socket timeout to prevent infinite hanging
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(FDR_REQUEST_TIMEOUT)
 
         def fetch_one(ticker: str) -> tuple[str, dict | None]:
             """Fetch price data for a single ticker."""
@@ -427,19 +454,7 @@ class KRCollector(BaseCollector):
                 latest = df.iloc[-1]
                 latest_date = df.index[-1].strftime("%Y-%m-%d")
 
-                # Get market cap from yfinance (FDR doesn't provide it reliably)
-                market = self._ticker_markets.get(ticker, "KOSPI")
-                suffix = ".KS" if market == "KOSPI" else ".KQ"
-                yf_ticker = f"{ticker}{suffix}"
-
-                market_cap = None
-                try:
-                    stock = yf.Ticker(yf_ticker, session=self._session)
-                    info = stock.info
-                    market_cap = info.get("marketCap")
-                except Exception:
-                    pass
-
+                # Note: market_cap comes from KIS/Naver (Phase 2), not here
                 return ticker, {
                     "date": latest_date,
                     "close": int(latest["Close"])
@@ -448,31 +463,64 @@ class KRCollector(BaseCollector):
                     "volume": int(latest["Volume"])
                     if pd.notna(latest["Volume"])
                     else None,
-                    "market_cap": market_cap,
                 }
 
             except Exception as e:
                 self.logger.debug(f"FDR failed for {ticker}: {e}")
                 return ticker, None
 
-        # Parallel fetch with ThreadPoolExecutor (10 workers)
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(fetch_one, t): t for t in tickers}
+        # Batch-based processing with timeout to skip slow tickers
+        batch_size = 100
+        per_ticker_timeout = FDR_REQUEST_TIMEOUT + 5  # 15 seconds per ticker
+        batch_timeout = per_ticker_timeout * 1.5  # Allow some buffer for batch
 
-            for future in tqdm(
-                as_completed(futures),
-                total=len(futures),
-                desc="Fetching prices",
-                leave=False,
-                disable=self.quiet,
-            ):
-                try:
-                    ticker, data = future.result()
-                    if data:
-                        results[ticker] = data
-                except Exception as e:
-                    ticker = futures[future]
-                    self.logger.debug(f"FDR failed for {ticker}: {e}")
+        pbar = tqdm(
+            total=len(tickers),
+            desc="Fetching prices",
+            leave=False,
+            disable=self.quiet,
+        )
+
+        try:
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                # Process in batches
+                for i in range(0, len(tickers), batch_size):
+                    batch = tickers[i : i + batch_size]
+                    futures = {executor.submit(fetch_one, t): t for t in batch}
+                    pending = set(futures.keys())
+                    skipped_in_batch = []
+
+                    # Process batch with timeout
+                    while pending:
+                        done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
+
+                        if not done and pending:
+                            # Timeout: cancel remaining slow tickers in this batch
+                            skipped_in_batch = [futures[f] for f in pending]
+                            for future in pending:
+                                future.cancel()
+                            pbar.update(len(pending))
+                            break
+
+                        for future in done:
+                            pbar.update(1)
+                            try:
+                                ticker, data = future.result(timeout=0)
+                                if data:
+                                    results[ticker] = data
+                            except Exception as e:
+                                ticker = futures[future]
+                                self.logger.debug(f"FDR failed for {ticker}: {e}")
+
+                    if skipped_in_batch:
+                        self.logger.warning(
+                            f"FDR batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
+                        )
+
+        finally:
+            # Restore original socket timeout
+            socket.setdefaulttimeout(old_timeout)
+            pbar.close()
 
         self.logger.info(f"Fetched prices for {len(results)} tickers")
 
@@ -487,6 +535,139 @@ class KRCollector(BaseCollector):
             self.logger.info(f"After pykrx fallback: {len(results)} tickers")
 
         return results
+
+    def fetch_fdr_history(
+        self,
+        tickers: list[str],
+        days: int = 210,
+    ) -> dict[str, pd.DataFrame]:
+        """
+        Fetch 7-month OHLCV history using FinanceDataReader.
+
+        This replaces yf.download for Korean stocks, providing stable data
+        without yfinance rate limit issues.
+
+        Args:
+            tickers: List of KRX ticker codes
+            days: Number of days of history (default 210 for MA200)
+
+        Returns:
+            dict mapping ticker to DataFrame with OHLCV columns
+        """
+        results: dict[str, pd.DataFrame] = {}
+        today = datetime.now()
+        start_date = (today - timedelta(days=days or FDR_HISTORY_DAYS)).strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
+
+        self.logger.info(
+            f"Fetching {days}-day history for {len(tickers)} tickers via FDR..."
+        )
+
+        # Set socket timeout to prevent infinite hanging
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(FDR_REQUEST_TIMEOUT)
+
+        def fetch_one(ticker: str) -> tuple[str, pd.DataFrame | None]:
+            try:
+                df = fdr.DataReader(ticker, start_date, end_date)
+                if df.empty:
+                    return ticker, None
+                return ticker, df
+            except Exception as e:
+                self.logger.debug(f"FDR history failed for {ticker}: {e}")
+                return ticker, None
+
+        # Batch-based processing with timeout to skip slow tickers
+        batch_size = 100
+        per_ticker_timeout = FDR_REQUEST_TIMEOUT + 5  # 15 seconds per ticker
+        batch_timeout = per_ticker_timeout * 1.5  # Allow some buffer for batch
+
+        pbar = tqdm(
+            total=len(tickers),
+            desc="Fetching FDR history",
+            leave=False,
+            disable=self.quiet,
+        )
+
+        try:
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                # Process in batches
+                for i in range(0, len(tickers), batch_size):
+                    batch = tickers[i : i + batch_size]
+                    futures = {executor.submit(fetch_one, t): t for t in batch}
+                    pending = set(futures.keys())
+                    skipped_in_batch = []
+
+                    # Process batch with timeout
+                    while pending:
+                        done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
+
+                        if not done and pending:
+                            # Timeout: cancel remaining slow tickers in this batch
+                            skipped_in_batch = [futures[f] for f in pending]
+                            for future in pending:
+                                future.cancel()
+                            pbar.update(len(pending))
+                            break
+
+                        for future in done:
+                            pbar.update(1)
+                            try:
+                                ticker, df = future.result(timeout=0)
+                                if df is not None and not df.empty:
+                                    results[ticker] = df
+                            except Exception as e:
+                                ticker = futures[future]
+                                self.logger.debug(f"FDR history failed for {ticker}: {e}")
+
+                    if skipped_in_batch:
+                        self.logger.warning(
+                            f"FDR history batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
+                        )
+
+        finally:
+            # Restore original socket timeout
+            socket.setdefaulttimeout(old_timeout)
+            pbar.close()
+
+        self.logger.info(f"Fetched history for {len(results)} tickers")
+        return results
+
+    def fetch_kospi_history(self, days: int = 210) -> pd.DataFrame:
+        """
+        Fetch KOSPI index history for Beta calculation.
+
+        Uses yfinance for KOSPI index since FDR requires KRX login.
+
+        Args:
+            days: Number of days of history
+
+        Returns:
+            DataFrame with KOSPI OHLCV data
+        """
+        today = datetime.now()
+        start_date = (today - timedelta(days=days or FDR_HISTORY_DAYS)).strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
+
+        try:
+            # Use yfinance for KOSPI (^KS11)
+            kospi = yf.download("^KS11", start=start_date, end=end_date, progress=False)
+            if not kospi.empty:
+                self.logger.info(f"Fetched KOSPI history: {len(kospi)} rows")
+                return kospi
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch KOSPI from yfinance: {e}")
+
+        # Fallback: try FDR (may fail due to KRX login requirement)
+        try:
+            kospi = fdr.DataReader("KS11", start_date, end_date)
+            if not kospi.empty:
+                self.logger.info(f"Fetched KOSPI history via FDR: {len(kospi)} rows")
+                return kospi
+        except Exception as e:
+            self.logger.debug(f"FDR KOSPI failed: {e}")
+
+        return pd.DataFrame()
 
     def _fetch_prices_pykrx(self, tickers: list[str]) -> dict[str, dict]:
         """Fallback: Fetch prices from pykrx (may fail if KRX requires login)."""
@@ -535,292 +716,83 @@ class KRCollector(BaseCollector):
 
         return results
 
-    def fetch_history_bulk(
-        self,
-        tickers: list[str],
-        period: str = "3mo",
-        batch_size: int | None = None,
-    ) -> dict[str, pd.DataFrame]:
-        """Fetch historical data for all KR tickers in bulk using yf.download.
+    def _print_phase_header(self, phase: int, description: str, total: int) -> None:
+        """Print phase start header.
 
-        Rate limit handling:
-        - Batch size: BATCH_SIZE_HISTORY (default 500)
-        - Sleep between batches: BASE_DELAY_HISTORY + jitter
-        - yf.download is more lenient than individual ticker.info calls
+        Args:
+            phase: Phase number (1-5)
+            description: Short description of the phase
+            total: Total items to process
         """
-        if batch_size is None:
-            batch_size = BATCH_SIZE_HISTORY
-        results: dict[str, pd.DataFrame] = {}
+        if self.quiet:
+            return
 
-        # Convert to yfinance format
-        yf_tickers = []
-        ticker_map = {}
-        for ticker in tickers:
-            market = self._ticker_markets.get(ticker, "KOSPI")
-            suffix = ".KS" if market == "KOSPI" else ".KQ"
-            yf_ticker = f"{ticker}{suffix}"
-            yf_tickers.append(yf_ticker)
-            ticker_map[yf_ticker] = ticker
+        phase_names = {
+            1: "가격 수집 (FDR)",
+            2: "기초지표 (KIS/Naver)",
+            3: "히스토리 수집 (FDR)",
+            4: "기술적 지표 계산",
+            5: "데이터 저장",
+        }
+        name = phase_names.get(phase, description)
 
-        self.logger.info(
-            f"Downloading {period} history for {len(tickers)} KR tickers..."
-        )
+        print()
+        print(f"{'═' * 60}")
+        print(f"  📊 Phase {phase}/5: {name}")
+        print(f"  처리 대상: {total:,}개")
+        print(f"{'═' * 60}")
 
-        for i in tqdm(
-            range(0, len(yf_tickers), batch_size),
-            desc="Downloading history",
-            leave=False,
-            disable=self.quiet,
-        ):
-            batch = yf_tickers[i : i + batch_size]
-            try:
-                df = yf.download(
-                    batch,
-                    period=period,
-                    group_by="ticker",
-                    progress=False,
-                    threads=True,
-                )
-
-                if df.empty:
-                    continue
-
-                if len(batch) == 1:
-                    krx_ticker = ticker_map[batch[0]]
-                    results[krx_ticker] = df
-                else:
-                    for yf_ticker in batch:
-                        try:
-                            if yf_ticker in df.columns.get_level_values(0):
-                                ticker_df = df[yf_ticker].dropna(how="all")
-                                if not ticker_df.empty:
-                                    krx_ticker = ticker_map[yf_ticker]
-                                    results[krx_ticker] = ticker_df
-                        except Exception:
-                            pass
-
-                # Sleep between batches
-                time.sleep(BASE_DELAY_HISTORY + random.uniform(0, DELAY_JITTER_HISTORY))
-
-            except Exception as e:
-                self.logger.error(f"History batch error: {e}")
-                # Longer sleep on error
-                time.sleep(5.0)
-                continue
-
-        self.logger.info(f"Downloaded history for {len(results)} KR tickers")
-        return results
-
-    def fetch_yfinance_batch(
+    def _print_phase_transition(
         self,
-        tickers: list[str],
-        history_data: dict[str, pd.DataFrame] | None = None,
-        batch_size: int | None = None,
-    ) -> dict[str, dict]:
-        """Fetch yfinance metrics for multiple tickers in batches.
+        from_phase: int,
+        to_phase: int,
+        input_count: int,
+        output_count: int,
+        details: dict | None = None,
+    ) -> None:
+        """Print phase transition summary.
 
-        Rate limit handling:
-        - Batch size: BATCH_SIZE_INFO (default 10)
-        - Sleep between batches: BASE_DELAY_INFO + jitter
-        - Rate limit detection: Progressive backoff on consecutive failures
-        - Max retries: MAX_BACKOFFS before stopping
+        Args:
+            from_phase: Source phase number
+            to_phase: Target phase number
+            input_count: Number of items going into the phase
+            output_count: Number of items coming out
+            details: Additional details to display
         """
-        if batch_size is None:
-            batch_size = BATCH_SIZE_INFO
+        if self.quiet:
+            return
 
-        results: dict[str, dict] = {}
-        failed_tickers: list[tuple[str, str]] = []
-        consecutive_failures = 0
-        backoff_count = 0
+        lost = input_count - output_count
+        rate = (output_count / input_count * 100) if input_count > 0 else 0
 
-        # Convert to yfinance format
-        yf_tickers = []
-        ticker_map = {}
-        for ticker in tickers:
-            market = self._ticker_markets.get(ticker, "KOSPI")
-            suffix = ".KS" if market == "KOSPI" else ".KQ"
-            yf_ticker = f"{ticker}{suffix}"
-            yf_tickers.append(yf_ticker)
-            ticker_map[yf_ticker] = ticker
+        # 상태 아이콘
+        if rate >= 99:
+            status = "✅"
+        elif rate >= 95:
+            status = "⚠️"
+        else:
+            status = "❌"
 
-        total_batches = (len(yf_tickers) + batch_size - 1) // batch_size
-        for batch_idx, i in enumerate(
-            tqdm(
-                range(0, len(yf_tickers), batch_size),
-                desc="yfinance batch",
-                leave=False,
-                disable=self.quiet,
-            )
-        ):
-            batch = yf_tickers[i : i + batch_size]
-            batch_success = 0
+        print()
+        print(f"{'─' * 50}")
+        print(f"  {status} Phase {from_phase} 완료 → Phase {to_phase} 시작")
+        print(f"{'─' * 50}")
+        print(f"  입력: {input_count:,}개")
+        print(f"  출력: {output_count:,}개 ({rate:.1f}%)")
+        if lost > 0:
+            print(f"  손실: {lost:,}개 ({100 - rate:.1f}%)")
 
-            try:
-                for yf_ticker in batch:
-                    try:
-                        stock = yf.Ticker(yf_ticker, session=self._session)
-                        info = get_stock_info_with_timeout(stock)
-
-                        if info and info.get("regularMarketPrice") is not None:
-                            krx_ticker = ticker_map[yf_ticker]
-                            eps = info.get("trailingEps")
-                            bvps = info.get("bookValue")
-                            current_price = info.get("regularMarketPrice")
-                            fifty_two_week_high = info.get("fiftyTwoWeekHigh")
-                            fifty_day_average = info.get("fiftyDayAverage")
-                            two_hundred_day_average = info.get("twoHundredDayAverage")
-
-                            # Get technicals from pre-fetched history
-                            hist = (
-                                history_data.get(krx_ticker) if history_data else None
-                            )
-                            if hist is None or hist.empty:
-                                hist = get_stock_history_with_timeout(stock, period="2mo")
-                            technicals = calculate_all_technicals(hist)
-
-                            results[krx_ticker] = {
-                                "name": self._ticker_names.get(krx_ticker, ""),
-                                "market": self._ticker_markets.get(krx_ticker, "KOSPI"),
-                                "currency": "KRW",
-                                # Valuation from yfinance
-                                "ps_ratio": info.get("priceToSalesTrailing12Months"),
-                                "forward_pe": info.get("forwardPE"),
-                                "peg_ratio": info.get("trailingPegRatio"),
-                                "ev_ebitda": info.get("enterpriseToEbitda"),
-                                # Profitability
-                                "roe": info.get("returnOnEquity"),
-                                "roa": info.get("returnOnAssets"),
-                                "gross_margin": info.get("grossMargins"),
-                                "net_margin": info.get("profitMargins"),
-                                # Financial health
-                                "debt_equity": info.get("debtToEquity"),
-                                "current_ratio": info.get("currentRatio"),
-                                # Other
-                                "dividend_yield": info.get("dividendYield"),
-                                "beta": info.get("beta"),
-                                "fifty_two_week_high": fifty_two_week_high,
-                                "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
-                                "fifty_day_average": fifty_day_average,
-                                "two_hundred_day_average": two_hundred_day_average,
-                                "eps": eps,
-                                "book_value_per_share": bvps,
-                                "graham_number": calculate_graham_number(eps, bvps),
-                                "price_to_52w_high_pct": calculate_price_to_52w_high_pct(
-                                    current_price, fifty_two_week_high
-                                ),
-                                "ma_trend": calculate_ma_trend(
-                                    fifty_day_average, two_hundred_day_average
-                                ),
-                                **technicals,
-                            }
-                            batch_success += 1
-                        else:
-                            failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
-                    except YFinanceTimeoutError:
-                        self.logger.warning(
-                            f"Timeout for {yf_ticker} in batch {batch_idx + 1}/{total_batches}"
-                        )
-                        consecutive_failures += 1
-                        failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
-                    except Exception as e:
-                        error_msg = str(e).lower()
-                        if (
-                            "rate limit" in error_msg
-                            or "too many requests" in error_msg
-                        ):
-                            self.logger.warning(
-                                f"Rate limit detected in batch {batch_idx + 1}/{total_batches}"
-                            )
-                            consecutive_failures += 1
-                        failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
-
-            except Exception as e:
-                error_msg = str(e).lower()
-                if "rate limit" in error_msg or "too many requests" in error_msg:
-                    self.logger.warning(f"Rate limit detected for batch: {e}")
-                    consecutive_failures += 1
+        if details:
+            print()
+            for key, value in details.items():
+                if isinstance(value, float):
+                    print(f"    • {key}: {value:.1f}%")
+                elif isinstance(value, int):
+                    print(f"    • {key}: {value:,}")
                 else:
-                    self.logger.warning(f"Batch error: {e}")
-                for yf_ticker in batch:
-                    failed_tickers.append((yf_ticker, ticker_map[yf_ticker]))
+                    print(f"    • {key}: {value}")
 
-            # Track consecutive failures
-            if batch_success == 0:
-                consecutive_failures += 1
-            else:
-                consecutive_failures = 0  # Reset on any success
-
-            # Backoff if rate limited
-            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                backoff_count += 1
-                if backoff_count > MAX_BACKOFFS:
-                    self.logger.warning(
-                        f"Stopping after {MAX_BACKOFFS} backoffs. "
-                        f"Completed {len(results)}/{len(tickers)} tickers."
-                    )
-                    break
-
-                # Progressive backoff: 1min -> 2min -> 3min -> 5min
-                backoff_idx = min(backoff_count - 1, len(BACKOFF_TIMES) - 1)
-                backoff_time = BACKOFF_TIMES[backoff_idx] + random.uniform(0, 30.0)
-                self.logger.warning(
-                    f"Rate limit detected. Backoff {backoff_count}/{MAX_BACKOFFS}: "
-                    f"waiting {backoff_time:.0f}s... "
-                    f"(Completed {len(results)}/{len(tickers)} so far)"
-                )
-                time.sleep(backoff_time)
-                consecutive_failures = 0  # Reset after backoff
-
-            # Sleep between batches
-            sleep_time = BASE_DELAY_INFO + random.uniform(0, DELAY_JITTER_INFO)
-            time.sleep(sleep_time)
-
-        # Retry failed tickers with longer delays (only if not stopped by backoff limit)
-        if failed_tickers and backoff_count <= MAX_BACKOFFS:
-            self.logger.info(
-                f"Retrying {len(failed_tickers)} failed tickers with longer delays..."
-            )
-            retry_failures = 0
-            max_retry_failures = 20  # Allow more retries
-
-            for yf_ticker, krx_ticker in tqdm(
-                failed_tickers, desc="Fallback", leave=False, disable=self.quiet
-            ):
-                try:
-                    data = self._fetch_yfinance_metrics(yf_ticker, krx_ticker)
-                    if data:
-                        hist = history_data.get(krx_ticker) if history_data else None
-                        if hist is not None and not hist.empty:
-                            technicals = calculate_all_technicals(hist)
-                            data.update(technicals)
-                        results[krx_ticker] = data
-                        retry_failures = 0  # Reset on success
-                    else:
-                        retry_failures += 1
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if "rate limit" in error_msg or "too many requests" in error_msg:
-                        retry_failures += 1
-                        if retry_failures >= max_retry_failures:
-                            self.logger.warning(
-                                f"Stopping fallback: {retry_failures} consecutive failures. "
-                                f"Rate limit likely. Completed {len(results)}/{len(tickers)} tickers."
-                            )
-                            break
-                        # Backoff on rate limit in fallback
-                        if retry_failures % 5 == 0:
-                            backoff_time = 30.0 + random.uniform(0, 30.0)
-                            self.logger.warning(
-                                f"Fallback backoff: waiting {backoff_time:.0f}s..."
-                            )
-                            time.sleep(backoff_time)
-
-                # Longer sleep for fallback: 5-8 seconds
-                time.sleep(5.0 + random.uniform(0, 3.0))
-        elif backoff_count > MAX_BACKOFFS:
-            self.logger.info("Skipping fallback retry due to rate limit.")
-
-        return results
+        print(f"{'─' * 50}")
 
     def collect(
         self,
@@ -832,21 +804,28 @@ class KRCollector(BaseCollector):
         auto_retry: bool = True,
     ) -> dict:
         """
-        Collect Korean stock data with optimized batch processing.
+        Collect Korean stock data (yfinance-free).
+
+        This method uses FDR + Naver Finance for all data collection,
+        avoiding yfinance rate limit issues.
 
         Args:
-            batch_size: Batch size for .info calls (default: BATCH_SIZE_INFO from config)
+            tickers: List of tickers to collect (default: all from CSV)
+            resume: Resume from previous incomplete collection
+            batch_size: Not used (kept for API compatibility)
+            is_test: If True, run in test mode (3 tickers)
+            check_rate_limit_first: Not used (kept for API compatibility)
             auto_retry: If True, retry missing tickers after quality check
 
         Phases:
-        1. Fetch prices from FinanceDataReader (via Naver)
-        2. Fetch EPS/BPS from Naver Finance (web scraping)
-        3. Download history for technical indicators (yfinance bulk)
-        4. Fetch yfinance metrics (ROE, ROA, margins, etc.)
-        5. Combine and save
+        1. FDR: Fetch prices from FinanceDataReader
+        2. Naver: Fetch fundamentals (PER, PBR, EPS, BPS, ROE, ROA, market_cap)
+        3. FDR: Fetch 7-month OHLCV history (for technicals, MA, Beta)
+        4. Local: Calculate all technical indicators from history
+        5. Combine and save to DB/CSV
         """
-        if batch_size is None:
-            batch_size = BATCH_SIZE_INFO
+        # batch_size is no longer used (kept for API compatibility)
+        _ = batch_size
 
         # Get tickers if not provided
         if tickers is None:
@@ -867,10 +846,25 @@ class KRCollector(BaseCollector):
             return {"total": 0, "success": 0, "failed": 0, "skipped": 0}
 
         # Phase 1: Fetch prices from FinanceDataReader
+        self._print_phase_header(1, "가격 수집", len(tickers))
         self.logger.info("Phase 1: Fetching prices from FinanceDataReader...")
         prices_all = self.fetch_prices_batch(tickers)
         valid_tickers = list(prices_all.keys())
         self.logger.info(f"Found {len(valid_tickers)} tickers with valid prices")
+
+        # Phase 1 → 2 전환 요약
+        if not self.quiet:
+            failed_tickers = set(tickers) - set(valid_tickers)
+            self._print_phase_transition(
+                from_phase=1,
+                to_phase=2,
+                input_count=len(tickers),
+                output_count=len(valid_tickers),
+                details={
+                    "가격 수집 성공": len(valid_tickers),
+                    "가격 없음 (거래정지/상폐 등)": len(failed_tickers),
+                },
+            )
 
         # Set up version directory (based on trading date from prices)
         if self.save_csv:
@@ -880,109 +874,173 @@ class KRCollector(BaseCollector):
             else:
                 self.storage.get_or_create_version_dir(target_date=trading_date)
 
-        # Phase 2: Fetch EPS/BPS from Naver Finance
-        self.logger.info("Phase 2: Fetching EPS/BPS from Naver Finance...")
-        naver_fundamentals = self._fetch_naver_fundamentals(valid_tickers)
+        # Phase 2: Fetch fundamentals from KIS API (primary) or Naver Finance (fallback)
+        self._print_phase_header(2, "기초지표", len(valid_tickers))
+        self.logger.info("Phase 2: Fetching fundamentals...")
+
+        # Try KIS API first (faster, more reliable)
+        kis_fundamentals: dict = {}
+        try:
+            kis_fundamentals = asyncio.run(self._fetch_kis_fundamentals_async(valid_tickers))
+        except Exception as e:
+            self.logger.warning(f"KIS API failed: {e}")
+
+        # If KIS got less than 50% of tickers, supplement with Naver Finance
+        naver_fundamentals: dict = {}
+        if len(kis_fundamentals) < len(valid_tickers) * 0.5:
+            self.logger.info("KIS coverage low, fetching from Naver Finance...")
+
+            async def fetch_naver_async():
+                async with NaverFinanceClient(concurrency=15) as client:
+                    return await client.fetch_bulk(
+                        valid_tickers,
+                        progress_callback=lambda c, t: None if self.quiet else self.logger.info(
+                            f"Naver: {c}/{t}"
+                        ) if c % 500 == 0 else None
+                    )
+
+            try:
+                naver_fundamentals = asyncio.run(fetch_naver_async())
+            except Exception as e:
+                self.logger.warning(f"NaverFinanceClient failed, using legacy method: {e}")
+                naver_fundamentals = self._fetch_naver_fundamentals(valid_tickers)
+
+        # Merge: KIS takes precedence, Naver fills gaps
+        merged_fundamentals: dict = {}
+        for ticker in valid_tickers:
+            kis_data = kis_fundamentals.get(ticker, {})
+            naver_data = naver_fundamentals.get(ticker, {})
+            # Naver first, KIS overwrites (KIS is more accurate)
+            merged = {**naver_data, **kis_data}
+            if merged:
+                merged_fundamentals[ticker] = merged
+
         self.logger.info(
-            f"Fetched Naver fundamentals for {len(naver_fundamentals)} tickers"
+            f"Fetched fundamentals: KIS={len(kis_fundamentals)}, Naver={len(naver_fundamentals)}, merged={len(merged_fundamentals)}"
         )
 
-        # Phase 3: Bulk download history with retry loop
-        self.logger.info("Phase 3: Downloading history for technical indicators...")
-        history_retry_round = 0
-        remaining_history_tickers = valid_tickers.copy()
-        history_data: dict[str, pd.DataFrame] = {}
-
-        while remaining_history_tickers and history_retry_round <= MAX_RETRY_ROUNDS:
-            if history_retry_round > 0:
-                wait_time = RATE_LIMIT_WAIT_HISTORY + random.uniform(0, 30)
-                self.logger.info(
-                    f"History retry {history_retry_round}/{MAX_RETRY_ROUNDS}: "
-                    f"{len(remaining_history_tickers)} tickers remaining. "
-                    f"Waiting {wait_time / 60:.1f} minutes..."
-                )
-                time.sleep(wait_time)
-
-            batch_result = self.fetch_history_bulk(
-                remaining_history_tickers, period="2mo", batch_size=500
-            )
-            history_data.update(batch_result)
-
-            # Find tickers that weren't collected
-            missing_tickers = [
-                t for t in remaining_history_tickers if t not in batch_result
-            ]
-
-            if not missing_tickers:
-                break
-
-            # Check if we made any progress
-            if len(batch_result) == 0 and history_retry_round > 0:
-                self.logger.warning(
-                    f"No progress in history retry round {history_retry_round}. "
-                    f"Rate limit may still be active."
-                )
-
-            remaining_history_tickers = missing_tickers
-            history_retry_round += 1
-
-        if remaining_history_tickers:
-            self.logger.warning(
-                f"Failed to collect history for {len(remaining_history_tickers)} tickers "
-                f"after {MAX_RETRY_ROUNDS} retry rounds"
+        # Phase 2 → 3 전환 요약
+        if not self.quiet:
+            tickers_with_fundamentals = len(merged_fundamentals)
+            tickers_without = len(valid_tickers) - tickers_with_fundamentals
+            self._print_phase_transition(
+                from_phase=2,
+                to_phase=3,
+                input_count=len(valid_tickers),
+                output_count=len(valid_tickers),  # 모든 티커가 Phase 3로 전달됨
+                details={
+                    "KIS API 성공": len(kis_fundamentals),
+                    "Naver 크롤링 성공": len(naver_fundamentals),
+                    "기초지표 있음": tickers_with_fundamentals,
+                    "기초지표 없음": tickers_without,
+                },
             )
 
-        # Phase 4: Batch yfinance metrics with retry loop for rate-limited tickers
-        self.logger.info("Phase 4: Fetching yfinance metrics in batches...")
+        # Phase 3: Fetch 10-month FDR history (for MA200, Beta, technicals)
+        self._print_phase_header(3, "히스토리 수집", len(valid_tickers))
+        self.logger.info("Phase 3: Fetching 10-month history via FDR...")
+        history_data = self.fetch_fdr_history(valid_tickers, days=FDR_HISTORY_DAYS)
+        self.logger.info(f"Fetched history for {len(history_data)} tickers")
 
-        retry_round = 0
-        remaining_tickers = valid_tickers.copy()
-        yf_metrics_all: dict[str, dict] = {}
+        # Fetch KOSPI history for Beta calculation
+        kospi_history = self.fetch_kospi_history(days=FDR_HISTORY_DAYS)
 
-        while remaining_tickers and retry_round <= MAX_RETRY_ROUNDS:
-            if retry_round > 0:
-                wait_time = RATE_LIMIT_WAIT_INFO + random.uniform(0, 60)
-                self.logger.info(
-                    f"Rate limit retry {retry_round}/{MAX_RETRY_ROUNDS}: "
-                    f"{len(remaining_tickers)} tickers remaining. "
-                    f"Waiting {wait_time / 60:.1f} minutes..."
-                )
-                time.sleep(wait_time)
-
-            batch_result = self.fetch_yfinance_batch(
-                remaining_tickers,
-                history_data=history_data,
-                batch_size=batch_size,
+        # Phase 3 → 4 전환 요약
+        if not self.quiet:
+            tickers_with_history = len(history_data)
+            tickers_without_history = len(valid_tickers) - tickers_with_history
+            avg_days = (
+                sum(len(df) for df in history_data.values()) / len(history_data)
+                if history_data
+                else 0
             )
-            yf_metrics_all.update(batch_result)
-
-            # Find tickers that weren't collected (potential rate limit failures)
-            missing_tickers = [t for t in remaining_tickers if t not in batch_result]
-
-            if not missing_tickers:
-                remaining_tickers = []  # Clear before break for accurate warning check
-                break  # All tickers collected successfully
-
-            # Check if we made any progress
-            collected_this_round = len(batch_result)
-            if collected_this_round == 0 and retry_round > 0:
-                self.logger.warning(
-                    f"No progress in retry round {retry_round}. "
-                    f"Rate limit may still be active."
-                )
-
-            remaining_tickers = missing_tickers
-            retry_round += 1
-
-        if remaining_tickers:
-            self.logger.warning(
-                f"Failed to collect {len(remaining_tickers)} tickers after "
-                f"{MAX_RETRY_ROUNDS} retry rounds"
+            self._print_phase_transition(
+                from_phase=3,
+                to_phase=4,
+                input_count=len(valid_tickers),
+                output_count=tickers_with_history,
+                details={
+                    "히스토리 수집 성공": tickers_with_history,
+                    "히스토리 없음": tickers_without_history,
+                    "평균 히스토리 일수": int(avg_days),
+                    "KOSPI 히스토리": len(kospi_history) if not kospi_history.empty else 0,
+                },
             )
 
-        self.logger.info(f"Fetched yfinance metrics for {len(yf_metrics_all)} stocks")
+        # Phase 4: Calculate technicals from FDR history (no yfinance needed!)
+        # yfinance is now optional - only for ROE/ROA/margins if needed
+        self._print_phase_header(4, "기술적 지표 계산", len(history_data))
+        self.logger.info("Phase 4: Calculating technicals from FDR history...")
+
+        # Calculate all technical indicators locally
+        calculated_technicals: dict[str, dict] = {}
+        for ticker in tqdm(
+            valid_tickers,
+            desc="Calculating technicals",
+            leave=False,
+            disable=self.quiet,
+        ):
+            hist = history_data.get(ticker)
+            if hist is None or hist.empty:
+                continue
+
+            # Calculate all technicals from indicators.py
+            technicals = calculate_all_technicals(hist)
+
+            # Calculate MA50, MA200
+            ma50, ma200 = calculate_moving_averages(hist, short_period=50, long_period=200)
+
+            # Calculate Beta vs KOSPI
+            beta = None
+            if not kospi_history.empty:
+                beta = calculate_beta(hist, kospi_history, period=252)
+
+            # Calculate 52-week high/low from history
+            high_52w, low_52w = calculate_52_week_high_low(hist)
+
+            # Get current price from history
+            current_price = hist["Close"].iloc[-1] if "Close" in hist.columns else None
+
+            # Calculate price_to_52w_high_pct and ma_trend
+            price_to_52w_high_pct = calculate_price_to_52w_high_pct(current_price, high_52w)
+            ma_trend = calculate_ma_trend(ma50, ma200)
+
+            calculated_technicals[ticker] = {
+                **technicals,
+                "fifty_day_average": ma50,
+                "two_hundred_day_average": ma200,
+                "beta": beta,
+                "fifty_two_week_high": high_52w,
+                "fifty_two_week_low": low_52w,
+                "price_to_52w_high_pct": price_to_52w_high_pct,
+                "ma_trend": ma_trend,
+            }
+
+        self.logger.info(f"Calculated technicals for {len(calculated_technicals)} stocks")
+
+        # Phase 4 → 5 전환 요약
+        if not self.quiet:
+            tickers_with_technicals = len(calculated_technicals)
+            # 지표별 커버리지 계산
+            rsi_count = sum(1 for t in calculated_technicals.values() if t.get("rsi") is not None)
+            beta_count = sum(1 for t in calculated_technicals.values() if t.get("beta") is not None)
+            ma200_count = sum(1 for t in calculated_technicals.values() if t.get("two_hundred_day_average") is not None)
+
+            self._print_phase_transition(
+                from_phase=4,
+                to_phase=5,
+                input_count=len(history_data),
+                output_count=tickers_with_technicals,
+                details={
+                    "기술적 지표 계산 성공": tickers_with_technicals,
+                    "RSI 계산됨": rsi_count,
+                    "Beta 계산됨": beta_count,
+                    "MA200 계산됨": ma200_count,
+                },
+            )
 
         # Phase 5: Combine and save
+        self._print_phase_header(5, "데이터 저장", len(valid_tickers))
         self.logger.info("Phase 5: Combining data and saving...")
         progress = CollectionProgress(
             total=len(valid_tickers),
@@ -1001,61 +1059,43 @@ class KRCollector(BaseCollector):
                 price_data = prices_all.get(ticker, {})
                 market_cap = price_data.get("market_cap")
 
-                # Get Naver fundamentals (PER, PBR, EPS, BPS)
-                naver_data = naver_fundamentals.get(ticker, {})
+                # Get fundamentals (PER, PBR, EPS, BPS, ROE, ROA, market_cap) from KIS/Naver
+                fund_data = merged_fundamentals.get(ticker, {})
 
-                # Get yfinance metrics
-                yf_metrics = yf_metrics_all.get(ticker, {})
+                # Get calculated technicals (RSI, MACD, BB, MFI, MA, Beta, 52w)
+                tech_data = calculated_technicals.get(ticker, {})
 
-                # Combine metrics: start with base, add naver, then yfinance
+                # Combine metrics: base + naver fundamentals + calculated technicals
                 combined_metrics = {
                     "name": name,
                     "market": mkt,
-                    "market_cap": market_cap,
+                    "currency": "KRW",
                 }
 
-                # Add Naver data (PER, PBR, EPS, BPS) - primary source for Korean stocks
-                if naver_data:
-                    combined_metrics.update(naver_data)
+                # Add market_cap from fundamentals if available, fallback to price_data
+                if fund_data.get("market_cap"):
+                    combined_metrics["market_cap"] = fund_data["market_cap"]
+                elif market_cap:
+                    combined_metrics["market_cap"] = market_cap
 
-                # Add yfinance data (ROE, ROA, margins, technicals, etc.)
-                # Note: yfinance may overwrite some values, but that's OK
-                if yf_metrics:
-                    # Technical indicators that should always use yfinance values
-                    technical_keys = {
-                        "rsi",
-                        "mfi",
-                        "macd",
-                        "macd_signal",
-                        "macd_histogram",
-                        "bb_upper",
-                        "bb_middle",
-                        "bb_lower",
-                        "bb_percent",
-                        "volume_change",
-                        "price_to_52w_high_pct",
-                        "ma_trend",
-                    }
-                    for key, value in yf_metrics.items():
-                        # Only overwrite if yfinance has a value and current is None,
-                        # or if it's a technical indicator
-                        if value is not None and (
-                            key not in combined_metrics
-                            or combined_metrics.get(key) is None
-                            or key in technical_keys
-                        ):
-                            combined_metrics[key] = value
+                # Add fundamentals (PER, PBR, EPS, BPS, ROE, ROA, dividend_yield, 52w high/low)
+                if fund_data:
+                    for key in ["pe_ratio", "pb_ratio", "eps", "book_value_per_share",
+                                "roe", "roa", "debt_equity", "current_ratio", "dividend_yield",
+                                "fifty_two_week_high", "fifty_two_week_low"]:
+                        if key in fund_data and fund_data[key] is not None:
+                            combined_metrics[key] = fund_data[key]
 
-                # Calculate Graham Number from available EPS/BPS (pykrx or yfinance)
+                # Add all calculated technical indicators
+                if tech_data:
+                    combined_metrics.update(tech_data)
+
+                # Calculate Graham Number from EPS/BPS
                 eps_val = combined_metrics.get("eps")
                 bvps_val = combined_metrics.get("book_value_per_share")
-                if eps_val and bvps_val and "graham_number" not in combined_metrics:
-                    eps_float = (
-                        float(eps_val) if isinstance(eps_val, (int, float)) else None
-                    )
-                    bvps_float = (
-                        float(bvps_val) if isinstance(bvps_val, (int, float)) else None
-                    )
+                if eps_val and bvps_val:
+                    eps_float = float(eps_val) if isinstance(eps_val, (int, float)) else None
+                    bvps_float = float(bvps_val) if isinstance(bvps_val, (int, float)) else None
                     if eps_float and bvps_float:
                         combined_metrics["graham_number"] = calculate_graham_number(
                             eps_float, bvps_float
@@ -1247,8 +1287,8 @@ def main():
         csv_path = COMPANIES_DIR / "kr_companies.csv"
         name_map = {}
         if csv_path.exists():
-            df = pd.read_csv(csv_path)
-            name_map = dict(zip(df["ticker"].astype(str), df["name"], strict=False))
+            df = pd.read_csv(csv_path, dtype={"ticker": str})
+            name_map = dict(zip(df["ticker"], df["name"], strict=False))
         for ticker in test_tickers:
             name = name_map.get(ticker, "Unknown")
             print(f"\n=== {ticker} ({name}) ===")

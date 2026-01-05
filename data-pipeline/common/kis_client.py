@@ -23,7 +23,7 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 import aiohttp
 
@@ -59,7 +59,7 @@ class KISClient:
     FOREIGN_DAILY_PATH = "/uapi/overseas-price/v1/quotations/dailyprice"
 
     # Exchange codes for foreign stocks
-    EXCHANGE_CODES = {
+    EXCHANGE_CODES: ClassVar[dict[str, str]] = {
         "NYSE": "NYS",
         "NASDAQ": "NAS",
         "AMEX": "AMS",
@@ -150,9 +150,12 @@ class KISClient:
     async def _get_access_token(self) -> str:
         """Get or refresh OAuth access token."""
         # Check if we have a valid token
-        if self._access_token and self._token_expires:
-            if datetime.now() < self._token_expires - timedelta(minutes=5):
-                return self._access_token
+        if (
+            self._access_token
+            and self._token_expires
+            and datetime.now() < self._token_expires - timedelta(minutes=5)
+        ):
+            return self._access_token
 
         # Request new token
         session = await self._get_session()

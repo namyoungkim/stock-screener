@@ -19,7 +19,7 @@ import contextlib
 import logging
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -34,7 +34,7 @@ class NaverFinanceClient:
     MAIN_URL = f"{BASE_URL}/item/main.naver"
     SISE_URL = f"{BASE_URL}/item/sise.naver"
 
-    DEFAULT_HEADERS = {
+    DEFAULT_HEADERS: ClassVar[dict[str, str]] = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -333,19 +333,20 @@ class NaverFinanceClient:
                         progress_callback(completed, total)
                     return ticker, {}
 
-        # Create session for all requests
-        session = await self._get_session()
+        # Ensure session is created (will be reused by fetch_one)
+        await self._get_session()
 
         # Run all requests
         tasks = [fetch_one(ticker) for ticker in tickers]
         responses = await asyncio.gather(*tasks, return_exceptions=True)
 
         for response in responses:
-            if isinstance(response, Exception):
+            if isinstance(response, BaseException):
                 continue
-            ticker, data = response
-            if data:  # Only add if we got some data
-                results[ticker] = data
+            if isinstance(response, tuple):
+                ticker, data = response
+                if data:  # Only add if we got some data
+                    results[ticker] = data
 
         return results
 
