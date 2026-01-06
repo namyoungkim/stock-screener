@@ -15,9 +15,11 @@ import pandas as pd
 from supabase import Client
 
 from .config import COMPANIES_DIR, DATA_DIR, DATE_FORMAT
+from .logging import setup_logger
 from .utils import get_supabase_client, safe_float, safe_int
 
-logger = logging.getLogger(__name__)
+# Module-level logger (used when no logger is injected)
+_default_logger = setup_logger("StorageManager")
 
 # Re-export for backwards compatibility
 __all__ = ["StorageManager", "get_supabase_client", "safe_float", "safe_int"]
@@ -31,6 +33,7 @@ class StorageManager:
         client: Client | None = None,
         data_dir: Path | None = None,
         market_prefix: str = "us",
+        logger: logging.Logger | None = None,
     ):
         """
         Initialize storage manager.
@@ -39,11 +42,13 @@ class StorageManager:
             client: Supabase client (optional, for DB operations)
             data_dir: Root data directory (default: project data/)
             market_prefix: Prefix for CSV files ("us" or "kr")
+            logger: Logger instance (optional, uses default if not provided)
         """
         self.client = client
         self.data_dir = data_dir or DATA_DIR
         self.companies_dir = COMPANIES_DIR
         self.market_prefix = market_prefix
+        self.logger = logger or _default_logger
 
         # Version directory tracking
         self._current_date_dir: Path | None = None
@@ -86,21 +91,21 @@ class StorageManager:
                     next_v = int(last_v[1:]) + 1
                     version_dir = date_dir / f"v{next_v}"
                     version_dir.mkdir(parents=True, exist_ok=True)
-                    logger.info(f"Created new version directory: {version_dir}")
+                    self.self.logger.info(f"Created new version directory: {version_dir}")
                 else:
                     # Reuse latest version
                     version_dir = existing[-1]
-                    logger.info(f"Using existing version directory: {version_dir}")
+                    self.logger.info(f"Using existing version directory: {version_dir}")
             else:
                 # No versions yet, create v1
                 version_dir = date_dir / "v1"
                 version_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Created version directory: {version_dir}")
+                self.logger.info(f"Created version directory: {version_dir}")
         else:
             # Date directory doesn't exist, create v1
             version_dir = date_dir / "v1"
             version_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Created version directory: {version_dir}")
+            self.logger.info(f"Created version directory: {version_dir}")
 
         self._current_version_dir = version_dir
         self._current_date_dir = date_dir
@@ -124,7 +129,7 @@ class StorageManager:
     def update_symlinks(self) -> None:
         """Update current and latest symlinks after successful collection."""
         if not self._current_version_dir or not self._current_date_dir:
-            logger.warning("No version directory set, skipping symlink update")
+            self.logger.warning("No version directory set, skipping symlink update")
             return
 
         # Update date/current symlink
@@ -132,7 +137,7 @@ class StorageManager:
         if current_link.is_symlink() or current_link.exists():
             current_link.unlink()
         current_link.symlink_to(self._current_version_dir.name)
-        logger.info(f"Updated symlink: {current_link} -> {self._current_version_dir.name}")
+        self.logger.info(f"Updated symlink: {current_link} -> {self._current_version_dir.name}")
 
         # Update data/latest symlink
         latest_link = self.data_dir / "latest"
@@ -141,7 +146,7 @@ class StorageManager:
         # Use relative path for portability
         relative_path = self._current_version_dir.relative_to(self.data_dir)
         latest_link.symlink_to(relative_path)
-        logger.info(f"Updated symlink: {latest_link} -> {relative_path}")
+        self.logger.info(f"Updated symlink: {latest_link} -> {relative_path}")
 
     def get_current_version_dir(self) -> Path | None:
         """Get the current version directory if set."""
@@ -194,7 +199,7 @@ class StorageManager:
                 return result.data[0]["id"]
             return None
         except Exception as e:
-            logger.error(f"Error upserting company {ticker}: {e}")
+            self.logger.error(f"Error upserting company {ticker}: {e}")
             return None
 
     def upsert_metrics(
@@ -276,7 +281,7 @@ class StorageManager:
             ).execute()
             return True
         except Exception as e:
-            logger.error(f"Error upserting metrics for company {company_id}: {e}")
+            self.logger.error(f"Error upserting metrics for company {company_id}: {e}")
             return False
 
     def upsert_price(
@@ -327,7 +332,7 @@ class StorageManager:
             ).execute()
             return True
         except Exception as e:
-            logger.error(f"Error upserting price for company {company_id}: {e}")
+            self.logger.error(f"Error upserting price for company {company_id}: {e}")
             return False
 
     def save_to_csv(
@@ -371,7 +376,7 @@ class StorageManager:
             else:
                 companies_df.to_csv(companies_file, index=False)
 
-            logger.info(f"Saved {len(companies)} companies to {companies_file}")
+            self.logger.info(f"Saved {len(companies)} companies to {companies_file}")
 
         # Save metrics to version directory (merge for resume)
         if metrics:
@@ -386,13 +391,13 @@ class StorageManager:
                 combined["ticker"] = combined["ticker"].astype(str)
                 combined = combined.sort_values("ticker").reset_index(drop=True)
                 combined.to_csv(metrics_file, index=False)
-                logger.info(
+                self.logger.info(
                     f"Merged {len(metrics)} metrics into {metrics_file} "
                     f"(total: {len(combined)})"
                 )
             else:
                 metrics_df.to_csv(metrics_file, index=False)
-                logger.info(f"Saved {len(metrics)} metrics to {metrics_file}")
+                self.logger.info(f"Saved {len(metrics)} metrics to {metrics_file}")
 
         # Save prices to version directory (merge for resume)
         if prices:
@@ -407,13 +412,13 @@ class StorageManager:
                 combined["ticker"] = combined["ticker"].astype(str)
                 combined = combined.sort_values("ticker").reset_index(drop=True)
                 combined.to_csv(prices_file, index=False)
-                logger.info(
+                self.logger.info(
                     f"Merged {len(prices)} prices into {prices_file} "
                     f"(total: {len(combined)})"
                 )
             else:
                 prices_df.to_csv(prices_file, index=False)
-                logger.info(f"Saved {len(prices)} prices to {prices_file}")
+                self.logger.info(f"Saved {len(prices)} prices to {prices_file}")
 
     def load_completed_tickers(self, target_date: str | None = None) -> set[str]:
         """
@@ -454,7 +459,7 @@ class StorageManager:
                 return set(df["ticker"].astype(str).tolist())
             return set()
         except Exception as e:
-            logger.warning(f"Error loading completed tickers from {metrics_file}: {e}")
+            self.logger.warning(f"Error loading completed tickers from {metrics_file}: {e}")
             return set()
 
     # ============================================================
@@ -489,7 +494,7 @@ class StorageManager:
                 ).execute()
                 count += len(batch)
             except Exception as e:
-                logger.error(f"Error batch upserting companies: {e}")
+                self.logger.error(f"Error batch upserting companies: {e}")
 
         return count
 
@@ -521,7 +526,7 @@ class StorageManager:
                 ).execute()
                 count += len(batch)
             except Exception as e:
-                logger.error(f"Error batch upserting metrics: {e}")
+                self.logger.error(f"Error batch upserting metrics: {e}")
 
         return count
 
@@ -553,7 +558,7 @@ class StorageManager:
                 ).execute()
                 count += len(batch)
             except Exception as e:
-                logger.error(f"Error batch upserting prices: {e}")
+                self.logger.error(f"Error batch upserting prices: {e}")
 
         return count
 
@@ -594,5 +599,5 @@ class StorageManager:
 
             return {(r["ticker"], r["market"]): r["id"] for r in all_companies}
         except Exception as e:
-            logger.error(f"Error fetching company ID mapping: {e}")
+            self.logger.error(f"Error fetching company ID mapping: {e}")
             return {}

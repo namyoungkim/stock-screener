@@ -48,6 +48,7 @@ KEY_METRICS = [
 
 # Major tickers by market (top companies by market cap)
 # These critical tickers must be collected regardless of universe setting
+# Note: NASDAQ FTP provides tickers without hyphens (e.g., BRKA, BRKB not BRK-A, BRK-B)
 US_MAJOR_TICKERS = [
     "AAPL",   # Apple
     "MSFT",   # Microsoft
@@ -56,7 +57,7 @@ US_MAJOR_TICKERS = [
     "NVDA",   # NVIDIA
     "META",   # Meta
     "TSLA",   # Tesla
-    "BRK",    # Berkshire Hathaway (BRK-A or BRK-B)
+    "BRKB",   # Berkshire Hathaway Class B (most liquid, BRKA is Class A)
     "JPM",    # JPMorgan Chase
     "V",      # Visa
     "UNH",    # UnitedHealth
@@ -175,8 +176,8 @@ class DataQualityChecker:
             if market.upper() == "KR":
                 found = any(t in ct for ct in collected_set)
             else:
-                # For US, check exact match or prefix match (e.g., BRK matches BRK-B, BRKA, BRKB)
-                found = t in collected_set or any(ct.startswith(t) for ct in collected_set)
+                # For US, check exact match only (tickers are already normalized)
+                found = t in collected_set
             if not found:
                 missing_major.append(t)
 

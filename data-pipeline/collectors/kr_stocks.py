@@ -30,7 +30,6 @@ import asyncio
 import contextlib
 import logging
 import re
-import socket
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import date, datetime, timedelta
 
@@ -60,6 +59,7 @@ from common.naver_finance import NaverFinanceClient
 from common.rate_limit import ProgressTracker
 from common.retry import RetryQueue
 from common.storage import StorageManager, get_supabase_client
+from common.utils import socket_timeout
 from processors.validators import MetricsValidator
 from tqdm import tqdm
 
@@ -107,6 +107,7 @@ class KRCollector:
             client=self.client,
             data_dir=DATA_DIR,
             market_prefix=self.MARKET_PREFIX,
+            logger=self.logger,
         )
         self.validator = MetricsValidator()
         self.progress_tracker = ProgressTracker(self.MARKET_PREFIX)
@@ -220,6 +221,10 @@ class KRCollector:
 
                 progress_bar.update(len(batch))
 
+                # Rate limit: wait 1 second between batches to stay under KIS limit
+                if i + batch_size < len(tickers):
+                    await asyncio.sleep(1.0)
+
             progress_bar.close()
 
         self.logger.info(f"Fetched KIS fundamentals for {len(results)} tickers")
@@ -238,17 +243,9 @@ class KRCollector:
         )
 
         # Run async function in sync context
-        try:
-            # Check if we're already in an event loop
-            asyncio.get_running_loop()
-            # If we're in an event loop, use nest_asyncio or run in executor
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self._fetch_naver_fundamentals_async(tickers))
-                results = future.result()
-        except RuntimeError:
-            # No event loop running, safe to use asyncio.run()
-            results = asyncio.run(self._fetch_naver_fundamentals_async(tickers))
+        # Note: This collector runs as a standalone script, so asyncio.run() is safe.
+        # If integration into an existing async context is needed, consider nest_asyncio.
+        results = asyncio.run(self._fetch_naver_fundamentals_async(tickers))
 
         self.logger.info(f"Fetched Naver fundamentals for {len(results)} tickers")
         return results
@@ -356,10 +353,6 @@ class KRCollector:
             f"Fetching prices for {len(tickers)} tickers via FinanceDataReader (parallel)..."
         )
 
-        # Set socket timeout to prevent infinite hanging
-        old_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(FDR_REQUEST_TIMEOUT)
-
         def fetch_one(ticker: str) -> tuple[str, dict | None]:
             """Fetch price data for a single ticker."""
             try:
@@ -398,48 +391,48 @@ class KRCollector:
             disable=self.quiet,
         )
 
-        executor = ThreadPoolExecutor(max_workers=10)
-        try:
-            # Process in batches
-            for i in range(0, len(tickers), batch_size):
-                batch = tickers[i : i + batch_size]
-                futures = {executor.submit(fetch_one, t): t for t in batch}
-                pending = set(futures.keys())
-                skipped_in_batch = []
+        # Use context manager for socket timeout
+        with socket_timeout(FDR_REQUEST_TIMEOUT):
+            executor = ThreadPoolExecutor(max_workers=10)
+            try:
+                # Process in batches
+                for i in range(0, len(tickers), batch_size):
+                    batch = tickers[i : i + batch_size]
+                    futures = {executor.submit(fetch_one, t): t for t in batch}
+                    pending = set(futures.keys())
+                    skipped_in_batch = []
 
-                # Process batch with timeout
-                while pending:
-                    done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
+                    # Process batch with timeout
+                    while pending:
+                        done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
 
-                    if not done and pending:
-                        # Timeout: cancel remaining slow tickers in this batch
-                        skipped_in_batch = [futures[f] for f in pending]
-                        for future in pending:
-                            future.cancel()
-                        pbar.update(len(pending))
-                        break
+                        if not done and pending:
+                            # Timeout: cancel remaining slow tickers in this batch
+                            skipped_in_batch = [futures[f] for f in pending]
+                            for future in pending:
+                                future.cancel()
+                            pbar.update(len(pending))
+                            break
 
-                    for future in done:
-                        pbar.update(1)
-                        try:
-                            ticker, data = future.result(timeout=0)
-                            if data:
-                                results[ticker] = data
-                        except Exception as e:
-                            ticker = futures[future]
-                            self.logger.debug(f"FDR failed for {ticker}: {e}")
+                        for future in done:
+                            pbar.update(1)
+                            try:
+                                ticker, data = future.result(timeout=0)
+                                if data:
+                                    results[ticker] = data
+                            except Exception as e:
+                                ticker = futures[future]
+                                self.logger.debug(f"FDR failed for {ticker}: {e}")
 
-                if skipped_in_batch:
-                    self.logger.warning(
-                        f"FDR batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
-                    )
+                    if skipped_in_batch:
+                        self.logger.warning(
+                            f"FDR batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
+                        )
 
-        finally:
-            # Shutdown executor without waiting for pending tasks
-            executor.shutdown(wait=False, cancel_futures=True)
-            # Restore original socket timeout
-            socket.setdefaulttimeout(old_timeout)
-            pbar.close()
+            finally:
+                # Shutdown executor without waiting for pending tasks
+                executor.shutdown(wait=False, cancel_futures=True)
+                pbar.close()
 
         self.logger.info(f"Fetched prices for {len(results)} tickers")
 
@@ -474,10 +467,6 @@ class KRCollector:
             f"Fetching {days}-day history for {len(tickers)} tickers via FDR..."
         )
 
-        # Set socket timeout to prevent infinite hanging
-        old_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(FDR_REQUEST_TIMEOUT)
-
         def fetch_one(ticker: str) -> tuple[str, pd.DataFrame | None]:
             try:
                 df = fdr.DataReader(ticker, start_date, end_date)
@@ -500,48 +489,48 @@ class KRCollector:
             disable=self.quiet,
         )
 
-        executor = ThreadPoolExecutor(max_workers=10)
-        try:
-            # Process in batches
-            for i in range(0, len(tickers), batch_size):
-                batch = tickers[i : i + batch_size]
-                futures = {executor.submit(fetch_one, t): t for t in batch}
-                pending = set(futures.keys())
-                skipped_in_batch = []
+        # Use context manager for socket timeout
+        with socket_timeout(FDR_REQUEST_TIMEOUT):
+            executor = ThreadPoolExecutor(max_workers=10)
+            try:
+                # Process in batches
+                for i in range(0, len(tickers), batch_size):
+                    batch = tickers[i : i + batch_size]
+                    futures = {executor.submit(fetch_one, t): t for t in batch}
+                    pending = set(futures.keys())
+                    skipped_in_batch = []
 
-                # Process batch with timeout
-                while pending:
-                    done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
+                    # Process batch with timeout
+                    while pending:
+                        done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
 
-                    if not done and pending:
-                        # Timeout: cancel remaining slow tickers in this batch
-                        skipped_in_batch = [futures[f] for f in pending]
-                        for future in pending:
-                            future.cancel()
-                        pbar.update(len(pending))
-                        break
+                        if not done and pending:
+                            # Timeout: cancel remaining slow tickers in this batch
+                            skipped_in_batch = [futures[f] for f in pending]
+                            for future in pending:
+                                future.cancel()
+                            pbar.update(len(pending))
+                            break
 
-                    for future in done:
-                        pbar.update(1)
-                        try:
-                            ticker, df = future.result(timeout=0)
-                            if df is not None and not df.empty:
-                                results[ticker] = df
-                        except Exception as e:
-                            ticker = futures[future]
-                            self.logger.debug(f"FDR history failed for {ticker}: {e}")
+                        for future in done:
+                            pbar.update(1)
+                            try:
+                                ticker, df = future.result(timeout=0)
+                                if df is not None and not df.empty:
+                                    results[ticker] = df
+                            except Exception as e:
+                                ticker = futures[future]
+                                self.logger.debug(f"FDR history failed for {ticker}: {e}")
 
-                if skipped_in_batch:
-                    self.logger.warning(
-                        f"FDR history batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
-                    )
+                    if skipped_in_batch:
+                        self.logger.warning(
+                            f"FDR history batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
+                        )
 
-        finally:
-            # Shutdown executor without waiting for pending tasks
-            executor.shutdown(wait=False, cancel_futures=True)
-            # Restore original socket timeout
-            socket.setdefaulttimeout(old_timeout)
-            pbar.close()
+            finally:
+                # Shutdown executor without waiting for pending tasks
+                executor.shutdown(wait=False, cancel_futures=True)
+                pbar.close()
 
         self.logger.info(f"Fetched history for {len(results)} tickers")
         return results
@@ -571,6 +560,17 @@ class KRCollector:
             self.logger.warning(f"Failed to fetch KOSPI from FDR: {e}")
 
         return pd.DataFrame()
+
+    def _extract_trading_date_from_prices(self, prices: dict[str, dict]) -> date | None:
+        """Extract trading date from prices dictionary.
+
+        Returns the latest date from the prices dictionary.
+        Falls back to None if no valid date found.
+        """
+        dates = [p.get("date") for p in prices.values() if p.get("date")]
+        if not dates:
+            return None
+        return date.fromisoformat(max(dates))
 
     def _print_phase_header(self, phase: int, description: str, total: int) -> None:
         """Print phase start header.
@@ -700,12 +700,30 @@ class KRCollector:
             self.logger.info("No tickers to collect")
             return {"total": 0, "success": 0, "failed": 0, "skipped": 0}
 
-        # Phase 1: Fetch prices from FinanceDataReader
-        self._print_phase_header(1, "가격 수집", len(tickers))
-        self.logger.info("Phase 1: Fetching prices from FinanceDataReader...")
-        prices_all = self.fetch_prices_batch(tickers)
+        # Phase 1: Fetch 10-month history from FDR (combined: prices + history for technicals)
+        # This replaces the previous two-phase approach (fetch_prices_batch + fetch_fdr_history)
+        # to avoid duplicate FDR API calls
+        self._print_phase_header(1, "히스토리 수집 (가격 포함)", len(tickers))
+        self.logger.info("Phase 1: Fetching 10-month history from FinanceDataReader...")
+        history_data = self.fetch_fdr_history(tickers, days=FDR_HISTORY_DAYS)
+
+        # Extract latest prices from history data
+        prices_all: dict[str, dict] = {}
+        for ticker, hist in history_data.items():
+            if hist is not None and not hist.empty:
+                latest = hist.iloc[-1]
+                latest_date = hist.index[-1].strftime("%Y-%m-%d")
+                prices_all[ticker] = {
+                    "date": latest_date,
+                    "close": int(latest["Close"]) if pd.notna(latest.get("Close")) else None,
+                    "open": int(latest["Open"]) if pd.notna(latest.get("Open")) else None,
+                    "high": int(latest["High"]) if pd.notna(latest.get("High")) else None,
+                    "low": int(latest["Low"]) if pd.notna(latest.get("Low")) else None,
+                    "volume": int(latest["Volume"]) if pd.notna(latest.get("Volume")) else None,
+                }
+
         valid_tickers = list(prices_all.keys())
-        self.logger.info(f"Found {len(valid_tickers)} tickers with valid prices")
+        self.logger.info(f"Found {len(valid_tickers)} tickers with valid prices from history")
 
         # Phase 1 → 2 전환 요약
         if not self.quiet:
@@ -716,8 +734,8 @@ class KRCollector:
                 input_count=len(tickers),
                 output_count=len(valid_tickers),
                 details={
-                    "가격 수집 성공": len(valid_tickers),
-                    "가격 없음 (거래정지/상폐 등)": len(failed_tickers),
+                    "히스토리+가격 수집 성공": len(valid_tickers),
+                    "데이터 없음 (거래정지/상폐 등)": len(failed_tickers),
                 },
             )
 
@@ -791,11 +809,11 @@ class KRCollector:
                 },
             )
 
-        # Phase 3: Fetch 10-month FDR history (for MA200, Beta, technicals)
-        self._print_phase_header(3, "히스토리 수집", len(valid_tickers))
-        self.logger.info("Phase 3: Fetching 10-month history via FDR...")
-        history_data = self.fetch_fdr_history(valid_tickers, days=FDR_HISTORY_DAYS)
-        self.logger.info(f"Fetched history for {len(history_data)} tickers")
+        # Phase 3: Calculate technicals from history (already fetched in Phase 1)
+        # Note: history_data was fetched in Phase 1 to avoid duplicate FDR calls
+        self._print_phase_header(3, "히스토리 처리", len(valid_tickers))
+        self.logger.info("Phase 3: Processing history data for technicals...")
+        self.logger.info(f"Using history for {len(history_data)} tickers (from Phase 1)")
 
         # Fetch KOSPI history for Beta calculation
         kospi_history = self.fetch_kospi_history(days=FDR_HISTORY_DAYS)
@@ -961,55 +979,36 @@ class KRCollector:
                 # Validate metrics
                 validated = self.validator.validate(combined_metrics, ticker)
 
-                # Save to database
-                if self.save_db and self.client:
-                    company_id = self.storage.upsert_company(
-                        ticker=ticker,
-                        name=name,
-                        market=mkt,
-                        currency="KRW",
-                    )
-                    if company_id:
-                        self.storage.upsert_metrics(
-                            company_id=company_id,
-                            metrics=validated,
-                            data_source=self.DATA_SOURCE,
-                        )
-                        self.storage.upsert_price(
-                            company_id=company_id,
-                            price_data=price_data,
-                            market_cap=market_cap,
-                        )
-
-                # Collect for CSV
-                if self.save_csv:
-                    all_companies.append(
+                # Collect data for batch operations (DB and CSV)
+                # Note: DB upsert is done in batch after the loop for 10x+ performance
+                all_companies.append(
+                    {
+                        "ticker": ticker,
+                        "name": name,
+                        "market": mkt,
+                        "currency": "KRW",
+                        "is_active": True,
+                    }
+                )
+                all_metrics.append(
+                    {
+                        "ticker": ticker,
+                        "date": price_data.get("date") or default_date,
+                        "market": mkt,
+                        **{
+                            k: v
+                            for k, v in validated.items()
+                            if k not in ["name", "market", "currency"]
+                        },
+                    }
+                )
+                if price_data:
+                    all_prices.append(
                         {
                             "ticker": ticker,
-                            "name": name,
-                            "market": mkt,
-                            "currency": "KRW",
+                            **price_data,
                         }
                     )
-                    all_metrics.append(
-                        {
-                            "ticker": ticker,
-                            "date": price_data.get("date") or default_date,
-                            "market": mkt,
-                            **{
-                                k: v
-                                for k, v in validated.items()
-                                if k not in ["name", "market", "currency"]
-                            },
-                        }
-                    )
-                    if price_data:
-                        all_prices.append(
-                            {
-                                "ticker": ticker,
-                                **price_data,
-                            }
-                        )
 
                 progress.update(success=True)
 
@@ -1020,6 +1019,61 @@ class KRCollector:
 
             progress.log_progress(interval=100)
 
+        # Batch upsert to database (10x+ faster than individual upserts)
+        if self.save_db and self.client and all_companies:
+            self.logger.info(f"Batch upserting {len(all_companies)} companies to database...")
+
+            # Step 1: Batch upsert companies
+            self.storage.upsert_companies_batch(all_companies)
+
+            # Step 2: Get company_id mapping
+            ticker_to_id = self.storage.get_company_id_mapping()
+
+            # Step 3: Prepare metrics and prices with company_id
+            metrics_for_db = []
+            for m in all_metrics:
+                ticker = m.get("ticker")
+                market = m.get("market", "KOSPI")
+                company_id = ticker_to_id.get((ticker, market))
+                if not company_id:
+                    # Try fallback market
+                    fallback = "KOSDAQ" if market == "KOSPI" else "KOSPI"
+                    company_id = ticker_to_id.get((ticker, fallback))
+                if company_id:
+                    db_record = {
+                        "company_id": company_id,
+                        "date": m.get("date"),
+                        "data_source": self.DATA_SOURCE,
+                    }
+                    # Add all metric fields except ticker/market
+                    for k, v in m.items():
+                        if k not in ["ticker", "market", "name", "currency"] and v is not None:
+                            db_record[k] = v
+                    metrics_for_db.append(db_record)
+
+            prices_for_db = []
+            for p in all_prices:
+                ticker = p.get("ticker")
+                # Try both markets
+                company_id = ticker_to_id.get((ticker, "KOSPI")) or ticker_to_id.get((ticker, "KOSDAQ"))
+                if company_id:
+                    db_record = {
+                        "company_id": company_id,
+                        "date": p.get("date"),
+                    }
+                    for k in ["open", "high", "low", "close", "volume", "market_cap"]:
+                        if k in p and p[k] is not None:
+                            db_record[k] = p[k]
+                    prices_for_db.append(db_record)
+
+            # Step 4: Batch upsert metrics and prices
+            if metrics_for_db:
+                self.storage.upsert_metrics_batch(metrics_for_db)
+                self.logger.info(f"Batch upserted {len(metrics_for_db)} metrics")
+            if prices_for_db:
+                self.storage.upsert_prices_batch(prices_for_db)
+                self.logger.info(f"Batch upserted {len(prices_for_db)} prices")
+
         # Save to CSV
         if self.save_csv:
             self.storage.save_to_csv(
@@ -1028,6 +1082,9 @@ class KRCollector:
                 prices=all_prices,
                 is_test=is_test,
             )
+            # Update symlinks after successful save
+            if not is_test:
+                self.storage.update_symlinks()
 
             # Quality check and auto-retry (only for full collection, not test mode)
             if not is_test and len(all_metrics) > 0:

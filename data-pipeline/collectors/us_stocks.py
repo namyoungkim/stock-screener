@@ -330,6 +330,7 @@ class USCollector:
             client=self.client,
             data_dir=DATA_DIR,
             market_prefix=self.MARKET_PREFIX,
+            logger=self.logger,
         )
         self.validator = MetricsValidator()
         self.retry_queue = RetryQueue()
@@ -910,42 +911,19 @@ class USCollector:
                 # Validate metrics
                 validated = self.validator.validate(data, ticker)
 
-                # Save to database
-                if self.save_db and self.client:
-                    company_id = self.storage.upsert_company(
-                        ticker=ticker,
-                        name=validated.get("name", ""),
-                        market=self.MARKET,
-                        sector=validated.get("sector"),
-                        industry=validated.get("industry"),
-                        currency=validated.get("currency", "USD"),
-                    )
-                    if company_id:
-                        self.storage.upsert_metrics(
-                            company_id=company_id,
-                            metrics=validated,
-                            data_source=self.DATA_SOURCE,
+                # Collect data for batch operations (DB and CSV)
+                # Note: DB upsert is done in batch after the loop for 10x+ performance
+                all_companies.append(self._build_company_record(ticker, validated))
+                trading_date_str = prices_all.get(ticker, {}).get("date")
+                all_metrics.append(
+                    self._build_metrics_record(ticker, validated, trading_date_str)
+                )
+                if ticker in prices_all:
+                    all_prices.append(
+                        self._build_price_record(
+                            ticker, prices_all[ticker], validated
                         )
-                        if ticker in prices_all:
-                            self.storage.upsert_price(
-                                company_id=company_id,
-                                price_data=prices_all[ticker],
-                                market_cap=validated.get("market_cap"),
-                            )
-
-                # Collect for CSV
-                if self.save_csv:
-                    all_companies.append(self._build_company_record(ticker, validated))
-                    trading_date_str = prices_all.get(ticker, {}).get("date")
-                    all_metrics.append(
-                        self._build_metrics_record(ticker, validated, trading_date_str)
                     )
-                    if ticker in prices_all:
-                        all_prices.append(
-                            self._build_price_record(
-                                ticker, prices_all[ticker], validated
-                            )
-                        )
 
                 progress.update(success=True)
 
@@ -956,6 +934,55 @@ class USCollector:
 
             progress.log_progress(interval=100)
 
+        # Batch upsert to database (10x+ faster than individual upserts)
+        if self.save_db and self.client and all_companies:
+            self.logger.info(f"Batch upserting {len(all_companies)} companies to database...")
+
+            # Step 1: Batch upsert companies
+            self.storage.upsert_companies_batch(all_companies)
+
+            # Step 2: Get company_id mapping
+            ticker_to_id = self.storage.get_company_id_mapping(market=self.MARKET)
+
+            # Step 3: Prepare metrics and prices with company_id
+            metrics_for_db = []
+            for m in all_metrics:
+                ticker = m.get("ticker")
+                company_id = ticker_to_id.get((ticker, self.MARKET))
+                if company_id:
+                    db_record = {
+                        "company_id": company_id,
+                        "date": m.get("date"),
+                        "data_source": self.DATA_SOURCE,
+                    }
+                    # Add all metric fields except ticker/market
+                    for k, v in m.items():
+                        if k not in ["ticker", "market", "name", "currency", "sector", "industry"] and v is not None:
+                            db_record[k] = v
+                    metrics_for_db.append(db_record)
+
+            prices_for_db = []
+            for p in all_prices:
+                ticker = p.get("ticker")
+                company_id = ticker_to_id.get((ticker, self.MARKET))
+                if company_id:
+                    db_record = {
+                        "company_id": company_id,
+                        "date": p.get("date"),
+                    }
+                    for k in ["open", "high", "low", "close", "volume", "market_cap"]:
+                        if k in p and p[k] is not None:
+                            db_record[k] = p[k]
+                    prices_for_db.append(db_record)
+
+            # Step 4: Batch upsert metrics and prices
+            if metrics_for_db:
+                self.storage.upsert_metrics_batch(metrics_for_db)
+                self.logger.info(f"Batch upserted {len(metrics_for_db)} metrics")
+            if prices_for_db:
+                self.storage.upsert_prices_batch(prices_for_db)
+                self.logger.info(f"Batch upserted {len(prices_for_db)} prices")
+
         # Save to CSV
         if self.save_csv:
             self.storage.save_to_csv(
@@ -964,6 +991,9 @@ class USCollector:
                 prices=all_prices,
                 is_test=is_test,
             )
+            # Update symlinks after successful save
+            if not is_test:
+                self.storage.update_symlinks()
 
             # Quality check and auto-retry (only for full collection, not test mode)
             if not is_test and len(all_metrics) > 0:

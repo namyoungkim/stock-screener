@@ -34,7 +34,7 @@ from tqdm import tqdm
 
 from supabase import Client
 
-from common.utils import get_supabase_client, safe_float, safe_int
+from common.utils import get_supabase_client, safe_float, safe_float_series, safe_int
 
 # Data directory paths
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -271,31 +271,33 @@ def load_metrics(
         df = df.copy()
         df["ticker"] = df["ticker"].astype(str)
 
-        # Add company_id column
+        # Add company_id column (vectorized lookup)
         if is_kr:
             # KR: try primary market first, then fallback
             df["_market"] = df.get("market", pd.Series(["KOSPI"] * len(df)))
-            df["company_id"] = df.apply(
-                lambda row: ticker_to_id.get((row["ticker"], row["_market"]))
-                or ticker_to_id.get(
-                    (row["ticker"], "KOSDAQ" if row["_market"] == "KOSPI" else "KOSPI")
-                ),
-                axis=1,
-            )
+            # Create lookup keys
+            primary_keys = list(zip(df["ticker"], df["_market"]))
+            fallback_market = df["_market"].map(lambda m: "KOSDAQ" if m == "KOSPI" else "KOSPI")
+            fallback_keys = list(zip(df["ticker"], fallback_market))
+            # Vectorized lookup with fallback
+            df["company_id"] = [
+                ticker_to_id.get(pk) or ticker_to_id.get(fk)
+                for pk, fk in zip(primary_keys, fallback_keys)
+            ]
         else:
-            # US: simple lookup
-            df["company_id"] = df["ticker"].map(lambda t: ticker_to_id.get((t, market)))
+            # US: vectorized lookup using list comprehension (faster than map for dict)
+            df["company_id"] = [ticker_to_id.get((t, market)) for t in df["ticker"]]
 
         # Filter rows with valid company_id
         df = df[df["company_id"].notna()]
         if df.empty:
             return []
 
-        # Apply safe_float to metric columns with max_abs limits
+        # Apply safe_float_series (vectorized) to metric columns with max_abs limits
         for csv_col, db_col in COLUMN_MAP.items():
             if csv_col in df.columns:
                 max_abs = COLUMN_MAX.get(db_col)
-                df[db_col] = df[csv_col].apply(lambda x: safe_float(x, max_abs=max_abs))
+                df[db_col] = safe_float_series(df[csv_col], max_abs=max_abs)
 
         # Build final columns
         result_cols = ["company_id", "date"] + [
