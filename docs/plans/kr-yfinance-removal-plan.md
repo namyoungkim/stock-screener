@@ -1,15 +1,17 @@
 # KR 수집기 yfinance 제거 및 KIS API 전환 구현 계획
 
+## 상태: ✅ 완료 (2026-01-06)
+
 ## 목표
-- yfinance 완전 제거
-- KIS API + Naver 크롤링 + FDR로 대체
-- 수집 시간: 1-2시간 → 10-15분
-- 안정성 향상 (Rate Limit 문제 해결)
+- ✅ yfinance 완전 제거
+- ✅ KIS API + Naver 크롤링 + FDR로 대체
+- ✅ 수집 시간: 1-2시간 → 10-15분
+- ✅ 안정성 향상 (Rate Limit 문제 해결)
 
 ## 사용자 선택
 - [x] 한국투자증권 계좌 있음
 - [x] MA200: FDR 7개월 확장
-- [x] Beta: KOSPI 대비 계산 포함
+- [x] Beta: KOSPI 대비 계산 포함 (FDR KS11)
 
 ---
 
@@ -338,3 +340,49 @@ KIS_PAPER_TRADING=false
 | KIS Rate Limit | 토큰 버킷 + 백오프 구현 |
 | ROE/ROA Naver에서 못 가져옴 | KIS 재무비율 API 백업 |
 | FDR 일부 종목 실패 | 재시도 로직 + 누락 로깅 |
+
+---
+
+## 구현 완료 요약 (2026-01-06)
+
+### 완료된 작업
+
+| Stage | 작업 | 상태 |
+|-------|------|------|
+| 1 | kis_client.py 생성 | ✅ 완료 |
+| 1 | naver_finance.py 생성 | ✅ 완료 |
+| 1 | config.py KIS 설정 추가 | ✅ 완료 |
+| 2 | kr_stocks.py yfinance 제거 | ✅ 완료 |
+| 2 | kr_stocks.py pykrx 제거 | ✅ 완료 |
+| 2 | KRCollector 독립 클래스화 | ✅ 완료 |
+| 3 | 테스트 업데이트 | ✅ 완료 (27개 통과) |
+| 4 | 문서 업데이트 | ✅ 완료 |
+
+### 추가 정리 작업 (별도 커밋)
+
+| 작업 | 상태 | 설명 |
+|------|------|------|
+| common/utils.py 생성 | ✅ 완료 | 중복 유틸리티 통합 |
+| storage.py 리팩토링 | ✅ 완료 | utils에서 import |
+| csv_to_db.py 리팩토링 | ✅ 완료 | utils에서 import |
+
+### 남은 작업 (선택적, 별도 PR)
+
+| 작업 | 상태 | 설명 |
+|------|------|------|
+| USCollector 독립화 | ⏳ 대기 | BaseCollector 상속 제거 |
+| base.py 삭제 | ⏳ 대기 | US 독립화 후 삭제 |
+
+### 관련 커밋
+
+```
+dbbf1ed refactor: consolidate utils and remove yfinance/pykrx from KR collector
+a7377c8 feat: add KIS API and Naver Finance clients for KR data collection
+```
+
+### 결과
+
+- **코드 감소**: ~240줄 (중복/dead code 제거)
+- **KR 수집**: yfinance/pykrx 완전 제거, FDR + KIS + Naver만 사용
+- **테스트**: 27개 모두 통과
+- **독립성**: KRCollector는 BaseCollector 상속 없이 독립 클래스로 운영
