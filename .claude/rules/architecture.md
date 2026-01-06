@@ -51,18 +51,19 @@ stock-screener/
 **한국 주식** (~2,800개) - **yfinance/pykrx 완전 제거 (2026.01)**:
 - 티커 소스: CSV (`kr_companies.csv`)
 - 가격 + 10개월 OHLCV: FinanceDataReader (네이버 금융)
-- 기초지표: Naver Finance 크롤링 (`NaverFinanceClient`)
-  - PER, PBR, EPS, BPS, 시가총액
+- 기초지표 (2단계 소스):
+  - **KIS API (primary)**: PER, PBR, EPS, BPS, 52주 고/저, 시가총액
+  - **Naver Finance (fallback)**: PER, PBR, EPS, BPS, ROE, ROA, 시가총액 (웹 스크래핑)
 - 기술적 지표: 로컬 계산 (`indicators.py`)
   - RSI, MACD, Bollinger Bands, MFI, Volume Change
   - MA50, MA200 (FDR 히스토리에서 계산)
   - Beta (KOSPI 대비, FDR KS11 인덱스)
-  - 52주 고/저 (FDR 히스토리에서 계산)
+  - 52주 고/저 (KIS API 또는 FDR 히스토리)
 - 저장: Supabase + CSV
 - **독립 클래스**: BaseCollector 상속 없음
 
 > **Note**: 2026.01부터 yfinance/pykrx Rate Limit 문제로 KR 수집에서 완전 제거.
-> KOSPI 인덱스도 FDR만 사용 (KS11).
+> KIS API가 primary 소스, Naver Finance는 fallback으로 사용.
 
 **데이터 파이프라인** (`./scripts/collect-and-backup.sh`):
 1. KR 수집 (품질검사 + 자동재수집)
@@ -114,24 +115,25 @@ stock-screener/
 
 | 지표 | US 소스 | KR 소스 |
 |------|---------|---------|
-| P/E (Trailing) | yfinance | 네이버 금융 |
+| P/E (Trailing) | yfinance | KIS API → Naver (fallback) |
 | P/E (Forward) | yfinance | - |
-| P/B | yfinance | 네이버 금융 |
+| P/B | yfinance | KIS API → Naver (fallback) |
 | P/S | yfinance | - |
 | EV/EBITDA | yfinance | - |
 | PEG Ratio | yfinance | - |
-| ROE, ROA | yfinance | 네이버 금융 (선택적) |
+| ROE, ROA | yfinance | Naver (fallback에서만) |
 | Gross Margin | yfinance | - |
 | Net Margin | yfinance | - |
-| Debt/Equity | yfinance | 네이버 금융 (선택적) |
-| Current Ratio | yfinance | 네이버 금융 (선택적) |
-| Dividend Yield | yfinance | 네이버 금융 |
+| Debt/Equity | yfinance | Naver (선택적) |
+| Current Ratio | yfinance | Naver (선택적) |
+| Dividend Yield | yfinance | Naver |
 | Beta | yfinance | FDR/KOSPI 계산 |
-| EPS | yfinance | 네이버 금융 |
-| Book Value/Share | yfinance | 네이버 금융 |
+| EPS | yfinance | KIS API → Naver (fallback) |
+| Book Value/Share | yfinance | KIS API → Naver (fallback) |
 | Graham Number | 계산 | 계산 |
-| 52주 고/저 | yfinance | FDR 히스토리 계산 |
+| 52주 고/저 | yfinance | KIS API → FDR 히스토리 |
 | 50일/200일 이동평균 | yfinance | FDR 히스토리 계산 |
+| 시가총액 | yfinance | KIS API → Naver (fallback) |
 
 ### 기술적 지표
 
