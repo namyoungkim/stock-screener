@@ -16,8 +16,7 @@ stock-screener/
 ├── data-pipeline/        # 데이터 수집 스크립트
 │   ├── pyproject.toml    # 파이프라인 의존성
 │   ├── collectors/
-│   │   ├── base.py       # BaseCollector 추상 클래스 (US만 사용)
-│   │   ├── us_stocks.py  # 미국 주식 수집 (NYSE + NASDAQ 전체)
+│   │   ├── us_stocks.py  # 미국 주식 수집 (독립 클래스, yfinance 사용)
 │   │   └── kr_stocks.py  # 한국 주식 수집 (독립 클래스, yfinance/pykrx 없음)
 │   ├── common/           # 공통 모듈
 │   │   ├── utils.py      # 공통 유틸리티 (safe_float, safe_int, get_supabase_client)

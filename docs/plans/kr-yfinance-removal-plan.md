@@ -366,12 +366,12 @@ KIS_PAPER_TRADING=false
 | storage.py 리팩토링 | ✅ 완료 | utils에서 import |
 | csv_to_db.py 리팩토링 | ✅ 완료 | utils에서 import |
 
-### 남은 작업 (선택적, 별도 PR)
+### 추가 완료 작업 (2026-01-06)
 
 | 작업 | 상태 | 설명 |
 |------|------|------|
-| USCollector 독립화 | ⏳ 대기 | BaseCollector 상속 제거 |
-| base.py 삭제 | ⏳ 대기 | US 독립화 후 삭제 |
+| USCollector 독립화 | ✅ 완료 | BaseCollector 상속 제거, 독립 클래스로 변환 |
+| base.py 삭제 | ✅ 완료 | 481줄 제거, 더 이상 사용처 없음 |
 
 ### 관련 커밋
 
