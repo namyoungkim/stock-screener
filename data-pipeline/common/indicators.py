@@ -4,9 +4,12 @@ This module contains all technical indicator functions used by both US and KR co
 All functions are pure and only depend on pandas DataFrames.
 """
 
+import logging
 import math
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_graham_number(eps: float | None, bvps: float | None) -> float | None:
@@ -58,7 +61,8 @@ def calculate_rsi(hist: pd.DataFrame, period: int = 14) -> float | None:
         rs = gain.iloc[-1] / loss.iloc[-1]
         rsi = 100 - (100 / (1 + rs))
         return round(rsi, 2)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"RSI calculation failed: {e}")
         return None
 
 
@@ -85,7 +89,8 @@ def calculate_volume_change(hist: pd.DataFrame, period: int = 20) -> float | Non
 
         change_rate = ((current_volume / avg_volume) - 1) * 100
         return round(change_rate, 2)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Volume change calculation failed: {e}")
         return None
 
 
@@ -134,7 +139,8 @@ def calculate_macd(
             "macd_signal": round(signal_line.iloc[-1], 4),
             "macd_histogram": round(histogram.iloc[-1], 4),
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"MACD calculation failed: {e}")
         return None
 
 
@@ -190,7 +196,8 @@ def calculate_bollinger_bands(
             "bb_lower": round(lower_val, 2),
             "bb_percent": round(percent_b * 100, 2),  # As percentage
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Bollinger Bands calculation failed: {e}")
         return None
 
 
@@ -239,7 +246,8 @@ def calculate_mfi(hist: pd.DataFrame, period: int = 14) -> float | None:
             return None
 
         return round(result, 2)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"MFI calculation failed: {e}")
         return None
 
 
@@ -290,6 +298,151 @@ def calculate_ma_trend(
     if two_hundred_day_average <= 0:
         return None
     return round((fifty_day_average / two_hundred_day_average - 1) * 100, 2)
+
+
+def calculate_moving_averages(
+    hist: pd.DataFrame,
+    short_period: int = 50,
+    long_period: int = 200,
+) -> tuple[float | None, float | None]:
+    """
+    Calculate short and long-term moving averages.
+
+    Args:
+        hist: DataFrame with 'Close' column
+        short_period: Short-term MA period (default 50 days)
+        long_period: Long-term MA period (default 200 days)
+
+    Returns:
+        Tuple of (short_ma, long_ma) values or (None, None) if calculation fails
+    """
+    try:
+        if hist.empty:
+            return None, None
+
+        close = hist["Close"]
+
+        short_ma = None
+        long_ma = None
+
+        if len(close) >= short_period:
+            short_ma = round(close.iloc[-short_period:].mean(), 2)
+
+        if len(close) >= long_period:
+            long_ma = round(close.iloc[-long_period:].mean(), 2)
+
+        return short_ma, long_ma
+    except Exception as e:
+        logger.debug(f"Moving averages calculation failed: {e}")
+        return None, None
+
+
+def calculate_beta(
+    stock_hist: pd.DataFrame,
+    market_hist: pd.DataFrame,
+    period: int = 252,
+) -> float | None:
+    """
+    Calculate Beta relative to a market index.
+
+    Beta measures the volatility of a stock relative to the overall market.
+    Beta > 1 means more volatile than market, Beta < 1 means less volatile.
+
+    Uses linear regression: Covariance(stock, market) / Variance(market)
+
+    Args:
+        stock_hist: Stock DataFrame with 'Close' column
+        market_hist: Market index DataFrame with 'Close' column
+                     (handles MultiIndex columns from yf.download)
+        period: Number of trading days to use (default 252 = 1 year)
+
+    Returns:
+        Beta value or None if calculation fails
+    """
+    try:
+        if stock_hist.empty or market_hist.empty:
+            return None
+
+        # Helper to extract Close column (handles MultiIndex from yfinance)
+        def get_close(df: pd.DataFrame) -> pd.Series:
+            if "Close" in df.columns:
+                close = df["Close"]
+                # If it's a DataFrame (MultiIndex), get first column
+                if isinstance(close, pd.DataFrame):
+                    close = close.iloc[:, 0]
+                return close
+            return pd.Series(dtype=float)
+
+        stock_close = get_close(stock_hist)
+        market_close = get_close(market_hist)
+
+        if stock_close.empty or market_close.empty:
+            return None
+
+        # Limit to period
+        stock_close = stock_close.iloc[-period:] if len(stock_close) >= period else stock_close
+        market_close = market_close.iloc[-period:] if len(market_close) >= period else market_close
+
+        # Calculate daily returns
+        stock_returns = stock_close.pct_change().dropna()
+        market_returns = market_close.pct_change().dropna()
+
+        # Find common dates
+        common_idx = stock_returns.index.intersection(market_returns.index)
+        if len(common_idx) < 30:  # Need at least 30 data points
+            return None
+
+        stock_returns = stock_returns.loc[common_idx]
+        market_returns = market_returns.loc[common_idx]
+
+        # Calculate covariance and variance
+        covariance = stock_returns.cov(market_returns)
+        variance = market_returns.var()
+
+        if variance == 0:
+            return None
+
+        beta = covariance / variance
+        return round(beta, 4)
+    except Exception as e:
+        logger.debug(f"Beta calculation failed: {e}")
+        return None
+
+
+def calculate_52_week_high_low(hist: pd.DataFrame) -> tuple[float | None, float | None]:
+    """
+    Calculate 52-week high and low from history DataFrame.
+
+    Args:
+        hist: DataFrame with 'High' and 'Low' columns (needs ~1 year of data)
+
+    Returns:
+        Tuple of (high_52w, low_52w) or (None, None) if calculation fails
+    """
+    try:
+        if hist.empty:
+            return None, None
+
+        # Use last 252 trading days (approximately 1 year)
+        period = min(252, len(hist))
+        recent = hist.iloc[-period:]
+
+        high_52w = recent["High"].max() if "High" in recent.columns else None
+        low_52w = recent["Low"].min() if "Low" in recent.columns else None
+
+        if pd.notna(high_52w) and high_52w is not None:
+            high_52w = round(float(high_52w), 2)
+        else:
+            high_52w = None
+        if pd.notna(low_52w) and low_52w is not None:
+            low_52w = round(float(low_52w), 2)
+        else:
+            low_52w = None
+
+        return high_52w, low_52w
+    except Exception as e:
+        logger.debug(f"52-week high/low calculation failed: {e}")
+        return None, None
 
 
 def calculate_all_technicals(hist: pd.DataFrame) -> dict:

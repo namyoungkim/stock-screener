@@ -6,67 +6,23 @@ This module provides a unified interface for:
 """
 
 import logging
-import math
-import os
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from dotenv import load_dotenv
 
-from supabase import Client, create_client
+from supabase import Client
 
 from .config import COMPANIES_DIR, DATA_DIR, DATE_FORMAT
+from .logging import setup_logger
+from .utils import get_supabase_client, safe_float, safe_int
 
-load_dotenv()
+# Module-level logger (used when no logger is injected)
+_default_logger = setup_logger("StorageManager")
 
-logger = logging.getLogger(__name__)
-
-
-def get_supabase_client() -> Client:
-    """Initialize and return Supabase client."""
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
-
-    if not url or not key:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in environment")
-
-    return create_client(url, key)
-
-
-def safe_float(value: Any, max_abs: float | None = None) -> float | None:
-    """
-    Convert value to JSON-safe float (handles inf/nan).
-
-    Args:
-        value: The value to convert
-        max_abs: Optional maximum absolute value (returns None if exceeded)
-
-    Returns:
-        Float value or None if invalid
-    """
-    if value is None or pd.isna(value):
-        return None
-    if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
-        return None
-    try:
-        result = float(value)
-        if max_abs is not None and abs(result) >= max_abs:
-            return None
-        return result
-    except (ValueError, TypeError):
-        return None
-
-
-def safe_int(value: Any) -> int | None:
-    """Convert value to int (handles nan)."""
-    if value is None or pd.isna(value):
-        return None
-    try:
-        return int(value)
-    except (ValueError, TypeError):
-        return None
+# Re-export for backwards compatibility
+__all__ = ["StorageManager", "get_supabase_client", "safe_float", "safe_int"]
 
 
 class StorageManager:
@@ -77,6 +33,7 @@ class StorageManager:
         client: Client | None = None,
         data_dir: Path | None = None,
         market_prefix: str = "us",
+        logger: logging.Logger | None = None,
     ):
         """
         Initialize storage manager.
@@ -85,11 +42,13 @@ class StorageManager:
             client: Supabase client (optional, for DB operations)
             data_dir: Root data directory (default: project data/)
             market_prefix: Prefix for CSV files ("us" or "kr")
+            logger: Logger instance (optional, uses default if not provided)
         """
         self.client = client
         self.data_dir = data_dir or DATA_DIR
         self.companies_dir = COMPANIES_DIR
         self.market_prefix = market_prefix
+        self.logger = logger or _default_logger
 
         # Version directory tracking
         self._current_date_dir: Path | None = None
@@ -132,21 +91,21 @@ class StorageManager:
                     next_v = int(last_v[1:]) + 1
                     version_dir = date_dir / f"v{next_v}"
                     version_dir.mkdir(parents=True, exist_ok=True)
-                    logger.info(f"Created new version directory: {version_dir}")
+                    self.self.logger.info(f"Created new version directory: {version_dir}")
                 else:
                     # Reuse latest version
                     version_dir = existing[-1]
-                    logger.info(f"Using existing version directory: {version_dir}")
+                    self.logger.info(f"Using existing version directory: {version_dir}")
             else:
                 # No versions yet, create v1
                 version_dir = date_dir / "v1"
                 version_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Created version directory: {version_dir}")
+                self.logger.info(f"Created version directory: {version_dir}")
         else:
             # Date directory doesn't exist, create v1
             version_dir = date_dir / "v1"
             version_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Created version directory: {version_dir}")
+            self.logger.info(f"Created version directory: {version_dir}")
 
         self._current_version_dir = version_dir
         self._current_date_dir = date_dir
@@ -170,7 +129,7 @@ class StorageManager:
     def update_symlinks(self) -> None:
         """Update current and latest symlinks after successful collection."""
         if not self._current_version_dir or not self._current_date_dir:
-            logger.warning("No version directory set, skipping symlink update")
+            self.logger.warning("No version directory set, skipping symlink update")
             return
 
         # Update date/current symlink
@@ -178,7 +137,7 @@ class StorageManager:
         if current_link.is_symlink() or current_link.exists():
             current_link.unlink()
         current_link.symlink_to(self._current_version_dir.name)
-        logger.info(f"Updated symlink: {current_link} -> {self._current_version_dir.name}")
+        self.logger.info(f"Updated symlink: {current_link} -> {self._current_version_dir.name}")
 
         # Update data/latest symlink
         latest_link = self.data_dir / "latest"
@@ -187,7 +146,7 @@ class StorageManager:
         # Use relative path for portability
         relative_path = self._current_version_dir.relative_to(self.data_dir)
         latest_link.symlink_to(relative_path)
-        logger.info(f"Updated symlink: {latest_link} -> {relative_path}")
+        self.logger.info(f"Updated symlink: {latest_link} -> {relative_path}")
 
     def get_current_version_dir(self) -> Path | None:
         """Get the current version directory if set."""
@@ -240,7 +199,7 @@ class StorageManager:
                 return result.data[0]["id"]
             return None
         except Exception as e:
-            logger.error(f"Error upserting company {ticker}: {e}")
+            self.logger.error(f"Error upserting company {ticker}: {e}")
             return None
 
     def upsert_metrics(
@@ -322,7 +281,7 @@ class StorageManager:
             ).execute()
             return True
         except Exception as e:
-            logger.error(f"Error upserting metrics for company {company_id}: {e}")
+            self.logger.error(f"Error upserting metrics for company {company_id}: {e}")
             return False
 
     def upsert_price(
@@ -373,7 +332,7 @@ class StorageManager:
             ).execute()
             return True
         except Exception as e:
-            logger.error(f"Error upserting price for company {company_id}: {e}")
+            self.logger.error(f"Error upserting price for company {company_id}: {e}")
             return False
 
     def save_to_csv(
@@ -417,7 +376,7 @@ class StorageManager:
             else:
                 companies_df.to_csv(companies_file, index=False)
 
-            logger.info(f"Saved {len(companies)} companies to {companies_file}")
+            self.logger.info(f"Saved {len(companies)} companies to {companies_file}")
 
         # Save metrics to version directory (merge for resume)
         if metrics:
@@ -429,15 +388,16 @@ class StorageManager:
                 combined = pd.concat([existing, metrics_df]).drop_duplicates(
                     subset=["ticker"], keep="last"
                 )
+                combined["ticker"] = combined["ticker"].astype(str)
                 combined = combined.sort_values("ticker").reset_index(drop=True)
                 combined.to_csv(metrics_file, index=False)
-                logger.info(
+                self.logger.info(
                     f"Merged {len(metrics)} metrics into {metrics_file} "
                     f"(total: {len(combined)})"
                 )
             else:
                 metrics_df.to_csv(metrics_file, index=False)
-                logger.info(f"Saved {len(metrics)} metrics to {metrics_file}")
+                self.logger.info(f"Saved {len(metrics)} metrics to {metrics_file}")
 
         # Save prices to version directory (merge for resume)
         if prices:
@@ -449,15 +409,16 @@ class StorageManager:
                 combined = pd.concat([existing, prices_df]).drop_duplicates(
                     subset=["ticker"], keep="last"
                 )
+                combined["ticker"] = combined["ticker"].astype(str)
                 combined = combined.sort_values("ticker").reset_index(drop=True)
                 combined.to_csv(prices_file, index=False)
-                logger.info(
+                self.logger.info(
                     f"Merged {len(prices)} prices into {prices_file} "
                     f"(total: {len(combined)})"
                 )
             else:
                 prices_df.to_csv(prices_file, index=False)
-                logger.info(f"Saved {len(prices)} prices to {prices_file}")
+                self.logger.info(f"Saved {len(prices)} prices to {prices_file}")
 
     def load_completed_tickers(self, target_date: str | None = None) -> set[str]:
         """
@@ -498,8 +459,108 @@ class StorageManager:
                 return set(df["ticker"].astype(str).tolist())
             return set()
         except Exception as e:
-            logger.warning(f"Error loading completed tickers from {metrics_file}: {e}")
+            self.logger.warning(f"Error loading completed tickers from {metrics_file}: {e}")
             return set()
+
+    # ============================================================
+    # Batch Upsert Methods (100x faster than individual upserts)
+    # ============================================================
+
+    def upsert_companies_batch(
+        self,
+        records: list[dict],
+        batch_size: int = 100,
+    ) -> int:
+        """
+        Batch upsert companies to Supabase.
+
+        Args:
+            records: List of company dictionaries with keys:
+                     ticker, name, market, sector, industry, currency
+            batch_size: Number of records per API call
+
+        Returns:
+            Number of records upserted
+        """
+        if not self.client or not records:
+            return 0
+
+        count = 0
+        for i in range(0, len(records), batch_size):
+            batch = records[i : i + batch_size]
+            try:
+                self.client.table("companies").upsert(
+                    batch, on_conflict="ticker,market"
+                ).execute()
+                count += len(batch)
+            except Exception as e:
+                self.logger.error(f"Error batch upserting companies: {e}")
+
+        return count
+
+    def upsert_metrics_batch(
+        self,
+        records: list[dict],
+        batch_size: int = 100,
+    ) -> int:
+        """
+        Batch upsert metrics to Supabase.
+
+        Args:
+            records: List of metrics dictionaries with keys:
+                     company_id, date, data_source, and metric fields
+            batch_size: Number of records per API call
+
+        Returns:
+            Number of records upserted
+        """
+        if not self.client or not records:
+            return 0
+
+        count = 0
+        for i in range(0, len(records), batch_size):
+            batch = records[i : i + batch_size]
+            try:
+                self.client.table("metrics").upsert(
+                    batch, on_conflict="company_id,date"
+                ).execute()
+                count += len(batch)
+            except Exception as e:
+                self.logger.error(f"Error batch upserting metrics: {e}")
+
+        return count
+
+    def upsert_prices_batch(
+        self,
+        records: list[dict],
+        batch_size: int = 100,
+    ) -> int:
+        """
+        Batch upsert prices to Supabase.
+
+        Args:
+            records: List of price dictionaries with keys:
+                     company_id, date, open, high, low, close, volume, market_cap
+            batch_size: Number of records per API call
+
+        Returns:
+            Number of records upserted
+        """
+        if not self.client or not records:
+            return 0
+
+        count = 0
+        for i in range(0, len(records), batch_size):
+            batch = records[i : i + batch_size]
+            try:
+                self.client.table("prices").upsert(
+                    batch, on_conflict="company_id,date"
+                ).execute()
+                count += len(batch)
+            except Exception as e:
+                self.logger.error(f"Error batch upserting prices: {e}")
+
+        return count
 
     def get_company_id_mapping(
         self, market: str | None = None
@@ -538,5 +599,5 @@ class StorageManager:
 
             return {(r["ticker"], r["market"]): r["id"] for r in all_companies}
         except Exception as e:
-            logger.error(f"Error fetching company ID mapping: {e}")
+            self.logger.error(f"Error fetching company ID mapping: {e}")
             return {}

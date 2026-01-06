@@ -36,6 +36,7 @@ from common.config import (
     BASE_DELAY_INFO,
     BATCH_SIZE_HISTORY,
     BATCH_SIZE_INFO,
+    DATA_DIR,
     DELAY_JITTER_HISTORY,
     DELAY_JITTER_INFO,
     MAX_BACKOFFS,
@@ -49,16 +50,17 @@ from common.indicators import (
     calculate_ma_trend,
     calculate_price_to_52w_high_pct,
 )
+from common.logging import CollectionProgress, setup_logger
 from common.rate_limit import (
     YFinanceTimeoutError,
     get_stock_history_with_timeout,
     get_stock_info_with_timeout,
 )
-from common.retry import RetryConfig, with_retry
+from common.retry import RetryConfig, RetryQueue, with_retry
 from common.session import create_browser_session
+from common.storage import StorageManager, get_supabase_client
+from processors.validators import MetricsValidator
 from tqdm import tqdm
-
-from .base import BaseCollector
 
 # Rate limit retry settings
 MAX_RETRY_ROUNDS = 10  # Maximum retry rounds for rate-limited tickers
@@ -285,7 +287,7 @@ def get_all_us_tickers() -> dict[str, list[str]]:
 # ============================================================
 
 
-class USCollector(BaseCollector):
+class USCollector:
     """Collector for US stock data."""
 
     MARKET = "US"
@@ -313,8 +315,27 @@ class USCollector(BaseCollector):
             log_level: Logging level
             quiet: If True, minimize output (disable tqdm, reduce logging)
         """
-        super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level, quiet=quiet)
         self.universe = universe
+        self.save_db = save_db
+        self.save_csv = save_csv
+        self.quiet = quiet
+
+        # Setup logger (WARNING level if quiet)
+        effective_log_level = logging.WARNING if quiet else log_level
+        self.logger = setup_logger(self.__class__.__name__, level=effective_log_level)
+
+        # Initialize components
+        self.client = get_supabase_client() if save_db else None
+        self.storage = StorageManager(
+            client=self.client,
+            data_dir=DATA_DIR,
+            market_prefix=self.MARKET_PREFIX,
+            logger=self.logger,
+        )
+        self.validator = MetricsValidator()
+        self.retry_queue = RetryQueue()
+
+        # US-specific state
         self._ticker_membership: dict[str, list[str]] = {}
         # Create browser session to bypass TLS fingerprinting
         self._session = create_browser_session()
@@ -447,8 +468,8 @@ class USCollector(BaseCollector):
                                 if pd.notna(row.get("Volume"))
                                 else None,
                             }
-                    except Exception:
-                        pass
+                    except (KeyError, IndexError, TypeError) as e:
+                        self.logger.debug(f"Price extraction error for {ticker}: {e}")
 
                 # Sleep between batches
                 time.sleep(0.5 + random.uniform(0, 0.5))
@@ -870,8 +891,6 @@ class USCollector(BaseCollector):
         # Phase 4: Process and save
         self.logger.info("Phase 4: Processing and saving...")
 
-        from common.logging import CollectionProgress
-
         progress = CollectionProgress(
             total=len(valid_tickers),
             logger=self.logger,
@@ -892,42 +911,19 @@ class USCollector(BaseCollector):
                 # Validate metrics
                 validated = self.validator.validate(data, ticker)
 
-                # Save to database
-                if self.save_db and self.client:
-                    company_id = self.storage.upsert_company(
-                        ticker=ticker,
-                        name=validated.get("name", ""),
-                        market=self.MARKET,
-                        sector=validated.get("sector"),
-                        industry=validated.get("industry"),
-                        currency=validated.get("currency", "USD"),
-                    )
-                    if company_id:
-                        self.storage.upsert_metrics(
-                            company_id=company_id,
-                            metrics=validated,
-                            data_source=self.DATA_SOURCE,
+                # Collect data for batch operations (DB and CSV)
+                # Note: DB upsert is done in batch after the loop for 10x+ performance
+                all_companies.append(self._build_company_record(ticker, validated))
+                trading_date_str = prices_all.get(ticker, {}).get("date")
+                all_metrics.append(
+                    self._build_metrics_record(ticker, validated, trading_date_str)
+                )
+                if ticker in prices_all:
+                    all_prices.append(
+                        self._build_price_record(
+                            ticker, prices_all[ticker], validated
                         )
-                        if ticker in prices_all:
-                            self.storage.upsert_price(
-                                company_id=company_id,
-                                price_data=prices_all[ticker],
-                                market_cap=validated.get("market_cap"),
-                            )
-
-                # Collect for CSV
-                if self.save_csv:
-                    all_companies.append(self._build_company_record(ticker, validated))
-                    trading_date_str = prices_all.get(ticker, {}).get("date")
-                    all_metrics.append(
-                        self._build_metrics_record(ticker, validated, trading_date_str)
                     )
-                    if ticker in prices_all:
-                        all_prices.append(
-                            self._build_price_record(
-                                ticker, prices_all[ticker], validated
-                            )
-                        )
 
                 progress.update(success=True)
 
@@ -938,6 +934,55 @@ class USCollector(BaseCollector):
 
             progress.log_progress(interval=100)
 
+        # Batch upsert to database (10x+ faster than individual upserts)
+        if self.save_db and self.client and all_companies:
+            self.logger.info(f"Batch upserting {len(all_companies)} companies to database...")
+
+            # Step 1: Batch upsert companies
+            self.storage.upsert_companies_batch(all_companies)
+
+            # Step 2: Get company_id mapping
+            ticker_to_id = self.storage.get_company_id_mapping(market=self.MARKET)
+
+            # Step 3: Prepare metrics and prices with company_id
+            metrics_for_db = []
+            for m in all_metrics:
+                ticker = m.get("ticker")
+                company_id = ticker_to_id.get((ticker, self.MARKET))
+                if company_id:
+                    db_record = {
+                        "company_id": company_id,
+                        "date": m.get("date"),
+                        "data_source": self.DATA_SOURCE,
+                    }
+                    # Add all metric fields except ticker/market
+                    for k, v in m.items():
+                        if k not in ["ticker", "market", "name", "currency", "sector", "industry"] and v is not None:
+                            db_record[k] = v
+                    metrics_for_db.append(db_record)
+
+            prices_for_db = []
+            for p in all_prices:
+                ticker = p.get("ticker")
+                company_id = ticker_to_id.get((ticker, self.MARKET))
+                if company_id:
+                    db_record = {
+                        "company_id": company_id,
+                        "date": p.get("date"),
+                    }
+                    for k in ["open", "high", "low", "close", "volume", "market_cap"]:
+                        if k in p and p[k] is not None:
+                            db_record[k] = p[k]
+                    prices_for_db.append(db_record)
+
+            # Step 4: Batch upsert metrics and prices
+            if metrics_for_db:
+                self.storage.upsert_metrics_batch(metrics_for_db)
+                self.logger.info(f"Batch upserted {len(metrics_for_db)} metrics")
+            if prices_for_db:
+                self.storage.upsert_prices_batch(prices_for_db)
+                self.logger.info(f"Batch upserted {len(prices_for_db)} prices")
+
         # Save to CSV
         if self.save_csv:
             self.storage.save_to_csv(
@@ -946,6 +991,9 @@ class USCollector(BaseCollector):
                 prices=all_prices,
                 is_test=is_test,
             )
+            # Update symlinks after successful save
+            if not is_test:
+                self.storage.update_symlinks()
 
             # Quality check and auto-retry (only for full collection, not test mode)
             if not is_test and len(all_metrics) > 0:
@@ -1007,13 +1055,92 @@ class USCollector(BaseCollector):
 
         # Save failed items
         if self.retry_queue.count > 0:
-            from common.config import DATA_DIR
-
             failed_file = DATA_DIR / f"{self.MARKET_PREFIX}_failed_tickers.json"
             self.retry_queue.save_path = failed_file
             self.retry_queue.save_to_file()
 
         return progress.get_stats()
+
+    def _extract_trading_date_from_prices(self, prices: dict[str, dict]) -> date | None:
+        """Extract trading date from prices dictionary.
+
+        Returns the latest date from the prices dictionary.
+        Falls back to None if no valid date found.
+        """
+        dates = [p.get("date") for p in prices.values() if p.get("date")]
+        if not dates:
+            return None
+        return date.fromisoformat(max(dates))
+
+    def _build_company_record(self, ticker: str, data: dict) -> dict:
+        """Build company record for CSV."""
+        return {
+            "ticker": ticker,
+            "name": data.get("name"),
+            "sector": data.get("sector"),
+            "industry": data.get("industry"),
+            "currency": data.get("currency", "USD"),
+        }
+
+    def _build_metrics_record(
+        self, ticker: str, data: dict, trading_date: str | None = None
+    ) -> dict:
+        """Build metrics record for CSV."""
+        record_date = trading_date or date.today().isoformat()
+        return {
+            "ticker": ticker,
+            "date": record_date,
+            "pe_ratio": data.get("pe_ratio"),
+            "pb_ratio": data.get("pb_ratio"),
+            "ps_ratio": data.get("ps_ratio"),
+            "ev_ebitda": data.get("ev_ebitda"),
+            "roe": data.get("roe"),
+            "roa": data.get("roa"),
+            "debt_equity": data.get("debt_equity"),
+            "current_ratio": data.get("current_ratio"),
+            "gross_margin": data.get("gross_margin"),
+            "net_margin": data.get("net_margin"),
+            "dividend_yield": data.get("dividend_yield"),
+            "eps": data.get("eps"),
+            "book_value_per_share": data.get("book_value_per_share"),
+            "graham_number": data.get("graham_number"),
+            "fifty_two_week_high": data.get("fifty_two_week_high"),
+            "fifty_two_week_low": data.get("fifty_two_week_low"),
+            "fifty_day_average": data.get("fifty_day_average"),
+            "two_hundred_day_average": data.get("two_hundred_day_average"),
+            "peg_ratio": data.get("peg_ratio"),
+            "beta": data.get("beta"),
+            "rsi": data.get("rsi"),
+            "volume_change": data.get("volume_change"),
+            "macd": data.get("macd"),
+            "macd_signal": data.get("macd_signal"),
+            "macd_histogram": data.get("macd_histogram"),
+            "bb_upper": data.get("bb_upper"),
+            "bb_middle": data.get("bb_middle"),
+            "bb_lower": data.get("bb_lower"),
+            "bb_percent": data.get("bb_percent"),
+            "mfi": data.get("mfi"),
+            "price_to_52w_high_pct": data.get("price_to_52w_high_pct"),
+            "ma_trend": data.get("ma_trend"),
+        }
+
+    def _build_price_record(
+        self,
+        ticker: str,
+        price_data: dict,
+        stock_data: dict,
+    ) -> dict:
+        """Build price record for CSV."""
+        return {
+            "ticker": ticker,
+            "date": price_data.get("date", date.today().isoformat()),
+            "open": price_data.get("open"),
+            "high": price_data.get("high"),
+            "low": price_data.get("low"),
+            "close": price_data.get("close"),
+            "volume": price_data.get("volume"),
+            "market_cap": stock_data.get("market_cap"),
+        }
 
 
 # ============================================================

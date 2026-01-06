@@ -16,17 +16,19 @@ stock-screener/
 ├── data-pipeline/        # 데이터 수집 스크립트
 │   ├── pyproject.toml    # 파이프라인 의존성
 │   ├── collectors/
-│   │   ├── base.py       # BaseCollector 추상 클래스
-│   │   ├── us_stocks.py  # 미국 주식 수집 (NYSE + NASDAQ 전체)
-│   │   └── kr_stocks.py  # 한국 주식 수집 (KOSPI + KOSDAQ)
+│   │   ├── us_stocks.py  # 미국 주식 수집 (독립 클래스, yfinance 사용)
+│   │   └── kr_stocks.py  # 한국 주식 수집 (독립 클래스, yfinance/pykrx 없음)
 │   ├── common/           # 공통 모듈
-│   │   ├── config.py     # 설정 상수
+│   │   ├── utils.py      # 공통 유틸리티 (safe_float, safe_int, get_supabase_client)
+│   │   ├── config.py     # 설정 상수 (KIS API, FDR 등)
 │   │   ├── logging.py    # 로거 + CollectionProgress
 │   │   ├── retry.py      # @with_retry 데코레이터
-│   │   ├── indicators.py # 기술적 지표 계산
-│   │   ├── storage.py    # StorageManager
+│   │   ├── indicators.py # 기술적 지표 계산 (RSI, MACD, BB, Beta, MA)
+│   │   ├── storage.py    # StorageManager (utils에서 import)
 │   │   ├── session.py    # curl_cffi 브라우저 세션 (TLS fingerprinting 우회)
-│   │   └── rate_limit.py # Rate Limit 감지 + ProgressTracker + FailureType
+│   │   ├── rate_limit.py # Rate Limit 감지 + ProgressTracker + FailureType
+│   │   ├── naver_finance.py # Naver Finance 크롤러 (KR 기초지표)
+│   │   └── kis_client.py # KIS API 클라이언트 (KR/US 주식, 선택적)
 │   ├── loaders/
 │   │   └── csv_to_db.py  # CSV → Supabase 로딩
 │   └── processors/
@@ -46,14 +48,22 @@ stock-screener/
 - 저장: Supabase + CSV
 - 옵션: `--index-only`로 S&P + Russell만 수집 (~2,800개)
 
-**한국 주식** (~2,800개):
+**한국 주식** (~2,800개) - **yfinance/pykrx 완전 제거 (2026.01)**:
 - 티커 소스: CSV (`kr_companies.csv`)
-- 가격: FinanceDataReader (네이버 금융)
-- EPS/BPS/PER/PBR: 네이버 금융 웹 크롤링
-- 재무 지표: yfinance (ROE, ROA, Margins, D/E, Current Ratio 등)
+- 가격 + 10개월 OHLCV: FinanceDataReader (네이버 금융)
+- 기초지표 (2단계 소스):
+  - **KIS API (primary)**: PER, PBR, EPS, BPS, 52주 고/저, 시가총액
+  - **Naver Finance (fallback)**: PER, PBR, EPS, BPS, ROE, ROA, 시가총액 (웹 스크래핑)
+- 기술적 지표: 로컬 계산 (`indicators.py`)
+  - RSI, MACD, Bollinger Bands, MFI, Volume Change
+  - MA50, MA200 (FDR 히스토리에서 계산)
+  - Beta (KOSPI 대비, FDR KS11 인덱스)
+  - 52주 고/저 (KIS API 또는 FDR 히스토리)
 - 저장: Supabase + CSV
+- **독립 클래스**: BaseCollector 상속 없음
 
-> **Note**: 2025.12.27부터 KRX 로그인 필수화로 pykrx가 작동하지 않아 FDR + 네이버 크롤링으로 전환
+> **Note**: 2026.01부터 yfinance/pykrx Rate Limit 문제로 KR 수집에서 완전 제거.
+> KIS API가 primary 소스, Naver Finance는 fallback으로 사용.
 
 **데이터 파이프라인** (`./scripts/collect-and-backup.sh`):
 1. KR 수집 (품질검사 + 자동재수집)
@@ -69,14 +79,14 @@ stock-screener/
 
 **수집 소요 시간** (로컬 Mac 기준):
 
-| 마켓 | 종목 수 | 예상 시간 |
-|------|---------|----------|
-| KR | ~2,800개 | ~10분 (병렬화) |
-| US (full) | ~6,000개 | ~1-1.5시간 |
-| US (--index-only) | ~2,800개 | ~30-45분 |
-| US (--sp500) | ~500개 | ~10-15분 |
+| 마켓 | 종목 수 | 예상 시간 | 비고 |
+|------|---------|----------|------|
+| KR | ~2,800개 | ~5-10분 | yfinance 미사용, FDR+Naver |
+| US (full) | ~6,000개 | ~1-1.5시간 | yfinance 사용 |
+| US (--index-only) | ~2,800개 | ~30-45분 | |
+| US (--sp500) | ~500개 | ~10-15분 | |
 
-**Rate Limit 대응** (2단계 전략):
+**Rate Limit 대응** (US만 해당, KR은 yfinance 미사용):
 
 1. **1차 방어: TLS Fingerprinting 우회**
    - curl_cffi 라이브러리로 Chrome 브라우저 세션 모방
@@ -96,7 +106,8 @@ stock-screener/
 | 배치 내 백오프 | 최대 5회 | 1분→2분→3분→5분→10분 |
 | 최대 재시도 | 10회 | 무한 루프 방지 |
 
-> 주의: KR, US 동시 실행 시 yfinance Rate Limit에 걸릴 수 있음
+> **Note**: KR 수집은 yfinance를 사용하지 않으므로 Rate Limit 문제 없음.
+> US 수집만 위 설정 적용됨.
 
 ## 수집 지표
 
@@ -104,24 +115,25 @@ stock-screener/
 
 | 지표 | US 소스 | KR 소스 |
 |------|---------|---------|
-| P/E (Trailing) | yfinance | 네이버 금융 |
-| P/E (Forward) | yfinance | yfinance |
-| P/B | yfinance | 네이버 금융 |
-| P/S | yfinance | yfinance |
-| EV/EBITDA | yfinance | yfinance |
-| PEG Ratio | yfinance | yfinance |
-| ROE, ROA | yfinance | yfinance |
-| Gross Margin | yfinance | yfinance |
-| Net Margin | yfinance | yfinance |
-| Debt/Equity | yfinance | yfinance |
-| Current Ratio | yfinance | yfinance |
-| Dividend Yield | yfinance | yfinance |
-| Beta | yfinance | yfinance |
-| EPS | yfinance | 네이버 금융 |
-| Book Value/Share | yfinance | 네이버 금융 |
+| P/E (Trailing) | yfinance | KIS API → Naver (fallback) |
+| P/E (Forward) | yfinance | - |
+| P/B | yfinance | KIS API → Naver (fallback) |
+| P/S | yfinance | - |
+| EV/EBITDA | yfinance | - |
+| PEG Ratio | yfinance | - |
+| ROE, ROA | yfinance | Naver (fallback에서만) |
+| Gross Margin | yfinance | - |
+| Net Margin | yfinance | - |
+| Debt/Equity | yfinance | Naver (선택적) |
+| Current Ratio | yfinance | Naver (선택적) |
+| Dividend Yield | yfinance | Naver |
+| Beta | yfinance | FDR/KOSPI 계산 |
+| EPS | yfinance | KIS API → Naver (fallback) |
+| Book Value/Share | yfinance | KIS API → Naver (fallback) |
 | Graham Number | 계산 | 계산 |
-| 52주 고/저 | yfinance | yfinance |
-| 50일/200일 이동평균 | yfinance | yfinance |
+| 52주 고/저 | yfinance | KIS API → FDR 히스토리 |
+| 50일/200일 이동평균 | yfinance | FDR 히스토리 계산 |
+| 시가총액 | yfinance | KIS API → Naver (fallback) |
 
 ### 기술적 지표
 
@@ -141,7 +153,10 @@ stock-screener/
 ## 주요 의존성
 
 - 백엔드: FastAPI, asyncpg, Pydantic, httpx
-- 데이터 파이프라인: yfinance, FinanceDataReader, pandas, supabase-py, beautifulsoup4, curl-cffi
+- 데이터 파이프라인:
+  - 공통: pandas, supabase-py, beautifulsoup4
+  - US: yfinance, curl-cffi (TLS 우회)
+  - KR: FinanceDataReader, aiohttp (Naver 크롤링) - yfinance/pykrx 미사용
 - 데이터베이스: Supabase (PostgreSQL)
 
 ## 하이브리드 저장 전략

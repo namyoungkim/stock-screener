@@ -59,6 +59,7 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 `.env` 파일에 필요:
 - `SUPABASE_URL`, `SUPABASE_KEY` - 데이터베이스 (필수)
 - `DISCORD_BOT_TOKEN` - 디스코드 봇 (봇 사용 시)
+- `KIS_APP_KEY`, `KIS_APP_SECRET` - 한국투자증권 API (KR 수집 선택적, Beta 계산)
 
 ## 현재 상태
 
@@ -67,11 +68,11 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 - 통합 데이터 파이프라인 (`./scripts/collect-and-backup.sh`)
   - 수집 → 품질검사 → 자동재수집 → Google Drive 백업 → Supabase 적재
 - 품질검사 자동화 (유니버스 커버리지, 대형주 누락, 지표 완성도)
-- KR 수집기 (FDR + 네이버 금융 + yfinance, KRX 로그인 필수화 대응)
+- KR 수집기 (FDR + 네이버 금융, yfinance 제거 - Rate Limit 해결)
 - 기술적 지표 수집 (RSI, MFI, MACD, Bollinger Bands, Volume Change)
 - 가치투자 지표 (EPS, BPS, Graham Number)
 - 하이브리드 저장 (Supabase + CSV)
-- yfinance Rate Limit 대처 (진행 상황 저장 + `--resume` 재시작)
+- US yfinance Rate Limit 대처 (진행 상황 저장 + `--resume` 재시작)
 - FastAPI 백엔드 API
 - Next.js 프론트엔드 (Preset 전략, Tooltip UX, 페이지네이션, 모바일 반응형, URL 히스토리, 한글 IME)
 - Vercel + Render 배포

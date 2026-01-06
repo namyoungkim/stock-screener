@@ -44,7 +44,14 @@ for i in "${!args[@]}"; do
             # 다음 인자에서 숫자 가져오기
             next_idx=$((i + 1))
             if [[ $next_idx -lt ${#args[@]} ]]; then
-                LIMIT="${args[$next_idx]}"
+                next_val="${args[$next_idx]}"
+                # 숫자인지 확인
+                if [[ "$next_val" =~ ^[0-9]+$ ]]; then
+                    LIMIT="$next_val"
+                else
+                    echo "Error: --limit requires a numeric argument, got: $next_val"
+                    exit 1
+                fi
             fi
             ;;
     esac

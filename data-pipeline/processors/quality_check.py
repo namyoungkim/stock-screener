@@ -4,11 +4,30 @@ This module provides quality assessment for collected stock data,
 checking universe coverage, missing tickers, and metric completeness.
 """
 
+import functools
 import logging
 from dataclasses import dataclass, field
 
 import pandas as pd
 from common.config import DATA_DIR
+
+
+# Module-level universe cache (avoid repeated NASDAQ FTP requests)
+@functools.lru_cache(maxsize=4)
+def _get_cached_universe(market: str) -> tuple[str, ...]:
+    """Get cached universe for a market (returns tuple for hashability)."""
+    if market.upper() == "US":
+        from collectors.us_stocks import get_all_us_tickers
+
+        all_data = get_all_us_tickers()
+        return tuple(all_data.keys())
+    elif market.upper() == "KR":
+        from collectors.kr_stocks import KRCollector
+
+        collector = KRCollector(save_db=False, save_csv=False, quiet=True)
+        return tuple(collector.get_tickers())
+    else:
+        return tuple()
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +48,7 @@ KEY_METRICS = [
 
 # Major tickers by market (top companies by market cap)
 # These critical tickers must be collected regardless of universe setting
+# Note: NASDAQ FTP provides tickers without hyphens (e.g., BRKA, BRKB not BRK-A, BRK-B)
 US_MAJOR_TICKERS = [
     "AAPL",   # Apple
     "MSFT",   # Microsoft
@@ -37,7 +57,7 @@ US_MAJOR_TICKERS = [
     "NVDA",   # NVIDIA
     "META",   # Meta
     "TSLA",   # Tesla
-    "BRK",    # Berkshire Hathaway (BRK-A or BRK-B)
+    "BRKB",   # Berkshire Hathaway Class B (most liquid, BRKA is Class A)
     "JPM",    # JPMorgan Chase
     "V",      # Visa
     "UNH",    # UnitedHealth
@@ -95,25 +115,18 @@ class DataQualityChecker:
     def get_universe(self, market: str) -> list[str]:
         """Get the full ticker universe for a market.
 
+        Uses module-level cache to avoid repeated NASDAQ FTP requests.
+
         Args:
             market: Market identifier ("US" or "KR")
 
         Returns:
             List of all tickers in the universe
         """
-        if market.upper() == "US":
-            from collectors.us_stocks import get_all_us_tickers
-
-            all_data = get_all_us_tickers()
-            return list(all_data.keys())
-        elif market.upper() == "KR":
-            from collectors.kr_stocks import KRCollector
-
-            collector = KRCollector(save_db=False, save_csv=False)
-            return collector.get_tickers()
-        else:
+        cached = _get_cached_universe(market.upper())
+        if not cached and market.upper() not in ("US", "KR"):
             self.logger.warning(f"Unknown market: {market}")
-            return []
+        return list(cached)
 
     def check(
         self,
@@ -163,8 +176,8 @@ class DataQualityChecker:
             if market.upper() == "KR":
                 found = any(t in ct for ct in collected_set)
             else:
-                # For US, check exact match or prefix match (e.g., BRK matches BRK-B, BRKA, BRKB)
-                found = t in collected_set or any(ct.startswith(t) for ct in collected_set)
+                # For US, check exact match only (tickers are already normalized)
+                found = t in collected_set
             if not found:
                 missing_major.append(t)
 
@@ -274,42 +287,30 @@ class DataQualityChecker:
             self.logger.warning(f"Version directory not found: {version_dir}")
             return
 
-        # Merge metrics
+        # Merge metrics (optimized: use drop_duplicates instead of set operations)
         metrics_file = version_dir / f"{prefix}_metrics.csv"
         if metrics_file.exists() and new_metrics:
             existing_df = pd.read_csv(metrics_file)
             new_df = pd.DataFrame(new_metrics)
 
-            # Remove duplicates (keep new)
-            existing_tickers = set(existing_df["ticker"])
-            new_tickers = set(new_df["ticker"])
-            overlap = existing_tickers & new_tickers
-
-            if overlap:
-                existing_df = existing_df[~existing_df["ticker"].isin(overlap)]
-
+            # Concat and drop duplicates (keep last = keep new data)
             merged_df = pd.concat([existing_df, new_df], ignore_index=True)
+            merged_df = merged_df.drop_duplicates(subset=["ticker"], keep="last")
             merged_df.to_csv(metrics_file, index=False)
             self.logger.info(
                 f"Merged {len(new_metrics)} metrics into {metrics_file.name} "
                 f"(total: {len(merged_df)})"
             )
 
-        # Merge prices
+        # Merge prices (optimized: use drop_duplicates instead of set operations)
         prices_file = version_dir / f"{prefix}_prices.csv"
         if prices_file.exists() and new_prices:
             existing_df = pd.read_csv(prices_file)
             new_df = pd.DataFrame(new_prices)
 
-            # Remove duplicates (keep new)
-            existing_tickers = set(existing_df["ticker"])
-            new_tickers = set(new_df["ticker"])
-            overlap = existing_tickers & new_tickers
-
-            if overlap:
-                existing_df = existing_df[~existing_df["ticker"].isin(overlap)]
-
+            # Concat and drop duplicates (keep last = keep new data)
             merged_df = pd.concat([existing_df, new_df], ignore_index=True)
+            merged_df = merged_df.drop_duplicates(subset=["ticker"], keep="last")
             merged_df.to_csv(prices_file, index=False)
             self.logger.info(
                 f"Merged {len(new_prices)} prices into {prices_file.name} "
