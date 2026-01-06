@@ -1,18 +1,15 @@
 """
 Korean Stock Data Collector
 
-Collects financial data for Korean stocks using FDR + KIS API (yfinance-free).
+Collects financial data for Korean stocks using FDR + KIS API.
 Supports hybrid storage: Supabase for latest data, CSV for history.
 
 Data sources:
 - CSV (kr_companies.csv): ticker list
-- FinanceDataReader (FDR): prices, 10-month OHLCV history (via Naver Finance)
+- FinanceDataReader (FDR): prices, OHLCV history, KOSPI index (via Naver Finance)
 - KIS API (primary): PER, PBR, EPS, BPS, 52w high/low, market_cap
 - Naver Finance (fallback): PER, PBR, EPS, BPS, ROE, ROA, market_cap (web scraping)
 - Local calculation: RSI, MACD, Bollinger Bands, MFI, MA50/MA200, Beta (vs KOSPI)
-
-Note: yfinance is NOT used for main data collection (removed due to rate limits).
-KOSPI index data for Beta calculation uses yfinance as fallback only.
 
 Usage:
     uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks
@@ -34,17 +31,16 @@ import contextlib
 import logging
 import re
 import socket
-import warnings
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import date, datetime, timedelta
 
 import aiohttp
 import FinanceDataReader as fdr
 import pandas as pd
-import yfinance as yf
 from bs4 import BeautifulSoup
 from common.config import (
     COMPANIES_DIR,
+    DATA_DIR,
     FDR_HISTORY_DAYS,
     FDR_REQUEST_TIMEOUT,
     KIS_RATE_LIMIT,
@@ -59,27 +55,17 @@ from common.indicators import (
     calculate_price_to_52w_high_pct,
 )
 from common.kis_client import KISClient
-from common.logging import CollectionProgress
+from common.logging import CollectionProgress, setup_logger
 from common.naver_finance import NaverFinanceClient
+from common.rate_limit import ProgressTracker
+from common.retry import RetryQueue
+from common.storage import StorageManager, get_supabase_client
+from processors.validators import MetricsValidator
 from tqdm import tqdm
 
-from .base import BaseCollector
 
-# pykrx is optional - KRX API blocked since Dec 27, 2025
-# Suppress pkg_resources deprecation warning from pykrx
-warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
-
-try:
-    from pykrx import stock as pykrx  # type: ignore[import-untyped]
-
-    PYKRX_AVAILABLE = True
-except ImportError:
-    pykrx = None
-    PYKRX_AVAILABLE = False
-
-
-class KRCollector(BaseCollector):
-    """Collector for Korean stock data using FDR + KIS API (yfinance-free)."""
+class KRCollector:
+    """Collector for Korean stock data using FDR + KIS API."""
 
     MARKET = "KOSPI"  # Will be overridden per ticker
     MARKET_PREFIX = "kr"
@@ -103,42 +89,41 @@ class KRCollector(BaseCollector):
             log_level: Logging level
             quiet: If True, minimize output (disable tqdm, reduce logging)
         """
-        super().__init__(save_db=save_db, save_csv=save_csv, log_level=log_level, quiet=quiet)
         self.market = market
+        self.save_db = save_db
+        self.save_csv = save_csv
+        self.quiet = quiet
+
+        # Setup logger
+        effective_log_level = logging.WARNING if quiet else log_level
+        self.logger = setup_logger(
+            self.__class__.__name__,
+            level=effective_log_level,
+        )
+
+        # Initialize components
+        self.client = get_supabase_client() if save_db else None
+        self.storage = StorageManager(
+            client=self.client,
+            data_dir=DATA_DIR,
+            market_prefix=self.MARKET_PREFIX,
+        )
+        self.validator = MetricsValidator()
+        self.progress_tracker = ProgressTracker(self.MARKET_PREFIX)
+        self.retry_queue = RetryQueue()
+
+        # KR-specific state
         self._ticker_markets: dict[str, str] = {}
         self._ticker_names: dict[str, str] = {}
-        self._fundamentals: dict[str, dict] = {}  # PER, PBR, EPS, BPS from pykrx
-
-    def fetch_stock_info(self, ticker: str) -> dict | None:
-        """Fetch stock information for a single ticker.
-
-        Note: Not used in yfinance-free collection. Implemented for BaseCollector compatibility.
-        Use collect() method instead which uses FDR + Naver Finance.
-        """
-        return None
-
-    def fetch_history_bulk(
-        self,
-        tickers: list[str],
-        period: str = "2mo",
-        batch_size: int | None = None,
-    ) -> dict[str, pd.DataFrame]:
-        """Fetch historical data for multiple tickers.
-
-        Note: Not used in yfinance-free collection. Use fetch_fdr_history() instead.
-        Implemented for BaseCollector compatibility.
-        """
-        return self.fetch_fdr_history(tickers, days=FDR_HISTORY_DAYS)
 
     def get_tickers(self) -> list[str]:
-        """Get list of KRX tickers from CSV file (primary) or pykrx (fallback).
+        """Get list of KRX tickers from CSV file.
 
-        Since Dec 27, 2025, KRX requires login, breaking pykrx.
-        Primary source is now kr_companies.csv file.
+        Source: kr_companies.csv file.
         """
         tickers_data = []
 
-        # Primary: Load from CSV file
+        # Load from CSV file
         csv_path = COMPANIES_DIR / "kr_companies.csv"
         if csv_path.exists():
             try:
@@ -157,35 +142,6 @@ class KRCollector(BaseCollector):
             except Exception as e:
                 self.logger.warning(f"Failed to load CSV: {e}")
 
-        # Fallback: Try pykrx if CSV is empty or failed
-        if not tickers_data and PYKRX_AVAILABLE and pykrx is not None:
-            self.logger.info("Trying pykrx as fallback...")
-            today = datetime.now().strftime("%Y%m%d")
-
-            if self.market in ("KOSPI", "ALL"):
-                try:
-                    kospi_tickers = pykrx.get_market_ticker_list(today, market="KOSPI")
-                    for ticker in kospi_tickers:
-                        name = pykrx.get_market_ticker_name(ticker)
-                        tickers_data.append(
-                            {"ticker": ticker, "name": name, "market": "KOSPI"}
-                        )
-                except Exception as e:
-                    self.logger.warning(f"pykrx KOSPI failed: {e}")
-
-            if self.market in ("KOSDAQ", "ALL"):
-                try:
-                    kosdaq_tickers = pykrx.get_market_ticker_list(
-                        today, market="KOSDAQ"
-                    )
-                    for ticker in kosdaq_tickers:
-                        name = pykrx.get_market_ticker_name(ticker)
-                        tickers_data.append(
-                            {"ticker": ticker, "name": name, "market": "KOSDAQ"}
-                        )
-                except Exception as e:
-                    self.logger.warning(f"pykrx KOSDAQ failed: {e}")
-
         # Build mappings
         for item in tickers_data:
             self._ticker_markets[item["ticker"]] = item["market"]
@@ -194,45 +150,6 @@ class KRCollector(BaseCollector):
         tickers = [item["ticker"] for item in tickers_data]
         self.logger.info(f"Found {len(tickers)} {self.market} tickers")
         return tickers
-
-    def _fetch_pykrx_fundamentals(self, trading_date: str) -> dict[str, dict]:
-        """Fetch PER, PBR, EPS, BPS from pykrx for all stocks.
-
-        Note: This may fail if KRX requires login (since Dec 27, 2025).
-        In that case, fundamentals will come from yfinance instead.
-        """
-        results: dict[str, dict] = {}
-
-        if not PYKRX_AVAILABLE or pykrx is None:
-            self.logger.info("pykrx not available, skipping fundamentals fetch")
-            return results
-
-        for market_name in ["KOSPI", "KOSDAQ"]:
-            if self.market != "ALL" and self.market != market_name:
-                continue
-
-            try:
-                df = pykrx.get_market_fundamental(trading_date, market=market_name)
-                if df.empty:
-                    continue
-
-                for ticker in df.index:
-                    row = df.loc[ticker]
-                    per = row.get("PER", 0)
-                    pbr = row.get("PBR", 0)
-                    eps = row.get("EPS", 0)
-                    bps = row.get("BPS", 0)
-
-                    results[ticker] = {
-                        "pe_ratio": per if per != 0 else None,
-                        "pb_ratio": pbr if pbr != 0 else None,
-                        "eps": eps if eps != 0 else None,
-                        "book_value_per_share": bps if bps != 0 else None,
-                    }
-            except Exception as e:
-                self.logger.warning(f"Failed to fetch {market_name} fundamentals: {e}")
-
-        return results
 
     async def _fetch_kis_fundamentals_async(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch PER, PBR, EPS, BPS, 52w high/low from KIS API.
@@ -481,58 +398,53 @@ class KRCollector(BaseCollector):
             disable=self.quiet,
         )
 
+        executor = ThreadPoolExecutor(max_workers=10)
         try:
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                # Process in batches
-                for i in range(0, len(tickers), batch_size):
-                    batch = tickers[i : i + batch_size]
-                    futures = {executor.submit(fetch_one, t): t for t in batch}
-                    pending = set(futures.keys())
-                    skipped_in_batch = []
+            # Process in batches
+            for i in range(0, len(tickers), batch_size):
+                batch = tickers[i : i + batch_size]
+                futures = {executor.submit(fetch_one, t): t for t in batch}
+                pending = set(futures.keys())
+                skipped_in_batch = []
 
-                    # Process batch with timeout
-                    while pending:
-                        done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
+                # Process batch with timeout
+                while pending:
+                    done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
 
-                        if not done and pending:
-                            # Timeout: cancel remaining slow tickers in this batch
-                            skipped_in_batch = [futures[f] for f in pending]
-                            for future in pending:
-                                future.cancel()
-                            pbar.update(len(pending))
-                            break
+                    if not done and pending:
+                        # Timeout: cancel remaining slow tickers in this batch
+                        skipped_in_batch = [futures[f] for f in pending]
+                        for future in pending:
+                            future.cancel()
+                        pbar.update(len(pending))
+                        break
 
-                        for future in done:
-                            pbar.update(1)
-                            try:
-                                ticker, data = future.result(timeout=0)
-                                if data:
-                                    results[ticker] = data
-                            except Exception as e:
-                                ticker = futures[future]
-                                self.logger.debug(f"FDR failed for {ticker}: {e}")
+                    for future in done:
+                        pbar.update(1)
+                        try:
+                            ticker, data = future.result(timeout=0)
+                            if data:
+                                results[ticker] = data
+                        except Exception as e:
+                            ticker = futures[future]
+                            self.logger.debug(f"FDR failed for {ticker}: {e}")
 
-                    if skipped_in_batch:
-                        self.logger.warning(
-                            f"FDR batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
-                        )
+                if skipped_in_batch:
+                    self.logger.warning(
+                        f"FDR batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
+                    )
 
         finally:
+            # Shutdown executor without waiting for pending tasks
+            executor.shutdown(wait=False, cancel_futures=True)
             # Restore original socket timeout
             socket.setdefaulttimeout(old_timeout)
             pbar.close()
 
         self.logger.info(f"Fetched prices for {len(results)} tickers")
 
-        # Fallback to pykrx if FDR got very few results
-        if len(results) < len(tickers) * 0.5 and PYKRX_AVAILABLE and pykrx is not None:
-            self.logger.info("FDR got few results, trying pykrx fallback...")
-            pykrx_results = self._fetch_prices_pykrx(tickers)
-            # Merge: only add tickers not already in results
-            for ticker, data in pykrx_results.items():
-                if ticker not in results:
-                    results[ticker] = data
-            self.logger.info(f"After pykrx fallback: {len(results)} tickers")
+        # Note: pykrx fallback removed - KRX API often requires login/captcha and hangs
+        # FDR (Naver Finance) is reliable enough as the sole source
 
         return results
 
@@ -544,8 +456,7 @@ class KRCollector(BaseCollector):
         """
         Fetch 7-month OHLCV history using FinanceDataReader.
 
-        This replaces yf.download for Korean stocks, providing stable data
-        without yfinance rate limit issues.
+        Uses FDR (Naver Finance) for stable Korean stock data.
 
         Args:
             tickers: List of KRX ticker codes
@@ -589,43 +500,45 @@ class KRCollector(BaseCollector):
             disable=self.quiet,
         )
 
+        executor = ThreadPoolExecutor(max_workers=10)
         try:
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                # Process in batches
-                for i in range(0, len(tickers), batch_size):
-                    batch = tickers[i : i + batch_size]
-                    futures = {executor.submit(fetch_one, t): t for t in batch}
-                    pending = set(futures.keys())
-                    skipped_in_batch = []
+            # Process in batches
+            for i in range(0, len(tickers), batch_size):
+                batch = tickers[i : i + batch_size]
+                futures = {executor.submit(fetch_one, t): t for t in batch}
+                pending = set(futures.keys())
+                skipped_in_batch = []
 
-                    # Process batch with timeout
-                    while pending:
-                        done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
+                # Process batch with timeout
+                while pending:
+                    done, pending = wait(pending, timeout=batch_timeout, return_when=FIRST_COMPLETED)
 
-                        if not done and pending:
-                            # Timeout: cancel remaining slow tickers in this batch
-                            skipped_in_batch = [futures[f] for f in pending]
-                            for future in pending:
-                                future.cancel()
-                            pbar.update(len(pending))
-                            break
+                    if not done and pending:
+                        # Timeout: cancel remaining slow tickers in this batch
+                        skipped_in_batch = [futures[f] for f in pending]
+                        for future in pending:
+                            future.cancel()
+                        pbar.update(len(pending))
+                        break
 
-                        for future in done:
-                            pbar.update(1)
-                            try:
-                                ticker, df = future.result(timeout=0)
-                                if df is not None and not df.empty:
-                                    results[ticker] = df
-                            except Exception as e:
-                                ticker = futures[future]
-                                self.logger.debug(f"FDR history failed for {ticker}: {e}")
+                    for future in done:
+                        pbar.update(1)
+                        try:
+                            ticker, df = future.result(timeout=0)
+                            if df is not None and not df.empty:
+                                results[ticker] = df
+                        except Exception as e:
+                            ticker = futures[future]
+                            self.logger.debug(f"FDR history failed for {ticker}: {e}")
 
-                    if skipped_in_batch:
-                        self.logger.warning(
-                            f"FDR history batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
-                        )
+                if skipped_in_batch:
+                    self.logger.warning(
+                        f"FDR history batch {i // batch_size + 1}: skipped {len(skipped_in_batch)} slow tickers"
+                    )
 
         finally:
+            # Shutdown executor without waiting for pending tasks
+            executor.shutdown(wait=False, cancel_futures=True)
             # Restore original socket timeout
             socket.setdefaulttimeout(old_timeout)
             pbar.close()
@@ -637,7 +550,7 @@ class KRCollector(BaseCollector):
         """
         Fetch KOSPI index history for Beta calculation.
 
-        Uses yfinance for KOSPI index since FDR requires KRX login.
+        Uses FDR (FinanceDataReader) for KOSPI index data.
 
         Args:
             days: Number of days of history
@@ -650,71 +563,14 @@ class KRCollector(BaseCollector):
         end_date = today.strftime("%Y-%m-%d")
 
         try:
-            # Use yfinance for KOSPI (^KS11)
-            kospi = yf.download("^KS11", start=start_date, end=end_date, progress=False)
-            if not kospi.empty:
+            kospi = fdr.DataReader("KS11", start_date, end_date)
+            if kospi is not None and not kospi.empty:
                 self.logger.info(f"Fetched KOSPI history: {len(kospi)} rows")
                 return kospi
         except Exception as e:
-            self.logger.warning(f"Failed to fetch KOSPI from yfinance: {e}")
-
-        # Fallback: try FDR (may fail due to KRX login requirement)
-        try:
-            kospi = fdr.DataReader("KS11", start_date, end_date)
-            if not kospi.empty:
-                self.logger.info(f"Fetched KOSPI history via FDR: {len(kospi)} rows")
-                return kospi
-        except Exception as e:
-            self.logger.debug(f"FDR KOSPI failed: {e}")
+            self.logger.warning(f"Failed to fetch KOSPI from FDR: {e}")
 
         return pd.DataFrame()
-
-    def _fetch_prices_pykrx(self, tickers: list[str]) -> dict[str, dict]:
-        """Fallback: Fetch prices from pykrx (may fail if KRX requires login)."""
-        results: dict[str, dict] = {}
-
-        if not PYKRX_AVAILABLE or pykrx is None:
-            return results
-
-        # Find the most recent trading day
-        market_df = None
-        trading_date = None
-
-        for i in range(7):
-            day = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
-            try:
-                df = pykrx.get_market_cap(day)
-                if not df.empty and df["시가총액"].sum() > 0:
-                    market_df = df
-                    trading_date = day
-                    break
-            except Exception:
-                continue
-
-        if market_df is None or trading_date is None:
-            self.logger.warning("pykrx fallback: Could not fetch market data")
-            return results
-
-        self.logger.info(f"pykrx: Fetched bulk market data for {len(market_df)} stocks")
-
-        # Fetch fundamentals (PER, PBR, EPS, BPS)
-        self._fundamentals = self._fetch_pykrx_fundamentals(trading_date)
-
-        formatted_date = f"{trading_date[:4]}-{trading_date[4:6]}-{trading_date[6:8]}"
-
-        for ticker in tickers:
-            if ticker in market_df.index:
-                row = market_df.loc[ticker]
-                results[ticker] = {
-                    "date": formatted_date,
-                    "close": int(row["종가"]) if pd.notna(row["종가"]) else None,
-                    "volume": int(row["거래량"]) if pd.notna(row["거래량"]) else None,
-                    "market_cap": int(row["시가총액"])
-                    if pd.notna(row["시가총액"])
-                    else None,
-                }
-
-        return results
 
     def _print_phase_header(self, phase: int, description: str, total: int) -> None:
         """Print phase start header.
@@ -804,10 +660,9 @@ class KRCollector(BaseCollector):
         auto_retry: bool = True,
     ) -> dict:
         """
-        Collect Korean stock data (yfinance-free).
+        Collect Korean stock data.
 
-        This method uses FDR + Naver Finance for all data collection,
-        avoiding yfinance rate limit issues.
+        Uses FDR + KIS API + Naver Finance for all data collection.
 
         Args:
             tickers: List of tickers to collect (default: all from CSV)
@@ -967,8 +822,7 @@ class KRCollector(BaseCollector):
                 },
             )
 
-        # Phase 4: Calculate technicals from FDR history (no yfinance needed!)
-        # yfinance is now optional - only for ROE/ROA/margins if needed
+        # Phase 4: Calculate technicals from FDR history
         self._print_phase_header(4, "기술적 지표 계산", len(history_data))
         self.logger.info("Phase 4: Calculating technicals from FDR history...")
 

@@ -26,44 +26,15 @@ Usage:
 
 from __future__ import annotations
 
-import math
-import os
 import sys
 from pathlib import Path
 
 import pandas as pd
-from dotenv import load_dotenv
 from tqdm import tqdm
 
-from supabase import Client, create_client
+from supabase import Client
 
-
-def safe_float(value: float | None, max_abs: float | None = None) -> float | None:
-    """Convert value to JSON-safe float (handles inf/nan).
-
-    Args:
-        value: The value to convert
-        max_abs: Optional maximum absolute value (clamp to None if exceeded)
-    """
-    if value is None or pd.isna(value):
-        return None
-    if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
-        return None
-    result = float(value)
-    # Clamp extreme values to avoid numeric overflow
-    if max_abs is not None and abs(result) >= max_abs:
-        return None
-    return result
-
-
-def safe_int(value: int | float | None) -> int | None:
-    """Convert value to int (handles nan)."""
-    if value is None or pd.isna(value):
-        return None
-    return int(value)
-
-
-load_dotenv()
+from common.utils import get_supabase_client, safe_float, safe_int
 
 # Data directory paths
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -71,15 +42,6 @@ COMPANIES_DIR = DATA_DIR / "companies"
 
 # Batch size for Supabase upsert (limit ~1000)
 BATCH_SIZE = 500
-
-
-def get_supabase_client() -> Client:
-    """Initialize and return Supabase client."""
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
-    if not url or not key:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
-    return create_client(url, key)
 
 
 def find_data_directory(

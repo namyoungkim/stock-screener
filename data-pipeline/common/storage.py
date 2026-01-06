@@ -6,67 +6,21 @@ This module provides a unified interface for:
 """
 
 import logging
-import math
-import os
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from dotenv import load_dotenv
 
-from supabase import Client, create_client
+from supabase import Client
 
 from .config import COMPANIES_DIR, DATA_DIR, DATE_FORMAT
-
-load_dotenv()
+from .utils import get_supabase_client, safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
-
-def get_supabase_client() -> Client:
-    """Initialize and return Supabase client."""
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
-
-    if not url or not key:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in environment")
-
-    return create_client(url, key)
-
-
-def safe_float(value: Any, max_abs: float | None = None) -> float | None:
-    """
-    Convert value to JSON-safe float (handles inf/nan).
-
-    Args:
-        value: The value to convert
-        max_abs: Optional maximum absolute value (returns None if exceeded)
-
-    Returns:
-        Float value or None if invalid
-    """
-    if value is None or pd.isna(value):
-        return None
-    if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
-        return None
-    try:
-        result = float(value)
-        if max_abs is not None and abs(result) >= max_abs:
-            return None
-        return result
-    except (ValueError, TypeError):
-        return None
-
-
-def safe_int(value: Any) -> int | None:
-    """Convert value to int (handles nan)."""
-    if value is None or pd.isna(value):
-        return None
-    try:
-        return int(value)
-    except (ValueError, TypeError):
-        return None
+# Re-export for backwards compatibility
+__all__ = ["StorageManager", "get_supabase_client", "safe_float", "safe_int"]
 
 
 class StorageManager:

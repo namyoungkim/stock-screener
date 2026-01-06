@@ -16,15 +16,16 @@ stock-screener/
 ├── data-pipeline/        # 데이터 수집 스크립트
 │   ├── pyproject.toml    # 파이프라인 의존성
 │   ├── collectors/
-│   │   ├── base.py       # BaseCollector 추상 클래스
+│   │   ├── base.py       # BaseCollector 추상 클래스 (US만 사용)
 │   │   ├── us_stocks.py  # 미국 주식 수집 (NYSE + NASDAQ 전체)
-│   │   └── kr_stocks.py  # 한국 주식 수집 (KOSPI + KOSDAQ)
+│   │   └── kr_stocks.py  # 한국 주식 수집 (독립 클래스, yfinance/pykrx 없음)
 │   ├── common/           # 공통 모듈
+│   │   ├── utils.py      # 공통 유틸리티 (safe_float, safe_int, get_supabase_client)
 │   │   ├── config.py     # 설정 상수 (KIS API, FDR 등)
 │   │   ├── logging.py    # 로거 + CollectionProgress
 │   │   ├── retry.py      # @with_retry 데코레이터
 │   │   ├── indicators.py # 기술적 지표 계산 (RSI, MACD, BB, Beta, MA)
-│   │   ├── storage.py    # StorageManager
+│   │   ├── storage.py    # StorageManager (utils에서 import)
 │   │   ├── session.py    # curl_cffi 브라우저 세션 (TLS fingerprinting 우회)
 │   │   ├── rate_limit.py # Rate Limit 감지 + ProgressTracker + FailureType
 │   │   ├── naver_finance.py # Naver Finance 크롤러 (KR 기초지표)
@@ -48,7 +49,7 @@ stock-screener/
 - 저장: Supabase + CSV
 - 옵션: `--index-only`로 S&P + Russell만 수집 (~2,800개)
 
-**한국 주식** (~2,800개) - **yfinance 없음 (2026.01 업데이트)**:
+**한국 주식** (~2,800개) - **yfinance/pykrx 완전 제거 (2026.01)**:
 - 티커 소스: CSV (`kr_companies.csv`)
 - 가격 + 10개월 OHLCV: FinanceDataReader (네이버 금융)
 - 기초지표: Naver Finance 크롤링 (`NaverFinanceClient`)
@@ -56,12 +57,13 @@ stock-screener/
 - 기술적 지표: 로컬 계산 (`indicators.py`)
   - RSI, MACD, Bollinger Bands, MFI, Volume Change
   - MA50, MA200 (FDR 히스토리에서 계산)
-  - Beta (KOSPI 대비, FDR + yfinance 인덱스)
+  - Beta (KOSPI 대비, FDR KS11 인덱스)
   - 52주 고/저 (FDR 히스토리에서 계산)
 - 저장: Supabase + CSV
+- **독립 클래스**: BaseCollector 상속 없음
 
-> **Note**: 2026.01부터 yfinance Rate Limit 문제로 KR 수집에서 yfinance 완전 제거.
-> KOSPI 인덱스만 yfinance 사용 (Beta 계산용, FDR 실패 시 fallback).
+> **Note**: 2026.01부터 yfinance/pykrx Rate Limit 문제로 KR 수집에서 완전 제거.
+> KOSPI 인덱스도 FDR만 사용 (KS11).
 
 **데이터 파이프라인** (`./scripts/collect-and-backup.sh`):
 1. KR 수집 (품질검사 + 자동재수집)
@@ -153,7 +155,7 @@ stock-screener/
 - 데이터 파이프라인:
   - 공통: pandas, supabase-py, beautifulsoup4
   - US: yfinance, curl-cffi (TLS 우회)
-  - KR: FinanceDataReader, aiohttp (Naver 크롤링)
+  - KR: FinanceDataReader, aiohttp (Naver 크롤링) - yfinance/pykrx 미사용
 - 데이터베이스: Supabase (PostgreSQL)
 
 ## 하이브리드 저장 전략

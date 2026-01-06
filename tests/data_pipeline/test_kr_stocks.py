@@ -81,15 +81,14 @@ class TestGetTickers:
         # All our sample data is KOSPI
         assert len(tickers) == 5
 
-    def test_empty_csv_fallback(self, collector, tmp_path):
-        """Return empty list when CSV is empty and pykrx unavailable."""
+    def test_empty_csv_returns_empty_list(self, collector, tmp_path):
+        """Return empty list when CSV is empty."""
         csv_path = tmp_path / "companies" / "kr_companies.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         csv_path.write_text("ticker,name,market\n")  # Empty
 
         with patch("collectors.kr_stocks.COMPANIES_DIR", csv_path.parent):
-            with patch("collectors.kr_stocks.PYKRX_AVAILABLE", False):
-                tickers = collector.get_tickers()
+            tickers = collector.get_tickers()
 
         assert tickers == []
 
@@ -193,32 +192,28 @@ class TestFetchFdrHistory:
 class TestFetchKospiHistory:
     """Tests for fetch_kospi_history() method."""
 
-    def test_successful_fetch_from_yfinance(self, collector):
-        """Successfully fetch KOSPI from yfinance."""
+    def test_successful_fetch_from_fdr(self, collector):
+        """Successfully fetch KOSPI from FDR."""
         mock_kospi = create_mock_kospi_df(days=300)
 
-        with patch("collectors.kr_stocks.yf.download", return_value=mock_kospi):
+        with patch("collectors.kr_stocks.fdr.DataReader", return_value=mock_kospi):
             result = collector.fetch_kospi_history(days=300)
 
         assert not result.empty
         assert len(result) == 300
         assert "Close" in result.columns
 
-    def test_fallback_to_fdr(self, collector):
-        """Fallback to FDR when yfinance fails."""
-        mock_kospi = create_mock_kospi_df(days=300)
+    def test_returns_empty_on_failure(self, collector):
+        """Return empty DataFrame when FDR fails."""
+        with patch("collectors.kr_stocks.fdr.DataReader", side_effect=Exception("Failed")):
+            result = collector.fetch_kospi_history(days=300)
 
-        with patch("collectors.kr_stocks.yf.download", return_value=pd.DataFrame()):
-            with patch("collectors.kr_stocks.fdr.DataReader", return_value=mock_kospi):
-                result = collector.fetch_kospi_history(days=300)
+        assert result.empty
 
-        assert not result.empty
-
-    def test_returns_empty_on_all_failures(self, collector):
-        """Return empty DataFrame when all sources fail."""
-        with patch("collectors.kr_stocks.yf.download", side_effect=Exception("Failed")):
-            with patch("collectors.kr_stocks.fdr.DataReader", side_effect=Exception("Failed")):
-                result = collector.fetch_kospi_history(days=300)
+    def test_returns_empty_on_none_response(self, collector):
+        """Return empty DataFrame when FDR returns None."""
+        with patch("collectors.kr_stocks.fdr.DataReader", return_value=None):
+            result = collector.fetch_kospi_history(days=300)
 
         assert result.empty
 
@@ -367,11 +362,12 @@ class TestPhaseTransitions:
         collected_data = {}
 
         def mock_fdr_datareader(ticker, start, end):
+            # Handle KOSPI index (KS11) separately
+            if ticker == "KS11":
+                return create_mock_kospi_df(days=300)
             df = create_mock_ohlcv_df(ticker, days=300)
             collected_data[f"fdr_{ticker}"] = len(df)
             return df
-
-        mock_kospi = create_mock_kospi_df(days=300)
 
         mock_kis_client = MagicMock()
         mock_kis_client.is_configured.return_value = False
@@ -392,7 +388,6 @@ class TestPhaseTransitions:
         with (
             patch("collectors.kr_stocks.COMPANIES_DIR", mock_companies_csv.parent),
             patch("collectors.kr_stocks.fdr.DataReader", side_effect=mock_fdr_datareader),
-            patch("collectors.kr_stocks.yf.download", return_value=mock_kospi),
             patch("collectors.kr_stocks.KISClient", return_value=mock_kis_client),
             patch("collectors.kr_stocks.NaverFinanceClient", return_value=mock_naver_client),
         ):
@@ -425,9 +420,10 @@ class TestCollectIntegration:
         """Test collection in test mode (3 tickers)."""
         # Mock all external dependencies
         def mock_fdr_datareader(ticker, start, end):
+            # Handle KOSPI index (KS11) separately
+            if ticker == "KS11":
+                return create_mock_kospi_df(days=300)
             return create_mock_ohlcv_df(ticker, days=300)
-
-        mock_kospi = create_mock_kospi_df(days=300)
 
         # Mock KIS client
         mock_kis_client = MagicMock()
@@ -448,7 +444,6 @@ class TestCollectIntegration:
         with (
             patch("collectors.kr_stocks.COMPANIES_DIR", mock_companies_csv.parent),
             patch("collectors.kr_stocks.fdr.DataReader", side_effect=mock_fdr_datareader),
-            patch("collectors.kr_stocks.yf.download", return_value=mock_kospi),
             patch("collectors.kr_stocks.KISClient", return_value=mock_kis_client),
             patch("collectors.kr_stocks.NaverFinanceClient", return_value=mock_naver_client),
         ):
@@ -471,9 +466,10 @@ class TestCollectIntegration:
         completed_tickers = {"005930", "000660"}
 
         def mock_fdr_datareader(ticker, start, end):
+            # Handle KOSPI index (KS11) separately
+            if ticker == "KS11":
+                return create_mock_kospi_df(days=300)
             return create_mock_ohlcv_df(ticker, days=300)
-
-        mock_kospi = create_mock_kospi_df(days=300)
 
         mock_kis_client = MagicMock()
         mock_kis_client.is_configured.return_value = False
@@ -492,7 +488,6 @@ class TestCollectIntegration:
         with (
             patch("collectors.kr_stocks.COMPANIES_DIR", mock_companies_csv.parent),
             patch("collectors.kr_stocks.fdr.DataReader", side_effect=mock_fdr_datareader),
-            patch("collectors.kr_stocks.yf.download", return_value=mock_kospi),
             patch("collectors.kr_stocks.KISClient", return_value=mock_kis_client),
             patch("collectors.kr_stocks.NaverFinanceClient", return_value=mock_naver_client),
         ):
@@ -542,11 +537,6 @@ class TestEdgeCases:
         """Test collector with ALL markets."""
         collector = KRCollector(market="ALL", save_db=False, save_csv=False)
         assert collector.market == "ALL"
-
-    def test_fetch_stock_info_returns_none(self, collector):
-        """fetch_stock_info returns None (compatibility method)."""
-        result = collector.fetch_stock_info("005930")
-        assert result is None
 
     def test_extract_trading_date_from_prices(self, collector):
         """Extract trading date from price data."""
