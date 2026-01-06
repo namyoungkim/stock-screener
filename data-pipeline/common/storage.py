@@ -457,6 +457,106 @@ class StorageManager:
             logger.warning(f"Error loading completed tickers from {metrics_file}: {e}")
             return set()
 
+    # ============================================================
+    # Batch Upsert Methods (100x faster than individual upserts)
+    # ============================================================
+
+    def upsert_companies_batch(
+        self,
+        records: list[dict],
+        batch_size: int = 100,
+    ) -> int:
+        """
+        Batch upsert companies to Supabase.
+
+        Args:
+            records: List of company dictionaries with keys:
+                     ticker, name, market, sector, industry, currency
+            batch_size: Number of records per API call
+
+        Returns:
+            Number of records upserted
+        """
+        if not self.client or not records:
+            return 0
+
+        count = 0
+        for i in range(0, len(records), batch_size):
+            batch = records[i : i + batch_size]
+            try:
+                self.client.table("companies").upsert(
+                    batch, on_conflict="ticker,market"
+                ).execute()
+                count += len(batch)
+            except Exception as e:
+                logger.error(f"Error batch upserting companies: {e}")
+
+        return count
+
+    def upsert_metrics_batch(
+        self,
+        records: list[dict],
+        batch_size: int = 100,
+    ) -> int:
+        """
+        Batch upsert metrics to Supabase.
+
+        Args:
+            records: List of metrics dictionaries with keys:
+                     company_id, date, data_source, and metric fields
+            batch_size: Number of records per API call
+
+        Returns:
+            Number of records upserted
+        """
+        if not self.client or not records:
+            return 0
+
+        count = 0
+        for i in range(0, len(records), batch_size):
+            batch = records[i : i + batch_size]
+            try:
+                self.client.table("metrics").upsert(
+                    batch, on_conflict="company_id,date"
+                ).execute()
+                count += len(batch)
+            except Exception as e:
+                logger.error(f"Error batch upserting metrics: {e}")
+
+        return count
+
+    def upsert_prices_batch(
+        self,
+        records: list[dict],
+        batch_size: int = 100,
+    ) -> int:
+        """
+        Batch upsert prices to Supabase.
+
+        Args:
+            records: List of price dictionaries with keys:
+                     company_id, date, open, high, low, close, volume, market_cap
+            batch_size: Number of records per API call
+
+        Returns:
+            Number of records upserted
+        """
+        if not self.client or not records:
+            return 0
+
+        count = 0
+        for i in range(0, len(records), batch_size):
+            batch = records[i : i + batch_size]
+            try:
+                self.client.table("prices").upsert(
+                    batch, on_conflict="company_id,date"
+                ).execute()
+                count += len(batch)
+            except Exception as e:
+                logger.error(f"Error batch upserting prices: {e}")
+
+        return count
+
     def get_company_id_mapping(
         self, market: str | None = None
     ) -> dict[tuple[str, str], str]:

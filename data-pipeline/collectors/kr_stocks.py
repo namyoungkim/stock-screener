@@ -906,6 +906,9 @@ class KRCollector:
         all_metrics: list[dict] = []
         all_prices: list[dict] = []
 
+        # Cache default date outside loop (optimization: avoid calling date.today() 2800 times)
+        default_date = date.today().isoformat()
+
         for ticker in valid_tickers:
             try:
                 name = self._ticker_names.get(ticker, "")
@@ -991,7 +994,7 @@ class KRCollector:
                     all_metrics.append(
                         {
                             "ticker": ticker,
-                            "date": price_data.get("date", date.today().isoformat()),
+                            "date": price_data.get("date") or default_date,
                             "market": mkt,
                             **{
                                 k: v

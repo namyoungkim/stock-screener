@@ -467,8 +467,8 @@ class USCollector:
                                 if pd.notna(row.get("Volume"))
                                 else None,
                             }
-                    except Exception:
-                        pass
+                    except (KeyError, IndexError, TypeError) as e:
+                        self.logger.debug(f"Price extraction error for {ticker}: {e}")
 
                 # Sleep between batches
                 time.sleep(0.5 + random.uniform(0, 0.5))

@@ -4,9 +4,12 @@ This module contains all technical indicator functions used by both US and KR co
 All functions are pure and only depend on pandas DataFrames.
 """
 
+import logging
 import math
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_graham_number(eps: float | None, bvps: float | None) -> float | None:
@@ -58,7 +61,8 @@ def calculate_rsi(hist: pd.DataFrame, period: int = 14) -> float | None:
         rs = gain.iloc[-1] / loss.iloc[-1]
         rsi = 100 - (100 / (1 + rs))
         return round(rsi, 2)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"RSI calculation failed: {e}")
         return None
 
 
@@ -85,7 +89,8 @@ def calculate_volume_change(hist: pd.DataFrame, period: int = 20) -> float | Non
 
         change_rate = ((current_volume / avg_volume) - 1) * 100
         return round(change_rate, 2)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Volume change calculation failed: {e}")
         return None
 
 
@@ -134,7 +139,8 @@ def calculate_macd(
             "macd_signal": round(signal_line.iloc[-1], 4),
             "macd_histogram": round(histogram.iloc[-1], 4),
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"MACD calculation failed: {e}")
         return None
 
 
@@ -190,7 +196,8 @@ def calculate_bollinger_bands(
             "bb_lower": round(lower_val, 2),
             "bb_percent": round(percent_b * 100, 2),  # As percentage
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Bollinger Bands calculation failed: {e}")
         return None
 
 
@@ -239,7 +246,8 @@ def calculate_mfi(hist: pd.DataFrame, period: int = 14) -> float | None:
             return None
 
         return round(result, 2)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"MFI calculation failed: {e}")
         return None
 
 
@@ -324,7 +332,8 @@ def calculate_moving_averages(
             long_ma = round(close.iloc[-long_period:].mean(), 2)
 
         return short_ma, long_ma
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Moving averages calculation failed: {e}")
         return None, None
 
 
@@ -395,7 +404,8 @@ def calculate_beta(
 
         beta = covariance / variance
         return round(beta, 4)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Beta calculation failed: {e}")
         return None
 
 
@@ -430,7 +440,8 @@ def calculate_52_week_high_low(hist: pd.DataFrame) -> tuple[float | None, float 
             low_52w = None
 
         return high_52w, low_52w
-    except Exception:
+    except Exception as e:
+        logger.debug(f"52-week high/low calculation failed: {e}")
         return None, None
 
 
