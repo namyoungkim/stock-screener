@@ -13,27 +13,38 @@ stock-screener/
 │       ├── models/       # Pydantic 모델
 │       ├── services/     # 비즈니스 로직
 │       └── core/         # 설정 및 유틸리티
-├── data-pipeline/        # 데이터 수집 스크립트
+├── data-pipeline/        # 데이터 수집 파이프라인
 │   ├── pyproject.toml    # 파이프라인 의존성
-│   ├── collectors/
-│   │   ├── us_stocks.py  # 미국 주식 수집 (독립 클래스, yfinance 사용)
-│   │   └── kr_stocks.py  # 한국 주식 수집 (독립 클래스, yfinance/pykrx 없음)
+│   ├── cli/              # Typer CLI (Shell script 대체)
+│   │   ├── main.py       # CLI 진입점 (collect, backup, load, update-tickers)
+│   │   └── tickers.py    # 티커 유니버스 업데이트
+│   ├── collectors/       # 수집기 (Template Method 패턴)
+│   │   ├── base.py       # BaseCollector 추상 클래스
+│   │   ├── us_collector.py  # US 수집기 (yfinance)
+│   │   └── kr_collector.py  # KR 수집기 (FDR + Naver)
+│   ├── sources/          # 데이터 소스 추상화
+│   │   ├── base.py       # DataSource 프로토콜
+│   │   ├── yfinance_source.py  # yfinance 래퍼 (US)
+│   │   └── fdr_source.py       # FDR + Naver (KR)
+│   ├── storage/          # 저장소 추상화
+│   │   ├── base.py       # Storage 프로토콜, VersionedPath
+│   │   ├── csv_storage.py      # CSV 저장
+│   │   └── supabase_storage.py # Supabase 저장 (Composite 지원)
+│   ├── rate_limit/       # Rate Limit 인프라
+│   │   ├── strategies.py # RateLimitStrategy 프로토콜 + 구현체
+│   │   └── progress.py   # ProgressTracker (resume 지원)
+│   ├── config/           # 설정 (Pydantic Settings)
+│   │   ├── settings.py   # Settings 클래스 (사이드이펙트 없음)
+│   │   └── constants.py  # 상수 (경로, 배치 크기 등)
 │   ├── common/           # 공통 모듈
-│   │   ├── utils.py      # 공통 유틸리티 (safe_float, safe_int, get_supabase_client)
-│   │   ├── config.py     # 설정 상수 (KIS API, FDR 등)
-│   │   ├── logging.py    # 로거 + CollectionProgress
-│   │   ├── retry.py      # @with_retry 데코레이터
-│   │   ├── indicators.py # 기술적 지표 계산 (RSI, MACD, BB, Beta, MA)
-│   │   ├── storage.py    # StorageManager (utils에서 import)
-│   │   ├── session.py    # curl_cffi 브라우저 세션 (TLS fingerprinting 우회)
-│   │   ├── rate_limit.py # Rate Limit 감지 + ProgressTracker + FailureType
-│   │   ├── naver_finance.py # Naver Finance 크롤러 (KR 기초지표)
-│   │   └── kis_client.py # KIS API 클라이언트 (KR/US 주식, 선택적)
+│   │   ├── utils.py      # 유틸리티 (safe_float, get_supabase_client)
+│   │   ├── indicators.py # 기술적 지표 계산 (RSI, MACD, BB, Beta)
+│   │   ├── naver_finance.py # Naver Finance 크롤러 (KR fallback)
+│   │   └── kis_client.py # KIS API 클라이언트 (KR primary)
 │   ├── loaders/
 │   │   └── csv_to_db.py  # CSV → Supabase 로딩
 │   └── processors/
-│       ├── validators.py    # MetricsValidator 데이터 검증
-│       └── quality_check.py # 수집 품질 검사 + 자동재수집
+│       └── validators.py # MetricsValidator 데이터 검증
 ├── frontend/             # Next.js 프론트엔드
 ├── discord-bot/          # 디스코드 인터페이스
 ├── tests/                # 테스트 디렉토리
@@ -60,22 +71,21 @@ stock-screener/
   - Beta (KOSPI 대비, FDR KS11 인덱스)
   - 52주 고/저 (KIS API 또는 FDR 히스토리)
 - 저장: Supabase + CSV
-- **독립 클래스**: BaseCollector 상속 없음
 
 > **Note**: 2026.01부터 yfinance/pykrx Rate Limit 문제로 KR 수집에서 완전 제거.
 > KIS API가 primary 소스, Naver Finance는 fallback으로 사용.
 
-**데이터 파이프라인** (`./scripts/collect-and-backup.sh`):
-1. KR 수집 (품질검사 + 자동재수집)
-2. US 수집 (품질검사 + 자동재수집)
-3. Google Drive 백업 (rclone)
-4. Supabase 적재 (csv_to_db)
+**데이터 파이프라인** (Python CLI):
+```bash
+cd data-pipeline
+uv run python -m cli.main collect all    # 전체 파이프라인
+```
 
-**자동 품질 검사**:
-- 유니버스 커버리지 (95% 이상)
-- 대형주 누락 검사 (US Major Top 15, KOSPI Top 10)
-- 지표 완성도 (PE, PB, ROE, RSI 등)
-- 누락 100개 이하 시 자동 재수집
+파이프라인 단계:
+1. KR 수집 (FDR + Naver)
+2. US 수집 (yfinance)
+3. Google Drive 백업 (rclone)
+4. Supabase 적재
 
 **수집 소요 시간** (로컬 Mac 기준):
 

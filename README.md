@@ -156,15 +156,16 @@ NEXT_PUBLIC_API_URL=http://localhost:8000  # 로컬
 로컬에서 수동으로 데이터를 수집하고 Google Drive에 백업합니다.
 
 ```bash
-./scripts/collect-and-backup.sh         # 전체 (KR → US → 백업)
-./scripts/collect-and-backup.sh kr      # KR만 + 백업
-./scripts/collect-and-backup.sh us      # US만 + 백업
-./scripts/collect-and-backup.sh kr --resume  # Rate Limit 후 재시작
+cd data-pipeline
+uv run python -m cli.main collect all       # 전체 (KR → US → 백업 → DB)
+uv run python -m cli.main collect kr        # KR만
+uv run python -m cli.main collect us        # US만
+uv run python -m cli.main collect all --resume  # Rate Limit 후 재시작
 ```
 
 | 항목 | 설명 |
 |------|------|
-| 수집 | 로컬 Mac에서 수동 실행 |
+| 수집 | 로컬 Mac에서 수동 실행 또는 LaunchAgent 자동화 |
 | 백업 | rclone → Google Drive |
 | Rate Limit | 자동 감지 후 진행 저장, `--resume`으로 재시작 |
 

@@ -32,24 +32,24 @@ git add . && git commit -m "변경 내용" && git push
 
 ## 데이터 수집 인프라
 
-### 현재: 로컬 통합 파이프라인 (자동화)
+### 현재: Python CLI 파이프라인 (자동화)
 
 ```bash
-./scripts/collect-and-backup.sh         # 전체 (KR → US → 백업 → DB)
-./scripts/collect-and-backup.sh --no-db # DB 적재 제외
+cd data-pipeline
+uv run python -m cli.main collect all       # 전체 (KR → US → 백업 → DB)
+uv run python -m cli.main collect all --no-db  # DB 적재 제외
 ```
 
 **파이프라인 단계:**
-1. KR 수집 (품질검사 + 자동재수집)
-2. US 수집 (품질검사 + 자동재수집)
+1. KR 수집 (FDR + Naver)
+2. US 수집 (yfinance)
 3. Google Drive 백업 (rclone)
-4. Supabase 적재 (csv_to_db)
+4. Supabase 적재
 
 | 항목 | 설명 |
 |------|------|
 | 수집 | 로컬 Mac에서 자동 실행 (LaunchAgent) |
 | 스케줄 | 화~토 오전 8시 (미국장 마감 후) |
-| 품질검사 | 유니버스 커버리지 95%, 대형주 누락 검사 |
 | 백업 | rclone → Google Drive |
 | DB 적재 | CSV → Supabase (companies, metrics, prices) |
 | 장점 | 빠른 속도, 무료, Rate Limit 회피 용이, 자동화 |
@@ -70,11 +70,17 @@ git add . && git commit -m "변경 내용" && git push
     <array>
         <string>/usr/bin/caffeinate</string>
         <string>-i</string>
-        <string>/Users/leo/project/stock-screener/scripts/collect-and-backup.sh</string>
+        <string>/Users/leo/.local/bin/uv</string>
+        <string>run</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>cli.main</string>
+        <string>collect</string>
+        <string>all</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/leo/project/stock-screener</string>
+    <string>/Users/leo/project/stock-screener/data-pipeline</string>
 
     <!-- 화~토 오전 8시 (미국장 마감 후) -->
     <key>StartCalendarInterval</key>

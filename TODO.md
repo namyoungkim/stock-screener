@@ -1,8 +1,18 @@
 # TODO - 개선 필요 사항
 
-> 마지막 업데이트: 2026-01-04
+> 마지막 업데이트: 2026-01-08
 
-## 0. 최근 완료 (2026-01-04)
+## 0. 최근 완료 (2026-01-08)
+
+- [x] **데이터 파이프라인 전면 재작성**
+  - Python CLI로 Shell script 대체 (`cli/main.py`)
+  - Template Method 패턴 Collectors (`base.py`, `us_collector.py`, `kr_collector.py`)
+  - 데이터 소스/저장소/Rate Limit 추상화
+  - Pydantic Settings 도입
+  - `update-tickers` 명령 추가 (KR/US 티커 유니버스 업데이트)
+  - LaunchAgent plist CLI로 변경
+
+## 0.1. 이전 완료 (2026-01-04)
 
 - [x] **데이터 디렉토리 날짜 기준 변경** (PR #29)
   - 실행일 → 거래일 기준으로 변경
@@ -11,7 +21,7 @@
 - [x] **린트 경고 수정** - kr_stocks.py 코드 정리, pkg_resources 경고 필터링
 - [x] **data/README.md 업데이트** (PR #30) - 현재 디렉토리 구조 반영
 
-## 0.1. 이전 완료 (2026-01-01)
+## 0.2. 이전 완료 (2026-01-01)
 
 - [x] **프론트엔드 개선** (PR #15, #16, #17)
   - 검색 기능 버그 수정 (프리셋/필터 사용 시 검색어 무시 문제)
@@ -20,7 +30,7 @@
   - 필터 패널 토글 버튼 (모바일 반응형)
   - 한글 IME 입력 수정 (모바일 자음 중복 문제 해결)
 
-## 0.2. 이전 완료 (2025-12-29)
+## 0.3. 이전 완료 (2025-12-29)
 
 - [x] **Phase 3.5: 투자 인사이트 (규칙 기반)**
   - 종합 투자 점수 계산 (`lib/scoring.ts`) - P/E, P/B, ROE, D/E, RSI, Graham, MA Trend, MACD 기반
@@ -36,7 +46,7 @@
 - [x] **입력 검증 강화** - MetricType Enum 화이트리스트, UUID/범위/길이 검증
 - [x] **API 키 노출 방지** - 환경변수 검증, 로그 마스킹, DB 연결 검증
 
-## 0.3. 이전 완료 (2025-12-28)
+## 0.4. 이전 완료 (2025-12-28)
 
 - [x] **워크플로우 일일 실행으로 변경**
   - 데이터 수집: 평일 매일 00:00 UTC (09:00 KST)
@@ -145,34 +155,21 @@
 
 ## 1. 데이터 파이프라인
 
-### US 수집기 (`data-pipeline/collectors/us_stocks.py`)
+### 새 아키텍처 (2026-01 리팩토링)
 
-- [x] Supabase 저장 로직 구현
-- [x] Rate limiting 대응 (sleep, 재시도 로직)
-- [x] `--dry-run` 모드 추가 (DB 없이 테스트)
-- [x] 진행률 로깅 개선
-- [x] 배치 처리 (실패 시 이어서 수집) - `--resume` 플래그
-- [x] 데이터 검증 (null 체크, 이상치 필터링) - MetricsValidator
-
-### KR 수집기 (`data-pipeline/collectors/kr_stocks.py`)
-
-- [x] `get_krx_tickers()` 구현 (pykrx 활용)
-- [x] ~~corp_code 조회 로직 구현~~ (DART 제거됨)
-- [x] ~~`get_financial_statements()` 실제 데이터 추출 로직 구현~~ (DART 제거됨)
-- [x] pykrx 펀더멘탈 데이터 (PER, PBR, EPS, BPS)
-- [x] yfinance 재무 지표 (ROE, ROA, Margins, D/E, Current Ratio)
-- [x] Supabase 저장 로직 구현
-- [x] `--dry-run` 모드 추가 (DB 없이 테스트)
+- [x] Python CLI 파이프라인 (`cli/main.py`) - Shell script 대체
+- [x] Template Method 패턴 Collectors (`collectors/base.py`, `us_collector.py`, `kr_collector.py`)
+- [x] 데이터 소스 추상화 (`sources/yfinance_source.py`, `fdr_source.py`)
+- [x] 저장소 추상화 (`storage/csv_storage.py`, `supabase_storage.py`)
+- [x] Rate Limit 전략 패턴 (`rate_limit/strategies.py`)
+- [x] Pydantic Settings (`config/settings.py`)
+- [x] 티커 유니버스 업데이트 명령 (`cli/tickers.py`)
 
 ### 공통
 
-- [x] `data-pipeline/collectors/base.py` - BaseCollector 추상 클래스
-- [x] `data-pipeline/common/` - 공통 모듈 패키지
-  - `config.py` - 설정 상수
-  - `logging.py` - 로거 + CollectionProgress
-  - `retry.py` - @with_retry 데코레이터, RetryQueue
-  - `indicators.py` - 기술적 지표 계산 함수
-  - `storage.py` - StorageManager (Supabase + CSV)
+- [x] `data-pipeline/common/indicators.py` - 기술적 지표 계산 함수
+- [x] `data-pipeline/common/naver_finance.py` - Naver Finance 크롤러 (KR fallback)
+- [x] `data-pipeline/common/kis_client.py` - KIS API 클라이언트 (KR primary)
 - [x] `data-pipeline/processors/validators.py` - MetricsValidator 데이터 검증
 
 ---
@@ -323,9 +320,8 @@
 > 아키텍처: `docs/PRD.md` 8절 참조
 
 1. ~~US 티커 유니버스 확장 (~2,800 → ~6,000)~~ ✅
-   - [x] NASDAQ FTP 연동 (`get_all_us_tickers()` 재작성)
-   - [x] CLI 옵션 추가 (`--index-only`)
-   - [x] 품질검사 업데이트 (`US_MAJOR_TICKERS` 재정의)
+   - [x] NASDAQ FTP 연동 (US 수집기에서 런타임 fetch)
+   - [x] `update-tickers` CLI 명령 추가 (KR/US 티커 목록 업데이트)
    - [x] 문서 업데이트
    > 완료: `.claude/rules/ticker-strategy.md`
 
