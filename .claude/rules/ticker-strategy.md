@@ -71,11 +71,13 @@
 
 ## CLI 옵션
 
-| 옵션 | 동작 |
-|------|------|
-| (기본) | 전체 시장 수집 |
-| `--sp500` | S&P 500만 (기존) |
-| `--index-only` | S&P 500/400/600 + Russell 2000 (기존 동작) |
+```bash
+cd data-pipeline
+uv run python -m cli.main collect us              # 전체 시장 수집 (기본)
+uv run python -m cli.main collect us --test       # 테스트 (3개 티커)
+uv run python -m cli.main collect us --limit 500  # 500개 티커만
+uv run python -m cli.main update-tickers us       # 티커 유니버스 업데이트
+```
 
 ---
 
@@ -100,8 +102,8 @@
 
 | 파일 | 변경 내용 |
 |------|----------|
-| `collectors/us_stocks.py` | `get_all_us_tickers()` 재작성, NASDAQ FTP 사용 |
-| `processors/quality_check.py` | `US_MAJOR_TICKERS` 재정의 |
+| `collectors/us_collector.py` | USCollector, NASDAQ FTP 사용 |
+| `cli/tickers.py` | `update-tickers` 명령 (티커 유니버스 업데이트) |
 
 ### 문서
 

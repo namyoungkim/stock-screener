@@ -65,9 +65,9 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 
 **구현됨**:
 - 미국/한국 주식 데이터 수집기 (US ~6,000개 + KR ~2,800개 = ~9,000개)
-- 통합 데이터 파이프라인 (`./scripts/collect-and-backup.sh`)
-  - 수집 → 품질검사 → 자동재수집 → Google Drive 백업 → Supabase 적재
-- 품질검사 자동화 (유니버스 커버리지, 대형주 누락, 지표 완성도)
+- Python CLI 데이터 파이프라인 (`data-pipeline/cli/main.py`)
+  - 수집 → Google Drive 백업 → Supabase 적재
+  - `uv run python -m cli.main collect all` (Shell script 대체)
 - KR 수집기 (FDR + 네이버 금융, yfinance 제거 - Rate Limit 해결)
 - 기술적 지표 수집 (RSI, MFI, MACD, Bollinger Bands, Volume Change)
 - 가치투자 지표 (EPS, BPS, Graham Number)

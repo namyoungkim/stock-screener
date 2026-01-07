@@ -10,83 +10,88 @@ uv sync
 uv run --package stock-screener-backend uvicorn app.main:app --reload
 ```
 
-## 데이터 파이프라인
+## 데이터 파이프라인 (CLI)
 
-### 미국 주식 수집
+> **Note**: 모든 파이프라인 명령은 `data-pipeline/` 디렉토리에서 실행합니다.
+
 ```bash
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks              # 전체 시장 (DB + CSV)
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --csv-only   # 전체 시장 (CSV만)
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --index-only # S&P + Russell만
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --sp500      # S&P 500만
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --test       # 테스트 (3개)
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --batch-size 5  # 배치 크기 지정
-uv run --package stock-screener-data-pipeline python -m collectors.us_stocks --tickers-file data/missing_tickers.txt  # 파일에서 티커 목록 읽기
+cd data-pipeline
 ```
 
-**티커 유니버스**:
-| 옵션 | 소스 | 종목 수 | 예상 시간 |
-|------|------|---------|----------|
-| (기본) | NASDAQ FTP (NYSE + NASDAQ) | ~6,000개 | ~1-1.5시간 |
-| `--index-only` | S&P 500/400/600 + Russell 2000 | ~2,800개 | ~30-45분 |
-| `--sp500` | S&P 500만 | ~500개 | ~10-15분 |
-
-**배치 크기 권장**:
-- 기본값: 10 (config.py의 `BATCH_SIZE_INFO`)
-- Rate limit 발생 시: 5로 낮춰서 재시도
-- 안정적인 환경: 15까지 증가 가능
-
-### 한국 주식 수집
+### 데이터 수집
 ```bash
-uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks             # 전체 (DB + CSV)
-uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --csv-only  # CSV만
-uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --test      # 테스트 (3개)
-uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kospi     # KOSPI만
-uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --kosdaq    # KOSDAQ만
-uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --batch-size 5  # 배치 크기 지정
-uv run --package stock-screener-data-pipeline python -m collectors.kr_stocks --tickers-file data/missing_kr_tickers.txt  # 파일에서 티커 목록 읽기
-```
-
-**예상 시간**: ~10분 (FDR + 네이버 병렬화, yfinance 배치 10)
-
-**공통 옵션** (US/KR 동일):
-- `--quiet` / `-q`: 출력 최소화 (tqdm 진행률 비활성화, WARNING 레벨 로깅)
-- `--verbose`: 디버그 레벨 로깅
-- `--batch-size N`: 배치 크기 지정 (기본값: 10)
-- `--tickers-file FILE`: 파일에서 티커 목록 읽기 (한 줄에 하나, #으로 시작하는 줄은 무시)
-
-### 로컬 데이터 파이프라인 (권장)
-```bash
-./scripts/collect-and-backup.sh              # 전체 (KR → US → 백업 → DB)
-./scripts/collect-and-backup.sh --no-db      # DB 적재 제외
-./scripts/collect-and-backup.sh kr           # KR만
-./scripts/collect-and-backup.sh us           # US만
-./scripts/collect-and-backup.sh --resume     # Rate Limit 후 재시작
+uv run python -m cli.main collect all              # 전체 (KR → US → 백업 → DB)
+uv run python -m cli.main collect us               # US만
+uv run python -m cli.main collect kr               # KR만
+uv run python -m cli.main collect all --resume     # Rate Limit 후 재시작
+uv run python -m cli.main collect all --csv-only   # CSV만 (DB 스킵)
+uv run python -m cli.main collect all --no-backup  # 백업 스킵
+uv run python -m cli.main collect all --no-db      # DB 적재 스킵
+uv run python -m cli.main collect us --test        # 테스트 (3개 티커)
+uv run python -m cli.main collect us --limit 100   # 100개 티커만
+uv run python -m cli.main collect us --tickers-file ../data/missing_tickers.txt  # 파일에서 티커 목록
+uv run python -m cli.main collect all -q           # 최소 출력
+uv run python -m cli.main collect all -v           # 상세 출력
 ```
 
 **파이프라인 단계:**
-1. KR 수집 (품질검사 + 자동재수집 포함)
-2. US 수집 (품질검사 + 자동재수집 포함)
-3. Google Drive 백업
-4. Supabase 적재 (csv_to_db)
+1. KR 수집 (FDR + Naver)
+2. US 수집 (yfinance)
+3. Google Drive 백업 (rclone)
+4. Supabase 적재
 
-**자동 기능 (수집 시):**
-- 품질 검사: 유니버스 커버리지, 대형주 누락, 지표 완성도
-- 자동 재수집: 누락 100개 이하 시 자동 재시도
+**Exit Codes:**
+- 0: 성공
+- 1: 오류
+- 2: Rate Limit (재시작 필요)
 
-**Rate Limit 대처:**
-- Rate Limit 발생 시 진행 상황이 `data/{market}_progress.txt`에 자동 저장됨
-- 15-30분 대기 후 `--resume` 플래그로 이어서 수집
-- Exit code: 0=성공, 2=Rate Limit (재시작 필요)
-
-> **주의**: KR, US를 동시에 실행하면 yfinance Rate Limit에 걸릴 수 있습니다.
-
-### CSV → Supabase 로딩
+### 티커 목록 업데이트
 ```bash
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db                           # 전체 (latest 사용)
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --us-only                 # US만
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --kr-only                 # KR만
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 2026-01-03         # 특정 날짜
-uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db --date 2026-01-03 --version v1  # 특정 버전
+uv run python -m cli.main update-tickers all       # 전체 (KR + US)
+uv run python -m cli.main update-tickers kr        # KR만 (FDR KRX-DESC)
+uv run python -m cli.main update-tickers us        # US만 (NASDAQ FTP)
+uv run python -m cli.main update-tickers kr --dry-run  # 변경사항 미리보기
+```
+
+### 백업
+```bash
+uv run python -m cli.main backup                   # Google Drive 백업
+```
+
+### DB 로딩
+```bash
+uv run python -m cli.main load                     # 전체 (latest 사용)
+uv run python -m cli.main load --us-only           # US만
+uv run python -m cli.main load --kr-only           # KR만
+uv run python -m cli.main load --date 2026-01-03   # 특정 날짜
+```
+
+### 버전 확인
+```bash
+uv run python -m cli.main version
+```
+
+## 예상 시간
+
+| 마켓 | 종목 수 | 예상 시간 | 비고 |
+|------|---------|----------|------|
+| KR | ~2,800개 | ~5-10분 | FDR + Naver |
+| US | ~6,000개 | ~1-2시간 | yfinance |
+| US (--limit 500) | 500개 | ~10-15분 | |
+
+## LaunchAgent (자동 실행)
+
+화~토 오전 8시에 자동 실행됩니다.
+
+```bash
+# 상태 확인
+launchctl list | grep stock-screener
+
+# 즉시 테스트 실행
+launchctl start com.stock-screener.data-pipeline
+
+# 로그 확인
+tail -f /tmp/stock-screener-pipeline.log
 ```
 
 ## 프론트엔드
