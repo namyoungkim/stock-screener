@@ -10,10 +10,7 @@ from typing import Any
 
 import pandas as pd
 import yfinance as yf
-
-from config import get_settings
 from rate_limit import (
-    AdaptiveRateLimitStrategy,
     FailureType,
     classify_failure,
 )
@@ -45,13 +42,14 @@ class YFinanceSource(BaseDataSource):
     base_delay: float = 2.5
     jitter: float = 1.0
     history_days: int = 300
+    max_workers: int = 4
     _session: Any = field(default=None, init=False, repr=False)
     _executor: ThreadPoolExecutor = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         super().__init__(name="yfinance", market="US")
         self._session = _create_browser_session()
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
 
     async def fetch_prices(
         self,
