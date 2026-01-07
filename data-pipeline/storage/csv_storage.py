@@ -4,7 +4,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -18,12 +17,14 @@ class CSVStorage(BaseStorage):
     """CSV file storage backend.
 
     Saves data to versioned CSV files in the data directory.
-    Structure: data/{date}/v{version}/{market}_{type}.csv
+    Structure: data/{market}/{date}/v{version}/{type}.csv
     """
 
     data_dir: Path
     companies_dir: Path | None = None
-    _versioned_path: VersionedPath | None = field(default=None, init=False, repr=False)
+    _versioned_paths: dict[str, VersionedPath] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         super().__init__("csv")
@@ -31,18 +32,20 @@ class CSVStorage(BaseStorage):
             self.companies_dir = self.data_dir / "companies"
         self.companies_dir.mkdir(parents=True, exist_ok=True)
 
-    @property
-    def versioned_path(self) -> VersionedPath:
-        """Get or create versioned path for current run."""
-        if self._versioned_path is None:
+    def _get_versioned_path(self, market: str) -> VersionedPath:
+        """Get or create versioned path for a market."""
+        market_key = market.lower()
+        if market_key not in self._versioned_paths:
             today = date.today().isoformat()
-            self._versioned_path = VersionedPath.get_next_version(self.data_dir, today)
-            self._versioned_path.ensure_dirs()
-        return self._versioned_path
+            vp = VersionedPath.get_next_version(self.data_dir, market_key, today)
+            vp.ensure_dirs()
+            self._versioned_paths[market_key] = vp
+        return self._versioned_paths[market_key]
 
     def _get_csv_path(self, market: str, data_type: str) -> Path:
         """Get path for a CSV file."""
-        return self.versioned_path.version_dir / f"{market.lower()}_{data_type}.csv"
+        vp = self._get_versioned_path(market)
+        return vp.version_dir / f"{data_type}.csv"
 
     def _get_companies_path(self, market: str) -> Path:
         """Get path for companies CSV file (not versioned)."""
@@ -149,11 +152,20 @@ class CSVStorage(BaseStorage):
         """CSV storage doesn't need company ID mapping - return empty dict."""
         return {}
 
-    def finalize(self) -> None:
-        """Update symlinks after collection is complete."""
-        if self._versioned_path is not None:
-            self._versioned_path.update_symlinks()
-            logger.info(f"Updated symlinks to {self._versioned_path.version_dir}")
+    def finalize(self, market: str | None = None) -> None:
+        """Update symlinks after collection is complete.
+
+        Args:
+            market: If provided, only update symlinks for this market.
+                    If None, update symlinks for all collected markets.
+        """
+        markets = [market.lower()] if market else list(self._versioned_paths.keys())
+
+        for m in markets:
+            if m in self._versioned_paths:
+                vp = self._versioned_paths[m]
+                vp.update_symlinks()
+                logger.info(f"Updated symlinks to {vp.version_dir}")
 
     def load_metrics_df(self, market: str) -> pd.DataFrame | None:
         """Load metrics as DataFrame."""

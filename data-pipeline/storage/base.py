@@ -148,18 +148,24 @@ class BaseStorage:
 class VersionedPath:
     """Represents a versioned data directory path.
 
-    Structure: data/{date}/v{version}/
-    Example: data/2026-01-03/v1/
+    Structure: data/{market}/{date}/v{version}/
+    Example: data/us/2026-01-03/v1/
     """
 
     base_dir: Path
+    market: str  # 'us' or 'kr'
     date_str: str  # YYYY-MM-DD
     version: int = 1
 
     @property
+    def market_dir(self) -> Path:
+        """Path to the market directory."""
+        return self.base_dir / self.market.lower()
+
+    @property
     def date_dir(self) -> Path:
         """Path to the date directory."""
-        return self.base_dir / self.date_str
+        return self.market_dir / self.date_str
 
     @property
     def version_dir(self) -> Path:
@@ -173,8 +179,8 @@ class VersionedPath:
 
     @property
     def latest_symlink(self) -> Path:
-        """Path to the 'latest' symlink in base directory."""
-        return self.base_dir / "latest"
+        """Path to the 'latest' symlink in market directory."""
+        return self.market_dir / "latest"
 
     def ensure_dirs(self) -> None:
         """Create directories if they don't exist."""
@@ -187,17 +193,19 @@ class VersionedPath:
             self.current_symlink.unlink()
         self.current_symlink.symlink_to(f"v{self.version}")
 
-        # Update latest symlink (relative from base_dir)
+        # Update latest symlink (relative from market_dir)
         if self.latest_symlink.is_symlink():
             self.latest_symlink.unlink()
         self.latest_symlink.symlink_to(f"{self.date_str}/v{self.version}")
 
     @classmethod
-    def get_next_version(cls, base_dir: Path, date_str: str) -> "VersionedPath":
-        """Get the next available version for a date."""
-        date_dir = base_dir / date_str
+    def get_next_version(
+        cls, base_dir: Path, market: str, date_str: str
+    ) -> "VersionedPath":
+        """Get the next available version for a market and date."""
+        date_dir = base_dir / market.lower() / date_str
         if not date_dir.exists():
-            return cls(base_dir=base_dir, date_str=date_str, version=1)
+            return cls(base_dir=base_dir, market=market, date_str=date_str, version=1)
 
         # Find existing versions
         existing = [
@@ -207,12 +215,12 @@ class VersionedPath:
         ]
 
         next_version = max(existing, default=0) + 1
-        return cls(base_dir=base_dir, date_str=date_str, version=next_version)
+        return cls(base_dir=base_dir, market=market, date_str=date_str, version=next_version)
 
     @classmethod
-    def get_latest(cls, base_dir: Path) -> "VersionedPath | None":
+    def get_latest(cls, base_dir: Path, market: str) -> "VersionedPath | None":
         """Get the latest versioned path from the 'latest' symlink."""
-        latest = base_dir / "latest"
+        latest = base_dir / market.lower() / "latest"
         if not latest.is_symlink():
             return None
 
@@ -221,7 +229,12 @@ class VersionedPath:
             return None
 
         # Parse path: should be {date}/v{version}
-        parts = target.relative_to(base_dir).parts
+        market_dir = base_dir / market.lower()
+        try:
+            parts = target.relative_to(market_dir).parts
+        except ValueError:
+            return None
+
         if len(parts) != 2:
             return None
 
@@ -234,4 +247,4 @@ class VersionedPath:
         except ValueError:
             return None
 
-        return cls(base_dir=base_dir, date_str=date_str, version=version)
+        return cls(base_dir=base_dir, market=market, date_str=date_str, version=version)

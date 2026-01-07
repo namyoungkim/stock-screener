@@ -501,7 +501,7 @@ class BaseCollector(ABC):
 
         # Finalize CSV storage (update symlinks)
         if isinstance(self.storage, CSVStorage):
-            self.storage.finalize()
+            self.storage.finalize(self.market)
 
         return {"saved": saved, "failed": failed}
 

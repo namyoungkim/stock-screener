@@ -77,17 +77,19 @@ API 서빙용 최신 데이터만 유지 (무료 티어 제한 대응)
 > 따라서 `gdrive:2026-01-03/v1/`은 `Google Drive/stock-screener-backup/2026-01-03/v1/`을 의미함.
 
 > **Important**: 수집 데이터 디렉토리의 날짜는 **실제 거래일**을 기준으로 합니다 (파이프라인 실행일 아님).
-> - 예: 일요일(2026-01-05)에 실행 → `data/2026-01-03/` (금요일 거래일) 생성
+> - 예: 일요일(2026-01-05)에 실행 → `data/us/2026-01-03/` (금요일 거래일) 생성
 > - Supabase 백업은 실행일 기준 (`supabase/2026-01-05/`)
 
 ```
 Google Drive/stock-screener-backup/  (rclone root)
-├── 2026-01-03/                      # 거래일 기준 수집 데이터
-│   └── v1/                          # 버전별 디렉토리
-│       ├── us_prices.csv
-│       ├── us_metrics.csv
-│       ├── kr_prices.csv
-│       └── kr_metrics.csv
+├── us/                              # 미국 시장 데이터
+│   └── 2026-01-03/v1/               # 거래일 기준 수집 데이터
+│       ├── metrics.csv
+│       └── prices.csv
+├── kr/                              # 한국 시장 데이터
+│   └── 2026-01-03/v1/
+│       ├── metrics.csv
+│       └── prices.csv
 ├── companies/                       # 기업 마스터 데이터
 │   ├── us_companies.csv
 │   └── kr_companies.csv
