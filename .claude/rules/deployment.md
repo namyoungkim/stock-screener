@@ -56,8 +56,28 @@ uv run python -m cli.main collect all --no-db  # DB 적재 제외
 
 ### LaunchAgent 설정
 
-**파일 위치:** `~/Library/LaunchAgents/com.stock-screener.data-pipeline.plist`
+**파일 위치:**
+- plist: `~/Library/LaunchAgents/com.stock-screener.data-pipeline.plist`
+- wrapper script: `scripts/run-pipeline.sh`
 
+**Wrapper Script** (`scripts/run-pipeline.sh`):
+```bash
+#!/bin/bash
+set -e
+cd /Users/leo/project/stock-screener
+
+# Load environment variables from .env
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | grep -v '^$' | xargs)
+fi
+
+echo "Pipeline started at $(date '+%Y-%m-%d %H:%M:%S')"
+cd data-pipeline
+uv run python -m cli.main collect all
+echo "Pipeline completed at $(date '+%Y-%m-%d %H:%M:%S')"
+```
+
+**LaunchAgent plist:**
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -70,17 +90,11 @@ uv run python -m cli.main collect all --no-db  # DB 적재 제외
     <array>
         <string>/usr/bin/caffeinate</string>
         <string>-i</string>
-        <string>/Users/leo/.local/bin/uv</string>
-        <string>run</string>
-        <string>python</string>
-        <string>-m</string>
-        <string>cli.main</string>
-        <string>collect</string>
-        <string>all</string>
+        <string>/Users/leo/project/stock-screener/scripts/run-pipeline.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/leo/project/stock-screener/data-pipeline</string>
+    <string>/Users/leo/project/stock-screener</string>
 
     <!-- 화~토 오전 8시 (미국장 마감 후) -->
     <key>StartCalendarInterval</key>
