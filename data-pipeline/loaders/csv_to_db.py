@@ -4,17 +4,21 @@ CSV to Supabase Loader
 Reads CSV files from data/ directory and upserts to Supabase.
 Supports incremental updates and full reloads.
 
-New directory structure:
+Directory structure:
     data/
-    ├── YYYY-MM-DD/vN/           # Versioned collection data
-    │   ├── us_metrics.csv
-    │   ├── us_prices.csv
-    │   ├── kr_metrics.csv
-    │   └── kr_prices.csv
-    ├── companies/               # Master company data
-    │   ├── us_companies.csv
-    │   └── kr_companies.csv
-    └── latest -> YYYY-MM-DD/vN/ # Symlink to most recent
+    ├── us/                      # US market data
+    │   ├── 2026-01-08/v1/       # Versioned collection data
+    │   │   ├── metrics.csv
+    │   │   └── prices.csv
+    │   └── latest -> 2026-01-08/v1/
+    ├── kr/                      # KR market data
+    │   ├── 2026-01-08/v1/
+    │   │   ├── metrics.csv
+    │   │   └── prices.csv
+    │   └── latest -> 2026-01-08/v1/
+    └── companies/               # Master company data
+        ├── us_companies.csv
+        └── kr_companies.csv
 
 Usage:
     uv run --package stock-screener-data-pipeline python -m loaders.csv_to_db
@@ -45,6 +49,7 @@ BATCH_SIZE = 1000
 
 
 def find_data_directory(
+    market: str,
     target_date: str | None = None,
     version: str | None = None,
 ) -> Path | None:
@@ -52,14 +57,19 @@ def find_data_directory(
     Find the appropriate data directory for metrics/prices.
 
     Args:
+        market: Market identifier ('us' or 'kr')
         target_date: Date in YYYY-MM-DD format (optional)
         version: Version like 'v1', 'v2' (optional)
 
     Returns:
         Path to the data directory or None if not found
     """
+    market_dir = DATA_DIR / market.lower()
+    if not market_dir.exists():
+        return None
+
     if target_date:
-        date_dir = DATA_DIR / target_date
+        date_dir = market_dir / target_date
         if not date_dir.exists():
             return None
         if version:
@@ -72,14 +82,14 @@ def find_data_directory(
         versions = sorted(date_dir.glob("v*"))
         return versions[-1] if versions else None
 
-    # Default: use 'latest' symlink
-    latest = DATA_DIR / "latest"
+    # Default: use 'latest' symlink in market directory
+    latest = market_dir / "latest"
     if latest.is_symlink():
         return latest.resolve()
 
     # Fallback: find most recent date directory
     date_dirs = sorted(
-        [d for d in DATA_DIR.iterdir() if d.is_dir() and d.name[0].isdigit()],
+        [d for d in market_dir.iterdir() if d.is_dir() and d.name[0].isdigit()],
         reverse=True,
     )
     for date_dir in date_dirs:
@@ -480,27 +490,41 @@ def main(
 
     client = get_supabase_client()
 
-    # Find data directory for metrics/prices
-    data_dir = find_data_directory(target_date, version)
-    if not data_dir:
-        print(f"ERROR: No data directory found for date={target_date}, version={version}")
-        print("Make sure data has been collected first.")
+    # Find data directories for each market
+    us_data_dir = None if kr_only else find_data_directory("us", target_date, version)
+    kr_data_dir = None if us_only else find_data_directory("kr", target_date, version)
+
+    if not us_data_dir and not kr_only:
+        print(f"WARNING: No US data directory found for date={target_date}, version={version}")
+    if not kr_data_dir and not us_only:
+        print(f"WARNING: No KR data directory found for date={target_date}, version={version}")
+
+    if not us_data_dir and not kr_data_dir:
+        print("ERROR: No data directories found. Make sure data has been collected first.")
         return {"companies": 0, "metrics": 0, "prices": 0}
 
-    print(f"Using data directory: {data_dir}")
+    if us_data_dir:
+        print(f"Using US data directory: {us_data_dir}")
+    if kr_data_dir:
+        print(f"Using KR data directory: {kr_data_dir}")
 
     # Companies are in fixed location
     us_companies_csv = None if kr_only else COMPANIES_DIR / "us_companies.csv"
     kr_companies_csv = None if us_only else COMPANIES_DIR / "kr_companies.csv"
 
-    # Metrics and prices from versioned directory
-    us_metrics_csv = None if kr_only else data_dir / "us_metrics.csv"
-    kr_metrics_csv = None if us_only else data_dir / "kr_metrics.csv"
-    us_prices_csv = None if kr_only else data_dir / "us_prices.csv"
-    kr_prices_csv = None if us_only else data_dir / "kr_prices.csv"
+    # Metrics and prices from versioned market directories (no market prefix in filename)
+    us_metrics_csv = (us_data_dir / "metrics.csv") if us_data_dir else None
+    kr_metrics_csv = (kr_data_dir / "metrics.csv") if kr_data_dir else None
+    us_prices_csv = (us_data_dir / "prices.csv") if us_data_dir else None
+    kr_prices_csv = (kr_data_dir / "prices.csv") if kr_data_dir else None
 
-    # Extract trading date from directory path (e.g., data/2026-01-08/v5 → 2026-01-08)
-    trading_date = data_dir.parent.name  # Get date directory name
+    # Extract trading date from directory path (e.g., data/us/2026-01-08/v5 → 2026-01-08)
+    # Use US date if available, otherwise KR date
+    trading_date = None
+    if us_data_dir:
+        trading_date = us_data_dir.parent.name
+    elif kr_data_dir:
+        trading_date = kr_data_dir.parent.name
 
     # Phase 1: Load companies and get ID mapping
     print("\nPhase 1: Loading companies...")

@@ -9,15 +9,13 @@ import io
 import logging
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
 
 import pandas as pd
-
 from config import Settings, get_settings
 from processors.validators import MetricsValidator
 from rate_limit import RateLimitStrategy
-from sources import YFinanceSource, FetchResult
-from storage import Storage, CSVStorage
+from sources import YFinanceSource
+from storage import Storage
 
 from .base import BaseCollector
 
@@ -98,6 +96,11 @@ class NewUSCollector(BaseCollector):
         quiet: bool = False,
         save_db: bool = True,
         save_csv: bool = True,
+        # Rate limit tuning parameters (override settings if provided)
+        batch_size: int | None = None,
+        delay: float | None = None,
+        workers: int | None = None,
+        jitter: float | None = None,
     ):
         """Initialize US collector.
 
@@ -109,12 +112,16 @@ class NewUSCollector(BaseCollector):
             quiet: Suppress progress output
             save_db: Save to Supabase
             save_csv: Save to CSV
+            batch_size: Override batch size for metrics fetching
+            delay: Override inter-batch delay
+            workers: Override number of concurrent workers
+            jitter: Override random jitter range
         """
         settings = settings or get_settings()
 
         # Create storage if not provided
         if storage is None:
-            from storage import CSVStorage, SupabaseStorage, CompositeStorage
+            from storage import CompositeStorage, CSVStorage, SupabaseStorage
 
             storages = []
             if save_csv:
@@ -126,10 +133,12 @@ class NewUSCollector(BaseCollector):
                 ))
             storage = CompositeStorage(storages=storages) if len(storages) > 1 else storages[0]
 
-        # Create data source
+        # Create data source with tuning parameters
         data_source = YFinanceSource(
-            batch_size=settings.batch_size,
-            base_delay=settings.base_delay,
+            batch_size=batch_size if batch_size is not None else settings.batch_size,
+            base_delay=delay if delay is not None else settings.base_delay,
+            jitter=jitter if jitter is not None else settings.jitter,
+            max_workers=workers if workers is not None else settings.max_workers,
         )
 
         super().__init__(
@@ -277,10 +286,28 @@ def create_us_collector(
     save_db: bool = True,
     save_csv: bool = True,
     quiet: bool = False,
+    batch_size: int | None = None,
+    delay: float | None = None,
+    workers: int | None = None,
+    jitter: float | None = None,
 ) -> NewUSCollector:
-    """Create a US collector with default settings."""
+    """Create a US collector with default settings.
+
+    Args:
+        save_db: Save to Supabase
+        save_csv: Save to CSV
+        quiet: Suppress progress output
+        batch_size: Override batch size for metrics fetching
+        delay: Override inter-batch delay
+        workers: Override number of concurrent workers
+        jitter: Override random jitter range
+    """
     return NewUSCollector(
         save_db=save_db,
         save_csv=save_csv,
         quiet=quiet,
+        batch_size=batch_size,
+        delay=delay,
+        workers=workers,
+        jitter=jitter,
     )

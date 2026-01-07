@@ -15,13 +15,12 @@ This CLI provides the same functionality as the shell script but with:
 import logging
 import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
+from config import get_settings
 from rich.console import Console
 from rich.logging import RichHandler
-
-from config import get_settings
 
 # Create CLI app
 app = typer.Typer(
@@ -52,11 +51,16 @@ def collect(
     test: Annotated[bool, typer.Option("--test", "-t", help="Test mode (3 tickers only)")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Minimal output")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Verbose output")] = False,
-    batch_size: Annotated[Optional[int], typer.Option("--batch-size", help="Batch size")] = None,
-    tickers_file: Annotated[Optional[Path], typer.Option("--tickers-file", help="File with tickers")] = None,
+    batch_size: Annotated[int | None, typer.Option("--batch-size", help="Batch size for metrics")] = None,
+    tickers_file: Annotated[Path | None, typer.Option("--tickers-file", help="File with tickers")] = None,
     no_backup: Annotated[bool, typer.Option("--no-backup", help="Skip Google Drive backup")] = False,
     no_db: Annotated[bool, typer.Option("--no-db", help="Skip Supabase loading")] = False,
-    limit: Annotated[Optional[int], typer.Option("--limit", help="Limit number of tickers")] = None,
+    limit: Annotated[int | None, typer.Option("--limit", help="Limit number of tickers")] = None,
+    # New rate limit tuning options
+    delay: Annotated[float | None, typer.Option("--delay", help="Inter-batch delay in seconds")] = None,
+    workers: Annotated[int | None, typer.Option("--workers", help="Number of concurrent workers")] = None,
+    timeout: Annotated[float | None, typer.Option("--timeout", help="Request timeout in seconds")] = None,
+    jitter: Annotated[float | None, typer.Option("--jitter", help="Random jitter range in seconds")] = None,
 ) -> None:
     """Collect stock data for specified market(s).
 
@@ -77,7 +81,6 @@ def collect(
         console.print(f"[red]Invalid market: {market}. Use us, kr, or all.[/red]")
         raise typer.Exit(code=1)
 
-    settings = get_settings()
     save_db = not (csv_only or no_db)
 
     # Print configuration
@@ -86,11 +89,20 @@ def collect(
         console.print("[bold]Stock Data Pipeline[/bold]")
         console.print(f"Market: {market.upper()}")
         console.print(f"Resume: {resume}")
-        console.print(f"Save CSV: True")
+        console.print("Save CSV: True")
         console.print(f"Save DB: {save_db}")
         console.print(f"Test mode: {test}")
         if limit:
             console.print(f"Limit: {limit}")
+        # Show rate limit tuning params if customized
+        if batch_size:
+            console.print(f"Batch size: {batch_size}")
+        if delay:
+            console.print(f"Delay: {delay}s")
+        if workers:
+            console.print(f"Workers: {workers}")
+        if jitter:
+            console.print(f"Jitter: {jitter}s")
         console.print("=" * 44)
 
     rate_limit_hit = False
@@ -110,12 +122,16 @@ def collect(
                 batch_size=batch_size,
                 tickers_file=tickers_file,
                 limit=limit,
+                delay=delay,
+                workers=workers,
+                timeout=timeout,
+                jitter=jitter,
             )
 
             if result.rate_limit_hit:
                 rate_limit_hit = True
                 console.print(f"[yellow]Rate limit hit for {m.upper()}[/yellow]")
-                console.print(f"[yellow]Progress saved. Run with --resume to continue.[/yellow]")
+                console.print("[yellow]Progress saved. Run with --resume to continue.[/yellow]")
             else:
                 console.print(f"[green]{m.upper()} collection completed![/green]")
                 console.print(f"  Success: {result.success}/{result.total}")
@@ -181,8 +197,8 @@ def backup() -> None:
 def load(
     us_only: Annotated[bool, typer.Option("--us-only", help="Load only US data")] = False,
     kr_only: Annotated[bool, typer.Option("--kr-only", help="Load only KR data")] = False,
-    date_str: Annotated[Optional[str], typer.Option("--date", help="Date (YYYY-MM-DD)")] = None,
-    version: Annotated[Optional[str], typer.Option("--version", help="Version (v1, v2, ...)")] = None,
+    date_str: Annotated[str | None, typer.Option("--date", help="Date (YYYY-MM-DD)")] = None,
+    version: Annotated[str | None, typer.Option("--version", help="Version (v1, v2, ...)")] = None,
 ) -> None:
     """Load CSV data to Supabase."""
     setup_logging()
@@ -193,7 +209,7 @@ def load(
     elif kr_only:
         market = "kr"
 
-    console.print(f"[bold]Loading to Supabase...[/bold]")
+    console.print("[bold]Loading to Supabase...[/bold]")
     if market:
         console.print(f"Market: {market.upper()}")
     if date_str:
@@ -261,7 +277,7 @@ def update_tickers(
                     for t in result.added[:20]:
                         console.print(f"    + {t}")
                 elif not quiet:
-                    console.print(f"    (showing first 20)")
+                    console.print("    (showing first 20)")
                     for t in result.added[:20]:
                         console.print(f"    + {t}")
 
@@ -271,12 +287,12 @@ def update_tickers(
                     for t in result.removed[:20]:
                         console.print(f"    - {t}")
                 elif not quiet:
-                    console.print(f"    (showing first 20)")
+                    console.print("    (showing first 20)")
                     for t in result.removed[:20]:
                         console.print(f"    - {t}")
 
             if dry_run:
-                console.print(f"  [dim](dry run - no changes saved)[/dim]")
+                console.print("  [dim](dry run - no changes saved)[/dim]")
             elif result.updated:
                 console.print(f"  [green]Saved {result.updated} tickers[/green]")
 
@@ -298,9 +314,12 @@ def _run_collection(
     batch_size: int | None = None,
     tickers_file: Path | None = None,
     limit: int | None = None,
+    delay: float | None = None,
+    workers: int | None = None,
+    timeout: float | None = None,
+    jitter: float | None = None,
 ):
     """Run collection for a single market."""
-    from collectors.base import CollectionResult
 
     # Load tickers from file if provided
     tickers = None
@@ -326,6 +345,10 @@ def _run_collection(
             save_db=save_db,
             save_csv=True,
             quiet=quiet,
+            batch_size=batch_size,
+            delay=delay,
+            workers=workers,
+            jitter=jitter,
         )
     else:
         from collectors.kr_collector import create_kr_collector
@@ -354,20 +377,31 @@ def _run_collection(
 def _run_backup() -> None:
     """Run Google Drive backup using rclone."""
     import subprocess
+
     from storage.base import VersionedPath
 
     settings = get_settings()
-    latest = VersionedPath.get_latest(settings.data_dir)
+    backed_up = False
 
-    if latest is None:
-        raise RuntimeError("No data to backup (no 'latest' symlink)")
+    # Backup each market's latest data
+    for market in ["us", "kr"]:
+        latest = VersionedPath.get_latest(settings.data_dir, market)
 
-    # Backup versioned data
-    latest_path = f"{latest.date_str}/v{latest.version}"
-    subprocess.run(
-        ["rclone", "copy", str(latest.version_dir), f"gdrive:{latest_path}", "--progress"],
-        check=True,
-    )
+        if latest is None:
+            console.print(f"[yellow]No {market.upper()} data to backup (no 'latest' symlink)[/yellow]")
+            continue
+
+        # Backup versioned data (e.g., us/2026-01-03/v1/)
+        latest_path = f"{market}/{latest.date_str}/v{latest.version}"
+        console.print(f"[blue]Backing up {market.upper()} data: {latest_path}[/blue]")
+        subprocess.run(
+            ["rclone", "copy", str(latest.version_dir), f"gdrive:{latest_path}", "--progress"],
+            check=True,
+        )
+        backed_up = True
+
+    if not backed_up:
+        raise RuntimeError("No data to backup (no 'latest' symlinks found)")
 
     # Backup companies
     companies_dir = settings.companies_dir
@@ -398,7 +432,6 @@ def _run_db_load(
         args.extend(["--version", version])
 
     # The loader uses argparse, so we need to set sys.argv
-    import sys
     old_argv = sys.argv
     sys.argv = ["csv_to_db"] + args
     try:

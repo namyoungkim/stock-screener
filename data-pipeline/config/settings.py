@@ -12,6 +12,8 @@ from .constants import (
     DEFAULT_BASE_DELAY,
     DEFAULT_BATCH_SIZE,
     DEFAULT_HISTORY_BATCH_SIZE,
+    DEFAULT_JITTER,
+    DEFAULT_MAX_WORKERS,
     DEFAULT_REQUEST_TIMEOUT,
     MAX_RETRIES,
 )
@@ -44,8 +46,10 @@ class Settings(BaseSettings):
     batch_size: Annotated[int, Field(gt=0)] = DEFAULT_BATCH_SIZE
     batch_size_history: Annotated[int, Field(gt=0)] = DEFAULT_HISTORY_BATCH_SIZE
     base_delay: Annotated[float, Field(ge=0)] = DEFAULT_BASE_DELAY
+    jitter: Annotated[float, Field(ge=0)] = DEFAULT_JITTER
     request_timeout: Annotated[float, Field(gt=0)] = DEFAULT_REQUEST_TIMEOUT
     max_retries: Annotated[int, Field(ge=0)] = MAX_RETRIES
+    max_workers: Annotated[int, Field(gt=0)] = DEFAULT_MAX_WORKERS
 
     # === Paths ===
     data_dir: Path = DATA_DIR
