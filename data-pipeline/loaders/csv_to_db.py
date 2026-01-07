@@ -107,13 +107,20 @@ def load_companies(
     if us_csv and us_csv.exists():
         print(f"  Reading {us_csv.name}...")
         us_df = pd.read_csv(us_csv)
-        # Replace NaN with None for optional fields
-        us_df["sector"] = us_df["sector"].where(pd.notna(us_df["sector"]), None)
-        us_df["industry"] = us_df["industry"].where(pd.notna(us_df["industry"]), None)
-        us_df["currency"] = us_df["currency"].fillna("USD")
         us_df["ticker"] = us_df["ticker"].astype(str)
         us_df["market"] = "US"
         us_df["is_active"] = True
+        us_df["currency"] = us_df["currency"].fillna("USD") if "currency" in us_df.columns else "USD"
+
+        # Ensure optional columns exist
+        if "sector" not in us_df.columns:
+            us_df["sector"] = None
+        else:
+            us_df["sector"] = us_df["sector"].where(pd.notna(us_df["sector"]), None)
+        if "industry" not in us_df.columns:
+            us_df["industry"] = None
+        else:
+            us_df["industry"] = us_df["industry"].where(pd.notna(us_df["industry"]), None)
 
         us_records = us_df[["ticker", "name", "market", "sector", "industry", "currency", "is_active"]].to_dict("records")
         companies_to_upsert.extend(us_records)
@@ -126,11 +133,24 @@ def load_companies(
         kr_df["currency"] = kr_df["currency"].fillna("KRW") if "currency" in kr_df.columns else "KRW"
         kr_df["is_active"] = True
 
-        # Ensure required columns exist
+        # Normalize market values to match market_type enum (US, KOSPI, KOSDAQ)
+        # - KOSDAQ GLOBAL → KOSDAQ (it's a subdivision of KOSDAQ)
+        # - KONEX → skip (startup market, not in target universe)
+        kr_df["market"] = kr_df["market"].replace({"KOSDAQ GLOBAL": "KOSDAQ"})
+        kr_df = kr_df[kr_df["market"].isin(["KOSPI", "KOSDAQ"])]
+
+        # Ensure required columns exist and replace NaN with None (for JSON serialization)
+        # Also truncate long values to fit varchar(100) constraint
         if "sector" not in kr_df.columns:
             kr_df["sector"] = None
+        else:
+            kr_df["sector"] = kr_df["sector"].where(pd.notna(kr_df["sector"]), None)
+            kr_df["sector"] = kr_df["sector"].apply(lambda x: x[:100] if isinstance(x, str) and len(x) > 100 else x)
         if "industry" not in kr_df.columns:
             kr_df["industry"] = None
+        else:
+            kr_df["industry"] = kr_df["industry"].where(pd.notna(kr_df["industry"]), None)
+            kr_df["industry"] = kr_df["industry"].apply(lambda x: x[:100] if isinstance(x, str) and len(x) > 100 else x)
 
         kr_records = kr_df[["ticker", "name", "market", "sector", "industry", "currency", "is_active"]].to_dict("records")
         companies_to_upsert.extend(kr_records)
@@ -174,6 +194,7 @@ def load_metrics(
     ticker_to_id: dict[tuple[str, str], str],
     us_metrics_csv: Path | None = None,
     kr_metrics_csv: Path | None = None,
+    trading_date: str | None = None,
 ) -> int:
     """
     Load metrics from CSV files to Supabase.
@@ -266,10 +287,18 @@ def load_metrics(
         market: str,
         data_source: str,
         is_kr: bool = False,
+        metrics_date: str | None = None,
     ) -> list[dict]:
         """Process metrics DataFrame to records (vectorized)."""
         df = df.copy()
         df["ticker"] = df["ticker"].astype(str)
+
+        # Add date column if missing (extract from directory path or use provided)
+        if "date" not in df.columns:
+            if metrics_date:
+                df["date"] = metrics_date
+            else:
+                raise ValueError("Metrics CSV missing 'date' column and no trading_date provided")
 
         # Add company_id column (vectorized lookup)
         if is_kr:
@@ -319,14 +348,14 @@ def load_metrics(
     if us_metrics_csv and us_metrics_csv.exists():
         print(f"  Reading {us_metrics_csv.name}...")
         us_df = pd.read_csv(us_metrics_csv)
-        us_records = process_metrics_df(us_df, "US", "yfinance", is_kr=False)
+        us_records = process_metrics_df(us_df, "US", "yfinance", is_kr=False, metrics_date=trading_date)
         metrics_to_upsert.extend(us_records)
 
     # Read KR metrics (vectorized)
     if kr_metrics_csv and kr_metrics_csv.exists():
         print(f"  Reading {kr_metrics_csv.name}...")
         kr_df = pd.read_csv(kr_metrics_csv)
-        kr_records = process_metrics_df(kr_df, "KOSPI", "yfinance+fdr", is_kr=True)
+        kr_records = process_metrics_df(kr_df, "KOSPI", "yfinance+fdr", is_kr=True, metrics_date=trading_date)
         metrics_to_upsert.extend(kr_records)
 
     # Batch upsert
@@ -470,6 +499,9 @@ def main(
     us_prices_csv = None if kr_only else data_dir / "us_prices.csv"
     kr_prices_csv = None if us_only else data_dir / "kr_prices.csv"
 
+    # Extract trading date from directory path (e.g., data/2026-01-08/v5 → 2026-01-08)
+    trading_date = data_dir.parent.name  # Get date directory name
+
     # Phase 1: Load companies and get ID mapping
     print("\nPhase 1: Loading companies...")
     ticker_to_id = load_companies(client, us_companies_csv, kr_companies_csv)
@@ -477,7 +509,7 @@ def main(
 
     # Phase 2: Load metrics
     print("\nPhase 2: Loading metrics...")
-    metrics_count = load_metrics(client, ticker_to_id, us_metrics_csv, kr_metrics_csv)
+    metrics_count = load_metrics(client, ticker_to_id, us_metrics_csv, kr_metrics_csv, trading_date=trading_date)
     print(f"  Loaded {metrics_count} metrics records")
 
     # Phase 3: Load prices
