@@ -27,9 +27,15 @@ from typing import Any, ClassVar
 
 import aiohttp
 
-from common.config import KIS_APP_KEY, KIS_APP_SECRET, KIS_PAPER_TRADING
+from config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _get_kis_defaults() -> tuple[str | None, str | None, bool]:
+    """Get KIS API defaults from settings."""
+    settings = get_settings()
+    return settings.kis_app_key, settings.kis_app_secret, settings.kis_paper_trading
 
 
 class KISAuthError(Exception):
@@ -77,19 +83,20 @@ class KISClient:
         Initialize KIS API client.
 
         Args:
-            app_key: KIS API app key (or use KIS_APP_KEY env var)
-            app_secret: KIS API app secret (or use KIS_APP_SECRET env var)
-            is_paper: Use paper trading API (or use KIS_PAPER_TRADING env var)
+            app_key: KIS API app key (or use settings)
+            app_secret: KIS API app secret (or use settings)
+            is_paper: Use paper trading API (or use settings)
             rate_limit: Maximum requests per second
         """
-        self.app_key = app_key or KIS_APP_KEY
-        self.app_secret = app_secret or KIS_APP_SECRET
-        self.is_paper = is_paper if is_paper is not None else KIS_PAPER_TRADING
+        default_key, default_secret, default_paper = _get_kis_defaults()
+        self.app_key = app_key or default_key
+        self.app_secret = app_secret or default_secret
+        self.is_paper = is_paper if is_paper is not None else default_paper
 
         if not self.app_key or not self.app_secret:
             logger.warning(
                 "KIS API credentials not configured. "
-                "Set KIS_APP_KEY and KIS_APP_SECRET environment variables."
+                "Set KIS_APP_KEY and KIS_APP_SECRET in .env file."
             )
 
         self.base_url = self.PAPER_URL if self.is_paper else self.REAL_URL

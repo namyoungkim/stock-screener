@@ -389,9 +389,9 @@ class KISSource(BaseDataSource):
             async with KISClient(
                 app_key=self.app_key,
                 app_secret=self.app_secret,
-                paper_trading=self.paper_trading,
+                is_paper=self.paper_trading,
             ) as client:
-                kis_data = await client.fetch_bulk_fundamentals(tickers)
+                kis_data = await client.get_domestic_quotes_bulk(tickers)
 
             for ticker, data in kis_data.items():
                 if data:
