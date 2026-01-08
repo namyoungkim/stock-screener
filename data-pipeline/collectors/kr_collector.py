@@ -239,9 +239,9 @@ class NewKRCollector(BaseCollector):
             # Per share
             "eps": metrics.get("eps"),
             "book_value_per_share": metrics.get("bps") or metrics.get("book_value_per_share"),
-            # Price levels
-            "fifty_two_week_high": metrics.get("fifty_two_week_high"),
-            "fifty_two_week_low": metrics.get("fifty_two_week_low"),
+            # Price levels (KIS uses high_52w/low_52w, map to standard names)
+            "fifty_two_week_high": metrics.get("fifty_two_week_high") or metrics.get("high_52w"),
+            "fifty_two_week_low": metrics.get("fifty_two_week_low") or metrics.get("low_52w"),
             # Market data
             "market_cap": metrics.get("market_cap"),
             "latest_price": price_data.get("close"),
