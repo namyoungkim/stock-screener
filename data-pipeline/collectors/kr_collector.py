@@ -160,27 +160,33 @@ class NewKRCollector(BaseCollector):
         tickers: list[str],
         history: dict[str, pd.DataFrame],
     ) -> dict[str, dict]:
-        """Fetch fundamental metrics using KIS (primary) and Naver (fallback)."""
+        """Fetch fundamental metrics using Naver (base) and KIS (supplement).
+
+        Strategy:
+        1. Naver first: EPS, BPS, PER, PBR (good coverage)
+        2. KIS supplement: 52-week high/low, more accurate PER/PBR
+        3. Merge: KIS overwrites Naver for overlapping fields
+        """
         metrics = {}
 
-        # Try KIS first (official source, more accurate)
+        # Step 1: Naver for base data (EPS, BPS, etc.)
+        self.logger.info(f"Fetching {len(tickers)} tickers from Naver...")
+        naver_result = await self._naver_source.fetch_metrics(tickers)
+        for ticker, data in naver_result.succeeded.items():
+            if data.metrics:
+                metrics[ticker] = data.metrics
+
+        # Step 2: KIS for supplemental data (52-week high/low)
         if self._kis_source.is_available:
-            self.logger.info("Fetching metrics from KIS API...")
+            self.logger.info("Supplementing with KIS API (52-week high/low)...")
             kis_result = await self._kis_source.fetch_metrics(tickers)
             for ticker, data in kis_result.succeeded.items():
                 if data.metrics:
-                    metrics[ticker] = data.metrics
-
-        # Use Naver for tickers without KIS data
-        missing_tickers = [t for t in tickers if t not in metrics]
-        if missing_tickers:
-            self.logger.info(f"Fetching {len(missing_tickers)} tickers from Naver...")
-            naver_result = await self._naver_source.fetch_metrics(missing_tickers)
-            for ticker, data in naver_result.succeeded.items():
-                if data.metrics:
-                    # Merge with existing (KIS takes precedence)
                     if ticker in metrics:
-                        metrics[ticker] = {**data.metrics, **metrics[ticker]}
+                        # Merge: KIS overwrites Naver, but only for non-None values
+                        for key, value in data.metrics.items():
+                            if value is not None:
+                                metrics[ticker][key] = value
                     else:
                         metrics[ticker] = data.metrics
 
