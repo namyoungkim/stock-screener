@@ -18,11 +18,17 @@ class CSVStorage(BaseStorage):
 
     Saves data to versioned CSV files in the data directory.
     Structure: data/{market}/{date}/v{version}/{type}.csv
+
+    Note: The date in the path is the trading date, not the collection date.
+    Use set_trading_date() to set the trading date before saving data.
     """
 
     data_dir: Path
     companies_dir: Path | None = None
     _versioned_paths: dict[str, VersionedPath] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _trading_dates: dict[str, str] = field(
         default_factory=dict, init=False, repr=False
     )
 
@@ -32,12 +38,28 @@ class CSVStorage(BaseStorage):
             self.companies_dir = self.data_dir / "companies"
         self.companies_dir.mkdir(parents=True, exist_ok=True)
 
+    def set_trading_date(self, market: str, trading_date: str) -> None:
+        """Set the trading date for a market.
+
+        This should be called before saving data to ensure the correct
+        directory structure is created based on the actual trading date,
+        not the collection date.
+
+        Args:
+            market: Market identifier ('US' or 'KR')
+            trading_date: Trading date in YYYY-MM-DD format
+        """
+        market_key = market.lower()
+        self._trading_dates[market_key] = trading_date
+        logger.info(f"Set trading date for {market}: {trading_date}")
+
     def _get_versioned_path(self, market: str) -> VersionedPath:
         """Get or create versioned path for a market."""
         market_key = market.lower()
         if market_key not in self._versioned_paths:
-            today = date.today().isoformat()
-            vp = VersionedPath.get_next_version(self.data_dir, market_key, today)
+            # Use trading date if set, otherwise fall back to today
+            date_str = self._trading_dates.get(market_key, date.today().isoformat())
+            vp = VersionedPath.get_next_version(self.data_dir, market_key, date_str)
             vp.ensure_dirs()
             self._versioned_paths[market_key] = vp
         return self._versioned_paths[market_key]

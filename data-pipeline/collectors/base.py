@@ -453,6 +453,20 @@ class BaseCollector(ABC):
 
         return result
 
+    def _extract_trading_date(self, prices: dict[str, dict]) -> str | None:
+        """Extract trading date from prices data.
+
+        Args:
+            prices: Dict mapping ticker to price data
+
+        Returns:
+            Trading date string (YYYY-MM-DD) or None if not found
+        """
+        for ticker, price_data in prices.items():
+            if price_data and "date" in price_data:
+                return price_data["date"]
+        return None
+
     async def _save_all(
         self,
         tickers: list[str],
@@ -461,6 +475,18 @@ class BaseCollector(ABC):
         technicals: dict[str, dict],
     ) -> dict[str, int]:
         """Save all collected data."""
+        # Set trading date for CSV storage before saving
+        # This ensures directory is named by trading date, not collection date
+        if isinstance(self.storage, CSVStorage):
+            trading_date = self._extract_trading_date(prices)
+            if trading_date:
+                self.storage.set_trading_date(self.market, trading_date)
+            else:
+                self.logger.warning(
+                    "Could not extract trading date from prices, "
+                    "using today's date as fallback"
+                )
+
         companies = []
         metrics_records = []
         price_records = []
