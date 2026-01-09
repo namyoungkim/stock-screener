@@ -64,8 +64,9 @@ class YFinanceSource(BaseDataSource):
         if not tickers:
             return result
 
-        # Process in batches to prevent thread exhaustion
-        price_batch_size = 500
+        # Process in smaller batches to avoid rate limiting
+        # 100 tickers per batch with 3s delay between batches
+        price_batch_size = 100
         total_processed = 0
 
         for i in range(0, len(tickers), price_batch_size):
@@ -73,13 +74,14 @@ class YFinanceSource(BaseDataSource):
 
             try:
                 # Use yf.download for batch price fetching
+                # threads=False to avoid triggering rate limits
                 df = await asyncio.get_event_loop().run_in_executor(
                     self._executor,
                     lambda b=batch: yf.download(
                         b,
                         period="5d",
                         progress=False,
-                        threads=True,
+                        threads=False,
                         session=self._session,
                     ),
                 )
@@ -138,18 +140,21 @@ class YFinanceSource(BaseDataSource):
         period = f"{months}mo"
 
         # Process in batches for large ticker lists
+        # Reduced batch size to avoid rate limiting
+        history_batch = min(self.history_batch_size, 100)
         total_processed = 0
-        for i in range(0, len(tickers), self.history_batch_size):
-            batch = tickers[i : i + self.history_batch_size]
+        for i in range(0, len(tickers), history_batch):
+            batch = tickers[i : i + history_batch]
 
             try:
+                # threads=False to avoid triggering rate limits
                 df = await asyncio.get_event_loop().run_in_executor(
                     self._executor,
                     lambda b=batch: yf.download(
                         b,
                         period=period,
                         progress=False,
-                        threads=True,
+                        threads=False,
                         session=self._session,
                     ),
                 )
@@ -183,7 +188,7 @@ class YFinanceSource(BaseDataSource):
                     result.failed[ticker] = str(e)
 
             # Inter-batch delay
-            if i + self.history_batch_size < len(tickers):
+            if i + history_batch < len(tickers):
                 await asyncio.sleep(self.base_delay + random.uniform(0, self.jitter))
 
         return result
