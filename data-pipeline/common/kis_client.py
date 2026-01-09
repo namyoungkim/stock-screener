@@ -355,6 +355,7 @@ class KISClient:
         self,
         tickers: list[str],
         progress_callback: Callable[[int, int], None] | None = None,
+        delay: float = 0.1,  # 100ms delay between calls (KIS API: 20 req/sec limit)
     ) -> dict[str, dict[str, Any]]:
         """
         Get financial ratios for multiple Korean stocks.
@@ -362,6 +363,7 @@ class KISClient:
         Args:
             tickers: List of KRX stock codes
             progress_callback: Optional callback(completed, total)
+            delay: Delay between API calls in seconds (default: 0.1s = 10 req/sec)
 
         Returns:
             dict mapping ticker to financial ratio data
@@ -386,12 +388,16 @@ class KISClient:
                 if progress_callback:
                     progress_callback(completed, total)
 
+            # Rate limiting delay
+            await asyncio.sleep(delay)
+
         return results
 
     async def get_domestic_quotes_bulk(
         self,
         tickers: list[str],
         progress_callback: Callable[[int, int], None] | None = None,
+        delay: float = 0.1,  # 100ms delay between calls (KIS API: 20 req/sec limit)
     ) -> dict[str, dict[str, Any]]:
         """
         Get quotes for multiple Korean stocks.
@@ -399,6 +405,7 @@ class KISClient:
         Args:
             tickers: List of KRX stock codes
             progress_callback: Optional callback(completed, total)
+            delay: Delay between API calls in seconds (default: 0.1s = 10 req/sec)
 
         Returns:
             dict mapping ticker to quote data
@@ -422,6 +429,9 @@ class KISClient:
                 completed += 1
                 if progress_callback:
                     progress_callback(completed, total)
+
+            # Rate limiting delay
+            await asyncio.sleep(delay)
 
         return results
 
