@@ -28,6 +28,55 @@ from .base import BaseCollector
 logger = logging.getLogger(__name__)
 
 
+# Field mapping for KR metrics
+# Maps target field names to possible source field names (in priority order)
+# First non-None value from the source fields will be used
+KR_FIELD_MAPPING: dict[str, list[str]] = {
+    # Valuation (KIS uses per/pbr, Naver uses pe_ratio/pb_ratio)
+    "pe_ratio": ["per", "pe_ratio"],
+    "pb_ratio": ["pbr", "pb_ratio"],
+    # Profitability (KIS financial ratio API provides roe/roa)
+    "roe": ["roe"],
+    "roa": ["roa"],
+    # Per share data (KIS uses bps, Naver uses book_value_per_share)
+    "book_value_per_share": ["bps", "book_value_per_share"],
+    # Price levels (KIS uses high_52w/low_52w)
+    "fifty_two_week_high": ["high_52w", "fifty_two_week_high"],
+    "fifty_two_week_low": ["low_52w", "fifty_two_week_low"],
+    # Financial health (KIS provides debt_equity)
+    "debt_equity": ["debt_equity"],
+}
+
+
+def _normalize_kr_metrics(metrics: dict) -> dict:
+    """Normalize KR metrics using field mapping.
+
+    Args:
+        metrics: Raw metrics from KIS or Naver sources
+
+    Returns:
+        Normalized metrics with standard field names
+    """
+    normalized = {}
+
+    for target, sources in KR_FIELD_MAPPING.items():
+        for source in sources:
+            if source in metrics and metrics[source] is not None:
+                normalized[target] = metrics[source]
+                break
+
+    # Copy non-mapped fields directly
+    mapped_sources = set()
+    for sources in KR_FIELD_MAPPING.values():
+        mapped_sources.update(sources)
+
+    for key, value in metrics.items():
+        if key not in mapped_sources and key not in normalized:
+            normalized[key] = value
+
+    return normalized
+
+
 def load_kr_tickers(companies_file: Path) -> tuple[list[str], dict[str, str], dict[str, str]]:
     """Load Korean tickers from companies CSV.
 
@@ -150,7 +199,8 @@ class NewKRCollector(BaseCollector):
                 history[ticker] = data.history
 
         # Also fetch KOSPI index for Beta calculation
-        self._kospi_history = await self._fdr_source.fetch_index_history("KS11", days=300)
+        # Note: Use ^KS11 (Yahoo format) as FDR's KS11 source changed
+        self._kospi_history = await self._fdr_source.fetch_index_history("^KS11", days=300)
 
         self.logger.info(f"History: {len(history)} tickers")
         return history
@@ -229,28 +279,38 @@ class NewKRCollector(BaseCollector):
         technicals: dict,
         price_data: dict,
     ) -> dict:
-        """Build metrics record from collected data."""
+        """Build metrics record from collected data.
+
+        Uses KR_FIELD_MAPPING to normalize field names from different sources
+        (KIS uses per/pbr/bps, Naver uses pe_ratio/pb_ratio/book_value_per_share).
+        """
         from common.indicators import calculate_graham_number
+
+        # Normalize metrics using field mapping
+        normalized = _normalize_kr_metrics(metrics)
 
         record = {
             "ticker": ticker,
-            # Valuation (from KIS or Naver)
-            "pe_ratio": metrics.get("per") or metrics.get("pe_ratio"),
-            "pb_ratio": metrics.get("pbr") or metrics.get("pb_ratio"),
+            # Valuation
+            "pe_ratio": normalized.get("pe_ratio"),
+            "pb_ratio": normalized.get("pb_ratio"),
             # Profitability
-            "roe": metrics.get("roe"),
-            "roa": metrics.get("roa"),
+            "roe": normalized.get("roe"),
+            "roa": normalized.get("roa"),
             # Dividend
-            "dividend_yield": metrics.get("dividend_yield"),
+            "dividend_yield": normalized.get("dividend_yield"),
             # Per share
-            "eps": metrics.get("eps"),
-            "book_value_per_share": metrics.get("bps") or metrics.get("book_value_per_share"),
-            # Price levels (KIS uses high_52w/low_52w, map to standard names)
-            "fifty_two_week_high": metrics.get("fifty_two_week_high") or metrics.get("high_52w"),
-            "fifty_two_week_low": metrics.get("fifty_two_week_low") or metrics.get("low_52w"),
+            "eps": normalized.get("eps"),
+            "book_value_per_share": normalized.get("book_value_per_share"),
+            # Price levels
+            "fifty_two_week_high": normalized.get("fifty_two_week_high"),
+            "fifty_two_week_low": normalized.get("fifty_two_week_low"),
             # Market data
-            "market_cap": metrics.get("market_cap"),
+            "market_cap": normalized.get("market_cap"),
             "latest_price": price_data.get("close"),
+            # Financial health
+            "debt_equity": normalized.get("debt_equity"),
+            "current_ratio": normalized.get("current_ratio"),
             # Technical indicators
             **technicals,
         }

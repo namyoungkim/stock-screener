@@ -61,6 +61,7 @@ class KISClient:
     TOKEN_PATH = "/oauth2/tokenP"
     DOMESTIC_PRICE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-price"
     DOMESTIC_DAILY_PATH = "/uapi/domestic-stock/v1/quotations/inquire-daily-price"
+    DOMESTIC_FINANCIAL_RATIO_PATH = "/uapi/domestic-stock/v1/finance/financial-ratio"
     FOREIGN_PRICE_PATH = "/uapi/overseas-price/v1/quotations/price"
     FOREIGN_DAILY_PATH = "/uapi/overseas-price/v1/quotations/dailyprice"
 
@@ -293,6 +294,99 @@ class KISClient:
             "eps": self._parse_int(output.get("eps")),
             "bps": self._parse_int(output.get("bps")),
         }
+
+    async def get_financial_ratio(self, ticker: str) -> dict[str, Any]:
+        """
+        Get financial ratios for a Korean stock.
+
+        Args:
+            ticker: KRX stock code (e.g., "005930" for Samsung)
+
+        Returns:
+            dict with: roe, roa, debt_ratio, eps, bps, etc.
+        """
+        tr_id = "FHKST66430300"  # 국내주식 재무비율
+
+        params = {
+            "FID_DIV_CLS_CODE": "0",  # 0: 전체
+            "fid_cond_mrkt_div_code": "J",  # 주식
+            "fid_input_iscd": ticker,
+        }
+
+        try:
+            data = await self._request(
+                "GET", self.DOMESTIC_FINANCIAL_RATIO_PATH, tr_id, params=params
+            )
+
+            output = data.get("output", {})
+
+            # If output is a list, get the most recent entry
+            if isinstance(output, list) and output:
+                output = output[0]
+
+            return {
+                "ticker": ticker,
+                "stac_yymm": output.get("stac_yymm"),  # 결산년월
+                "roe": self._parse_float(output.get("roe_val")),  # ROE
+                # ROA: Try multiple field names (roa, roa_val, tot_aset_ebit_rate)
+                "roa": (
+                    self._parse_float(output.get("roa"))
+                    or self._parse_float(output.get("roa_val"))
+                    or self._parse_float(output.get("tot_aset_ebit_rate"))
+                ),
+                "debt_ratio": self._parse_float(output.get("lblt_rate")),  # 부채비율
+                "eps": self._parse_float(output.get("eps")),
+                "bps": self._parse_float(output.get("bps")),
+                "sps": self._parse_float(output.get("sps")),  # 주당매출액
+                "reserve_ratio": self._parse_float(output.get("rsrv_rate")),  # 유보율
+                "growth_rate": self._parse_float(output.get("grs")),  # 매출액증가율
+                "operating_profit_rate": self._parse_float(
+                    output.get("bsop_prfi_inrt")
+                ),  # 영업이익증가율
+                "net_profit_rate": self._parse_float(
+                    output.get("ntin_inrt")
+                ),  # 순이익증가율
+            }
+        except Exception as e:
+            logger.debug(f"Failed to fetch financial ratio for {ticker}: {e}")
+            return {"ticker": ticker}
+
+    async def get_financial_ratios_bulk(
+        self,
+        tickers: list[str],
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Get financial ratios for multiple Korean stocks.
+
+        Args:
+            tickers: List of KRX stock codes
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            dict mapping ticker to financial ratio data
+        """
+        results: dict[str, dict[str, Any]] = {}
+        completed = 0
+        total = len(tickers)
+
+        for ticker in tickers:
+            try:
+                ratio = await self.get_financial_ratio(ticker)
+                if ratio.get("roe") is not None or ratio.get("debt_ratio") is not None:
+                    results[ticker] = ratio
+
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total)
+
+            except Exception as e:
+                logger.debug(f"Failed to fetch financial ratio for {ticker}: {e}")
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total)
+
+        return results
 
     async def get_domestic_quotes_bulk(
         self,

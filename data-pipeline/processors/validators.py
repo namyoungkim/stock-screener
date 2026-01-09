@@ -33,11 +33,16 @@ class ValidationRule:
 # and reasonable financial metric ranges
 DEFAULT_RULES: dict[str, ValidationRule] = {
     # Valuation ratios - can be negative but should be within reason
+    # Note: inf values from zero earnings/revenue will be converted to None
     "pe_ratio": ValidationRule(
-        "pe_ratio", min_value=-1000, max_value=10000, max_abs=1e7
+        "pe_ratio", min_value=-1000, max_value=10000, max_abs=1e6, warn_only=False
     ),
-    "pb_ratio": ValidationRule("pb_ratio", min_value=0, max_value=500, max_abs=1e7),
-    "ps_ratio": ValidationRule("ps_ratio", min_value=0, max_value=500, max_abs=1e7),
+    "pb_ratio": ValidationRule(
+        "pb_ratio", min_value=-500, max_value=500, max_abs=1e6
+    ),  # Allow negative PB for companies with negative book value
+    "ps_ratio": ValidationRule(
+        "ps_ratio", min_value=0, max_value=1000, max_abs=1e6, warn_only=False
+    ),
     "ev_ebitda": ValidationRule(
         "ev_ebitda", min_value=-100, max_value=1000, max_abs=1e7
     ),
@@ -63,9 +68,11 @@ DEFAULT_RULES: dict[str, ValidationRule] = {
         "current_ratio", min_value=0, max_value=100, max_abs=1e7
     ),
     # Other ratios
+    # Note: yfinance returns dividend_yield as percentage (e.g., 3.5 = 3.5%)
+    # Allow up to 30% yield (some REITs/MLPs can have high yields)
     "dividend_yield": ValidationRule(
-        "dividend_yield", min_value=0, max_value=1, max_abs=1e3
-    ),  # 0-100%
+        "dividend_yield", min_value=0, max_value=30, max_abs=1e2
+    ),  # 0-30%
     "beta": ValidationRule("beta", min_value=-10, max_value=10, max_abs=1e3),
     # Technical indicators with strict ranges
     "rsi": ValidationRule(
