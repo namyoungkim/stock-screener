@@ -33,6 +33,8 @@ class NaverFinanceClient:
     BASE_URL = "https://finance.naver.com"
     MAIN_URL = f"{BASE_URL}/item/main.naver"
     SISE_URL = f"{BASE_URL}/item/sise.naver"
+    # FnGuide for ROA data (Naver doesn't provide ROA)
+    FNGUIDE_URL = "https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp"
 
     DEFAULT_HEADERS: ClassVar[dict[str, str]] = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -89,7 +91,8 @@ class NaverFinanceClient:
         Fetch basic fundamentals from Naver Finance main page.
 
         Returns:
-            dict with keys: pe_ratio, eps, pb_ratio, book_value_per_share
+            dict with keys: pe_ratio, eps, pb_ratio, book_value_per_share,
+                           roe, roa, debt_equity, dividend_yield
         """
         session = await self._get_session()
         url = f"{self.MAIN_URL}?code={ticker}"
@@ -101,7 +104,10 @@ class NaverFinanceClient:
                     return {}
 
                 html = await resp.text()
-                return self._parse_fundamentals(html)
+                # Parse both basic fundamentals and financial analysis table
+                result = self._parse_fundamentals(html)
+                result.update(self._parse_financial_analysis_table(html))
+                return result
 
         except Exception as e:
             logger.debug(f"Failed to fetch fundamentals for {ticker}: {e}")
@@ -151,6 +157,82 @@ class NaverFinanceClient:
                     data["book_value_per_share"] = float(
                         bps_match.group(2).replace(",", "")
                     )
+
+        return data
+
+    def _parse_financial_analysis_table(self, html: str) -> dict[str, float | None]:
+        """Parse ROE, ROA, debt ratio, dividend yield from cop_analysis table.
+
+        This table is found on the main page and contains historical financial data.
+        We extract the most recent annual (연간) values.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        data: dict[str, float | None] = {}
+
+        # Find the financial analysis table (주요재무정보)
+        # Look for th with class th_cop_anal13 (ROE row header)
+        roe_th = soup.find("th", class_="th_cop_anal13")
+        if not roe_th:
+            return data
+
+        table = roe_th.find_parent("table")
+        if not table:
+            return data
+
+        # Parse all rows and build a mapping of row name to values
+        rows = table.find_all("tr")
+        row_data: dict[str, list[str]] = {}
+
+        for row in rows:
+            cells = row.find_all(["th", "td"])
+            if not cells:
+                continue
+
+            # First cell is usually the row header
+            row_name = cells[0].get_text(strip=True)
+            values = [c.get_text(strip=True) for c in cells[1:]]
+
+            if row_name and values:
+                row_data[row_name] = values
+
+        def get_latest_value(row_name: str) -> float | None:
+            """Get the most recent non-empty value from a row."""
+            values = row_data.get(row_name, [])
+            # Skip first few values if they're dates/headers
+            # Look for numeric values from the recent columns
+            for val in values:
+                if val and val not in ["-", "", "IFRS연결", "IFRS별도"]:
+                    try:
+                        # Remove commas and convert
+                        return float(val.replace(",", ""))
+                    except ValueError:
+                        continue
+            return None
+
+        # Extract ROE (as percentage, convert to decimal)
+        roe_val = get_latest_value("ROE(지배주주)")
+        if roe_val is not None:
+            data["roe"] = roe_val / 100  # Convert 9.03 -> 0.0903
+
+        # Extract ROA (may not exist in this table)
+        roa_val = get_latest_value("ROA")
+        if roa_val is not None:
+            data["roa"] = roa_val / 100
+
+        # Extract debt ratio (부채비율)
+        debt_val = get_latest_value("부채비율")
+        if debt_val is not None:
+            data["debt_equity"] = debt_val  # Keep as percentage (26.41)
+
+        # Extract dividend yield (시가배당률)
+        div_val = get_latest_value("시가배당률(%)")
+        if div_val is not None:
+            data["dividend_yield"] = div_val / 100  # Convert 2.72 -> 0.0272
+
+        # Extract current ratio (당좌비율) - note: this is quick ratio, not current ratio
+        quick_val = get_latest_value("당좌비율")
+        if quick_val is not None:
+            data["current_ratio"] = quick_val / 100  # Convert 187.80 -> 1.878
 
         return data
 
@@ -262,20 +344,80 @@ class NaverFinanceClient:
 
         return data
 
+    async def get_roa_from_fnguide(self, ticker: str) -> dict[str, float | None]:
+        """
+        Fetch ROA from FnGuide (Naver Finance doesn't provide ROA).
+
+        Args:
+            ticker: KRX stock code (e.g., "005930")
+
+        Returns:
+            dict with: roa (as decimal, e.g., 0.0723 for 7.23%)
+        """
+        session = await self._get_session()
+        url = f"{self.FNGUIDE_URL}?pGB=1&gicode=A{ticker}&cID=&MenuYn=Y&ReportGB=&NewMenuID=101&stkGb=701"
+
+        try:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    logger.debug(f"FnGuide page failed for {ticker}: HTTP {resp.status}")
+                    return {}
+
+                # FnGuide uses EUC-KR encoding
+                content = await resp.read()
+                html = content.decode("euc-kr", errors="ignore")
+                return self._parse_fnguide_roa(html)
+
+        except Exception as e:
+            logger.debug(f"Failed to fetch ROA from FnGuide for {ticker}: {e}")
+            return {}
+
+    def _parse_fnguide_roa(self, html: str) -> dict[str, float | None]:
+        """Parse ROA from FnGuide main page HTML."""
+        soup = BeautifulSoup(html, "html.parser")
+        data: dict[str, float | None] = {}
+
+        # Find tables with ROA data
+        tables = soup.find_all("table")
+
+        for table in tables:
+            rows = table.find_all("tr")
+            for row in rows:
+                cells = row.find_all(["th", "td"])
+                if not cells:
+                    continue
+
+                # Check if this is an ROA row
+                first_cell = cells[0].get_text(strip=True)
+                if "ROA" in first_cell and len(cells) > 1:
+                    # Get the first numeric value (most recent)
+                    for cell in cells[1:]:
+                        text = cell.get_text(strip=True).replace(",", "")
+                        if text and text not in ("-", ""):
+                            try:
+                                roa_value = float(text)
+                                # Convert percentage to decimal (7.23 -> 0.0723)
+                                data["roa"] = roa_value / 100
+                                return data
+                            except ValueError:
+                                continue
+        return data
+
     async def get_all_data(self, ticker: str) -> dict[str, Any]:
         """
         Fetch all available data for a single ticker.
 
-        Combines: fundamentals + financial ratios + market data
+        Combines: fundamentals + financial ratios + market data + ROA (from FnGuide)
 
         Returns:
             dict with all available fields
         """
         # Fetch all data concurrently
-        fundamentals, ratios, market_data = await asyncio.gather(
+        fundamentals, ratios, market_data, fnguide_data = await asyncio.gather(
             self.get_fundamentals(ticker),
             self.get_financial_ratios(ticker),
             self.get_market_data(ticker),
+            self.get_roa_from_fnguide(ticker),
             return_exceptions=True,
         )
 
@@ -288,6 +430,10 @@ class NaverFinanceClient:
             result.update(ratios)
         if isinstance(market_data, dict):
             result.update(market_data)
+        # ROA from FnGuide (only if not already present)
+        if isinstance(fnguide_data, dict) and fnguide_data.get("roa") is not None:
+            if result.get("roa") is None:
+                result["roa"] = fnguide_data["roa"]
 
         return result
 
