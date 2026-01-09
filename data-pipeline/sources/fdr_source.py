@@ -184,32 +184,46 @@ class FDRSource(BaseDataSource):
 
     async def fetch_index_history(
         self,
-        index_code: str = "KS11",  # KOSPI
+        index_code: str = "^KS11",  # KOSPI (use ^ prefix for Yahoo Finance format)
         days: int = 300,
     ) -> pd.DataFrame | None:
-        """Fetch index history (for Beta calculation)."""
+        """Fetch index history (for Beta calculation).
+
+        Note: FDR changed its data source. Use ^KS11 instead of KS11 for KOSPI.
+        """
         import FinanceDataReader as fdr
 
         end_date = date.today()
         start_date = end_date - timedelta(days=days)
 
-        try:
-            df = await asyncio.get_event_loop().run_in_executor(
-                self._executor,
-                lambda: fdr.DataReader(
-                    index_code,
-                    start_date.isoformat(),
-                    end_date.isoformat(),
-                ),
-            )
+        # Try multiple index codes in case one fails
+        index_codes = [index_code]
+        if index_code == "KS11":
+            index_codes = ["^KS11", "KS11"]  # Try Yahoo format first
+        elif index_code == "KQ11":
+            index_codes = ["^KQ11", "KQ11"]  # KOSDAQ
 
-            if df is not None and not df.empty:
-                df.columns = [c.title() for c in df.columns]
-                return df
+        for code in index_codes:
+            try:
+                df = await asyncio.get_event_loop().run_in_executor(
+                    self._executor,
+                    lambda c=code: fdr.DataReader(
+                        c,
+                        start_date.isoformat(),
+                        end_date.isoformat(),
+                    ),
+                )
 
-        except Exception as e:
-            logger.warning(f"Failed to fetch index {index_code}: {e}")
+                if df is not None and not df.empty:
+                    df.columns = [c.title() for c in df.columns]
+                    logger.debug(f"Successfully fetched index {code}")
+                    return df
 
+            except Exception as e:
+                logger.debug(f"Failed to fetch index {code}: {e}")
+                continue
+
+        logger.warning(f"Failed to fetch index {index_code} with all fallback codes")
         return None
 
     async def close(self) -> None:
@@ -374,7 +388,11 @@ class KISSource(BaseDataSource):
         tickers: list[str],
         on_progress: ProgressCallback | None = None,
     ) -> FetchResult:
-        """Fetch fundamental metrics from KIS API."""
+        """Fetch fundamental metrics from KIS API.
+
+        Fetches both quote data (PER, PBR, EPS, BPS, 52w high/low) and
+        financial ratios (ROE, ROA, debt ratio) and merges them.
+        """
         from common.kis_client import KISClient
 
         result = FetchResult()
@@ -391,10 +409,27 @@ class KISSource(BaseDataSource):
                 app_secret=self.app_secret,
                 is_paper=self.paper_trading,
             ) as client:
+                # Fetch quote data (PER, PBR, EPS, BPS, 52w high/low)
                 kis_data = await client.get_domestic_quotes_bulk(tickers)
 
+                # Fetch financial ratios (ROE, ROA, debt ratio)
+                logger.info("Fetching financial ratios from KIS API...")
+                ratios_data = await client.get_financial_ratios_bulk(tickers)
+
+            # Merge quote data with financial ratios
             for ticker, data in kis_data.items():
                 if data:
+                    # Merge financial ratios if available
+                    if ticker in ratios_data:
+                        ratios = ratios_data[ticker]
+                        # Add ROE/ROA from financial ratios (convert % to decimal)
+                        if ratios.get("roe") is not None:
+                            data["roe"] = ratios["roe"] / 100  # Convert 4.14 -> 0.0414
+                        if ratios.get("roa") is not None:
+                            data["roa"] = ratios["roa"] / 100
+                        if ratios.get("debt_ratio") is not None:
+                            data["debt_equity"] = ratios["debt_ratio"]  # Already in %
+
                     result.succeeded[ticker] = TickerData(
                         ticker=ticker,
                         metrics=data,
