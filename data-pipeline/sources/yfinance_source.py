@@ -56,54 +56,66 @@ class YFinanceSource(BaseDataSource):
         tickers: list[str],
         on_progress: ProgressCallback | None = None,
     ) -> FetchResult:
-        """Fetch latest prices using yf.download()."""
+        """Fetch latest prices using yf.download() in batches."""
         result = FetchResult()
 
         if not tickers:
             return result
 
-        try:
-            # Use yf.download for batch price fetching (more efficient)
-            df = await asyncio.get_event_loop().run_in_executor(
-                self._executor,
-                lambda: yf.download(
-                    tickers,
-                    period="5d",
-                    progress=False,
-                    threads=True,
-                    session=self._session,
-                ),
-            )
+        # Process in batches to prevent thread exhaustion
+        price_batch_size = 500
+        total_processed = 0
 
-            if df.empty:
-                for ticker in tickers:
-                    result.failed[ticker] = "No price data"
-                return result
+        for i in range(0, len(tickers), price_batch_size):
+            batch = tickers[i : i + price_batch_size]
 
-            # Extract trading date from the most recent data
-            trading_date = self._extract_trading_date(df)
+            try:
+                # Use yf.download for batch price fetching
+                df = await asyncio.get_event_loop().run_in_executor(
+                    self._executor,
+                    lambda b=batch: yf.download(
+                        b,
+                        period="5d",
+                        progress=False,
+                        threads=True,
+                        session=self._session,
+                    ),
+                )
 
-            # Process results
-            for ticker in tickers:
-                try:
-                    price_data = self._extract_price_data(df, ticker, trading_date)
-                    if price_data:
-                        result.succeeded[ticker] = TickerData(
-                            ticker=ticker,
-                            prices=price_data,
-                        )
-                    else:
+                if df.empty:
+                    for ticker in batch:
                         result.failed[ticker] = "No price data"
-                except Exception as e:
+                    continue
+
+                # Extract trading date from the most recent data
+                trading_date = self._extract_trading_date(df)
+
+                # Process results
+                for ticker in batch:
+                    try:
+                        price_data = self._extract_price_data(df, ticker, trading_date)
+                        if price_data:
+                            result.succeeded[ticker] = TickerData(
+                                ticker=ticker,
+                                prices=price_data,
+                            )
+                        else:
+                            result.failed[ticker] = "No price data"
+                    except Exception as e:
+                        result.failed[ticker] = str(e)
+
+                total_processed += len(batch)
+                if on_progress:
+                    on_progress(total_processed, len(tickers))
+
+            except Exception as e:
+                logger.error(f"Batch price fetch failed: {e}")
+                for ticker in batch:
                     result.failed[ticker] = str(e)
 
-            if on_progress:
-                on_progress(len(result.succeeded), len(tickers))
-
-        except Exception as e:
-            logger.error(f"Batch price fetch failed: {e}")
-            for ticker in tickers:
-                result.failed[ticker] = str(e)
+            # Inter-batch delay
+            if i + price_batch_size < len(tickers):
+                await asyncio.sleep(self.base_delay + random.uniform(0, self.jitter))
 
         return result
 
