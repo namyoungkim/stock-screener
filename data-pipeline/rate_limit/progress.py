@@ -12,15 +12,23 @@ logger = logging.getLogger(__name__)
 class ProgressTracker:
     """Track collection progress for resume functionality.
 
-    Maintains a set of completed tickers and persists them to a file
+    Maintains sets of completed and failed tickers and persists them to a file
     so that collection can be resumed after interruption.
 
-    File format: One ticker per line, sorted alphabetically.
+    File format:
+        # Progress for {market} market
+        # N tickers completed, M tickers failed (permanent)
+        TICKER1
+        TICKER2
+        # --- FAILED (permanent, will not retry) ---
+        FAILED_TICKER1
+        FAILED_TICKER2
     """
 
     market: str
     data_dir: Path
     _completed: set[str] = field(default_factory=set, init=False, repr=False)
+    _failed: set[str] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Load existing progress from file."""
@@ -36,43 +44,82 @@ class ProgressTracker:
         """Number of completed tickers."""
         return len(self._completed)
 
+    @property
+    def failed_count(self) -> int:
+        """Number of permanently failed tickers."""
+        return len(self._failed)
+
     def _load(self) -> None:
         """Load progress from file."""
         if not self.progress_file.exists():
             return
 
         try:
+            in_failed_section = False
             with open(self.progress_file) as f:
-                self._completed = {
-                    line.strip() for line in f if line.strip() and not line.startswith("#")
-                }
-            logger.info(f"Loaded {len(self._completed)} completed tickers from {self.progress_file}")
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("# --- FAILED"):
+                        in_failed_section = True
+                        continue
+                    if line.startswith("#"):
+                        continue
+                    if in_failed_section:
+                        self._failed.add(line)
+                    else:
+                        self._completed.add(line)
+
+            logger.info(
+                f"Loaded {len(self._completed)} completed tickers from {self.progress_file}"
+            )
+            if self._failed:
+                logger.info(f"Loaded {len(self._failed)} permanently failed tickers")
         except OSError as e:
             logger.warning(f"Failed to load progress file: {e}")
             self._completed = set()
+            self._failed = set()
 
     def mark_completed(self, ticker: str) -> None:
         """Mark a ticker as completed."""
         self._completed.add(ticker)
+        # Remove from failed if it was there (recovery)
+        self._failed.discard(ticker)
 
     def mark_batch_completed(self, tickers: list[str]) -> None:
         """Mark multiple tickers as completed."""
         self._completed.update(tickers)
+        # Remove from failed if they were there (recovery)
+        self._failed -= set(tickers)
+
+    def mark_failed(self, ticker: str) -> None:
+        """Mark a ticker as permanently failed (will not retry on resume)."""
+        self._failed.add(ticker)
+
+    def mark_batch_failed(self, tickers: list[str]) -> None:
+        """Mark multiple tickers as permanently failed."""
+        self._failed.update(tickers)
 
     def is_completed(self, ticker: str) -> bool:
         """Check if a ticker has been completed."""
         return ticker in self._completed
 
+    def is_failed(self, ticker: str) -> bool:
+        """Check if a ticker has permanently failed."""
+        return ticker in self._failed
+
     def get_remaining(self, all_tickers: list[str]) -> list[str]:
-        """Get tickers that haven't been completed yet.
+        """Get tickers that haven't been completed or permanently failed.
 
         Args:
             all_tickers: Full list of tickers to process
 
         Returns:
-            List of tickers not in completed set (preserving order)
+            List of tickers not in completed or failed sets (preserving order)
         """
-        return [t for t in all_tickers if t not in self._completed]
+        skip = self._completed | self._failed
+        return [t for t in all_tickers if t not in skip]
 
     def save(self) -> None:
         """Save progress to file atomically.
@@ -85,13 +132,25 @@ class ProgressTracker:
         try:
             with open(tmp_file, "w") as f:
                 f.write(f"# Progress for {self.market} market\n")
-                f.write(f"# {len(self._completed)} tickers completed\n")
+                f.write(
+                    f"# {len(self._completed)} tickers completed, "
+                    f"{len(self._failed)} tickers failed (permanent)\n"
+                )
                 for ticker in sorted(self._completed):
                     f.write(f"{ticker}\n")
 
+                # Write failed section
+                if self._failed:
+                    f.write("\n# --- FAILED (permanent, will not retry) ---\n")
+                    for ticker in sorted(self._failed):
+                        f.write(f"{ticker}\n")
+
             # Atomic rename
             tmp_file.rename(self.progress_file)
-            logger.debug(f"Saved progress: {len(self._completed)} tickers")
+            logger.debug(
+                f"Saved progress: {len(self._completed)} completed, "
+                f"{len(self._failed)} failed"
+            )
         except OSError as e:
             logger.error(f"Failed to save progress: {e}")
             if tmp_file.exists():
@@ -101,6 +160,7 @@ class ProgressTracker:
     def clear(self) -> None:
         """Clear all progress (for fresh start)."""
         self._completed.clear()
+        self._failed.clear()
         if self.progress_file.exists():
             self.progress_file.unlink()
             logger.info(f"Cleared progress file: {self.progress_file}")
