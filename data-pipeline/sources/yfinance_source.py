@@ -21,12 +21,14 @@ logger = logging.getLogger(__name__)
 
 
 def _create_browser_session():
-    """Create browser-like session for TLS fingerprinting bypass."""
-    try:
-        from curl_cffi.requests import Session
-        return Session(impersonate="chrome")
-    except ImportError:
-        return None
+    """Create browser-like session.
+
+    Note: curl_cffi with Chrome impersonate was causing Rate Limits.
+    Using default requests session instead which works better.
+    """
+    # curl_cffi disabled - it triggers Yahoo Finance rate limiting
+    # The default requests session works much better
+    return None
 
 
 @dataclass
