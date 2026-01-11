@@ -127,6 +127,8 @@ class NewUSCollector(BaseCollector):
             if save_csv:
                 storages.append(CSVStorage(data_dir=settings.data_dir))
             if save_db and settings.has_supabase:
+                assert settings.supabase_url is not None
+                assert settings.supabase_key is not None
                 storages.append(SupabaseStorage(
                     supabase_url=settings.supabase_url,
                     supabase_key=settings.supabase_key,

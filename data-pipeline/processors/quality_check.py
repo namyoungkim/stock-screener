@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass, field
 
 import pandas as pd
-from common.config import DATA_DIR
+from config import get_settings
 
 
 # Module-level universe cache (avoid repeated NASDAQ FTP requests)
@@ -17,15 +17,17 @@ from common.config import DATA_DIR
 def _get_cached_universe(market: str) -> tuple[str, ...]:
     """Get cached universe for a market (returns tuple for hashability)."""
     if market.upper() == "US":
-        from collectors.us_stocks import get_all_us_tickers
+        from collectors.us_collector import get_all_us_tickers
 
         all_data = get_all_us_tickers()
         return tuple(all_data.keys())
     elif market.upper() == "KR":
-        from collectors.kr_stocks import KRCollector
+        from collectors.kr_collector import load_kr_tickers
 
-        collector = KRCollector(save_db=False, save_csv=False, quiet=True)
-        return tuple(collector.get_tickers())
+        settings = get_settings()
+        companies_file = settings.companies_dir / "kr_companies.csv"
+        tickers, _, _ = load_kr_tickers(companies_file)
+        return tuple(tickers)
     else:
         return tuple()
 
@@ -277,7 +279,8 @@ class DataQualityChecker:
         prefix = market.lower()
 
         # Find the current version directory via 'latest' symlink
-        latest_link = DATA_DIR / "latest"
+        settings = get_settings()
+        latest_link = settings.data_dir / prefix / "latest"
         if not latest_link.is_symlink():
             self.logger.warning("No 'latest' symlink found, skipping merge")
             return

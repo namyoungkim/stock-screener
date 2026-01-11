@@ -31,7 +31,7 @@ class FDRSource(BaseDataSource):
     batch_size: int = 100
     history_days: int = DEFAULT_HISTORY_DAYS
     timeout: float = FDR_REQUEST_TIMEOUT
-    _executor: ThreadPoolExecutor = field(default=None, init=False, repr=False)
+    _executor: ThreadPoolExecutor | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         super().__init__(name="fdr", market="KR")
@@ -77,6 +77,7 @@ class FDRSource(BaseDataSource):
 
             # Process batch concurrently using ThreadPoolExecutor
             futures = {}
+            assert self._executor is not None, "_executor not initialized"
             for ticker in batch:
                 future = self._executor.submit(
                     self._fetch_single_history,

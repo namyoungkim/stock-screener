@@ -71,6 +71,7 @@ class CSVStorage(BaseStorage):
 
     def _get_companies_path(self, market: str) -> Path:
         """Get path for companies CSV file (not versioned)."""
+        assert self.companies_dir is not None, "companies_dir not initialized"
         return self.companies_dir / f"{market.lower()}_companies.csv"
 
     def save_companies(self, records: list[dict], market: str) -> SaveResult:
@@ -164,7 +165,7 @@ class CSVStorage(BaseStorage):
             return set()
 
         try:
-            df = pd.read_csv(filepath, usecols=["ticker"], dtype={"ticker": str})
+            df = pd.read_csv(filepath, usecols=["ticker"], dtype={"ticker": str})  # type: ignore[call-overload]
             return set(df["ticker"].astype(str))
         except Exception as e:
             logger.warning(f"Failed to load completed tickers: {e}")

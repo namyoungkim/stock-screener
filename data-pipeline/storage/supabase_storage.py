@@ -22,7 +22,7 @@ class SupabaseStorage(BaseStorage):
     supabase_url: str
     supabase_key: str
     _client: Client | None = field(default=None, init=False, repr=False)
-    _company_id_cache: dict[tuple[str, str], str] = field(
+    _company_id_cache: dict[str, dict[str, str]] = field(
         default_factory=dict, init=False, repr=False
     )
 

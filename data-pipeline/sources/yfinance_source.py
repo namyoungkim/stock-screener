@@ -46,7 +46,7 @@ class YFinanceSource(BaseDataSource):
     history_days: int = 300
     max_workers: int = 4
     _session: Any = field(default=None, init=False, repr=False)
-    _executor: ThreadPoolExecutor = field(default=None, init=False, repr=False)
+    _executor: ThreadPoolExecutor | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         super().__init__(name="yfinance", market="US")

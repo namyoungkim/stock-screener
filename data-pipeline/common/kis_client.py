@@ -202,6 +202,8 @@ class KISClient:
         """Build request headers with authentication."""
         if not self._access_token:
             raise KISAuthError("No access token. Call _get_access_token() first.")
+        if not self.app_key or not self.app_secret:
+            raise KISAuthError("API credentials not configured.")
 
         return {
             "content-type": "application/json; charset=utf-8",

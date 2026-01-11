@@ -132,6 +132,8 @@ class NewKRCollector(BaseCollector):
             if save_csv:
                 storages.append(CSVStorage(data_dir=settings.data_dir))
             if save_db and settings.has_supabase:
+                assert settings.supabase_url is not None
+                assert settings.supabase_key is not None
                 storages.append(SupabaseStorage(
                     supabase_url=settings.supabase_url,
                     supabase_key=settings.supabase_key,
@@ -318,8 +320,8 @@ class NewKRCollector(BaseCollector):
         # Calculate Graham Number
         eps = record.get("eps")
         bvps = record.get("book_value_per_share")
-        if eps and bvps:
-            graham = calculate_graham_number(eps, bvps)
+        if isinstance(eps, (int, float)) and isinstance(bvps, (int, float)):
+            graham = calculate_graham_number(float(eps), float(bvps))
             if graham:
                 record["graham_number"] = graham
 

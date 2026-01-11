@@ -109,23 +109,22 @@ class TestIsConfigured:
 
     def test_not_configured_missing_key(self):
         """Returns False when app_key is missing."""
-        # Patch environment variables to ensure None is used
-        with patch("common.kis_client.KIS_APP_KEY", ""):
-            client = KISClient(app_key="", app_secret="test_secret")
+        # Patch _get_kis_defaults to return None for defaults
+        with patch("common.kis_client._get_kis_defaults", return_value=(None, None, False)):
+            client = KISClient(app_key=None, app_secret="test_secret")
             assert client.is_configured() is False
 
     def test_not_configured_missing_secret(self):
         """Returns False when app_secret is missing."""
-        with patch("common.kis_client.KIS_APP_SECRET", ""):
-            client = KISClient(app_key="test_key", app_secret="")
+        with patch("common.kis_client._get_kis_defaults", return_value=(None, None, False)):
+            client = KISClient(app_key="test_key", app_secret=None)
             assert client.is_configured() is False
 
     def test_not_configured_empty_strings(self):
         """Returns False when credentials are empty strings."""
-        with patch("common.kis_client.KIS_APP_KEY", ""):
-            with patch("common.kis_client.KIS_APP_SECRET", ""):
-                client = KISClient(app_key="", app_secret="")
-                assert client.is_configured() is False
+        with patch("common.kis_client._get_kis_defaults", return_value=(None, None, False)):
+            client = KISClient(app_key=None, app_secret=None)
+            assert client.is_configured() is False
 
 
 class TestClientConfiguration:

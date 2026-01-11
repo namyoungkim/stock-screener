@@ -8,7 +8,7 @@ Functions for fetching and updating ticker lists from official sources:
 import ftplib
 import io
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -27,15 +27,10 @@ class TickerUpdateResult:
     """Result of ticker update operation."""
 
     total: int = 0
-    added: list[str] | None = None
-    removed: list[str] | None = None
+    added: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
     updated: int = 0
-    errors: list[str] | None = None
-
-    def __post_init__(self):
-        self.added = self.added or []
-        self.removed = self.removed or []
-        self.errors = self.errors or []
+    errors: list[str] = field(default_factory=list)
 
 
 def fetch_us_tickers() -> pd.DataFrame:
