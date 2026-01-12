@@ -407,33 +407,42 @@ class NaverFinanceClient:
         """
         Fetch all available data for a single ticker.
 
-        Combines: fundamentals + financial ratios + market data + ROA (from FnGuide)
+        Combines: fundamentals + financial ratios + market data
+        (FnGuide removed - KIS API provides ROA, FnGuide caused hang issues)
 
         Returns:
             dict with all available fields
         """
-        # Fetch all data concurrently
-        fundamentals, ratios, market_data, fnguide_data = await asyncio.gather(
-            self.get_fundamentals(ticker),
-            self.get_financial_ratios(ticker),
-            self.get_market_data(ticker),
-            self.get_roa_from_fnguide(ticker),
-            return_exceptions=True,
+
+        async def safe_fetch(coro, default: dict | None = None) -> dict:
+            """Fetch with timeout protection."""
+            if default is None:
+                default = {}
+            try:
+                return await asyncio.wait_for(coro, timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.debug(f"Timeout fetching data for {ticker}")
+                return default
+            except Exception as e:
+                logger.debug(f"Error fetching data for {ticker}: {e}")
+                return default
+
+        # Fetch all data concurrently (FnGuide removed)
+        fundamentals, ratios, market_data = await asyncio.gather(
+            safe_fetch(self.get_fundamentals(ticker)),
+            safe_fetch(self.get_financial_ratios(ticker)),
+            safe_fetch(self.get_market_data(ticker)),
         )
 
         result: dict[str, Any] = {}
 
-        # Merge results, handling exceptions
+        # Merge results
         if isinstance(fundamentals, dict):
             result.update(fundamentals)
         if isinstance(ratios, dict):
             result.update(ratios)
         if isinstance(market_data, dict):
             result.update(market_data)
-        # ROA from FnGuide (only if not already present)
-        if isinstance(fnguide_data, dict) and fnguide_data.get("roa") is not None:
-            if result.get("roa") is None:
-                result["roa"] = fnguide_data["roa"]
 
         return result
 
@@ -441,6 +450,7 @@ class NaverFinanceClient:
         self,
         tickers: list[str],
         progress_callback: Callable[[int, int], None] | None = None,
+        batch_size: int = 100,
     ) -> dict[str, dict[str, Any]]:
         """
         Fetch data for multiple tickers in parallel with rate limiting.
@@ -448,6 +458,7 @@ class NaverFinanceClient:
         Args:
             tickers: List of KRX ticker codes (e.g., ["005930", "000660"])
             progress_callback: Optional callback(completed, total) for progress
+            batch_size: Number of tickers to process per batch (default: 100)
 
         Returns:
             dict mapping ticker to its data dict
@@ -482,17 +493,32 @@ class NaverFinanceClient:
         # Ensure session is created (will be reused by fetch_one)
         await self._get_session()
 
-        # Run all requests
-        tasks = [fetch_one(ticker) for ticker in tickers]
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        # Process in batches to avoid memory issues and allow partial progress
+        for i in range(0, len(tickers), batch_size):
+            batch = tickers[i : i + batch_size]
+            tasks = [fetch_one(ticker) for ticker in batch]
 
-        for response in responses:
-            if isinstance(response, BaseException):
-                continue
-            if isinstance(response, tuple):
-                ticker, data = response
-                if data:  # Only add if we got some data
-                    results[ticker] = data
+            # Run batch with overall timeout protection
+            try:
+                responses = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=120.0,  # 2 minutes per batch
+                )
+
+                for response in responses:
+                    if isinstance(response, BaseException):
+                        continue
+                    if isinstance(response, tuple):
+                        ticker, data = response
+                        if data:  # Only add if we got some data
+                            results[ticker] = data
+
+            except asyncio.TimeoutError:
+                logger.warning(f"Batch {i // batch_size + 1} timed out, continuing...")
+                # Update completed count for timed out batch
+                completed += len(batch) - (completed - i)
+                if progress_callback:
+                    progress_callback(completed, total)
 
         return results
 
