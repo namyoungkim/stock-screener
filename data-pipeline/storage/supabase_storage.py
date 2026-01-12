@@ -307,3 +307,15 @@ class CompositeStorage(BaseStorage):
             if result:
                 return result
         return {}
+
+    def finalize(self, market: str | None = None) -> None:
+        """Delegate finalize to all storages that support it."""
+        for storage in self.storages:
+            if hasattr(storage, "finalize"):
+                getattr(storage, "finalize")(market)  # noqa: B009
+
+    def set_trading_date(self, market: str, date_str: str) -> None:
+        """Delegate set_trading_date to all storages that support it."""
+        for storage in self.storages:
+            if hasattr(storage, "set_trading_date"):
+                getattr(storage, "set_trading_date")(market, date_str)  # noqa: B009

@@ -19,7 +19,7 @@ from rate_limit import (
     RateLimitStrategy,
 )
 from sources import DataSource, FetchResult
-from storage import CSVStorage, Storage
+from storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -477,15 +477,14 @@ class BaseCollector(ABC):
         """Save all collected data."""
         # Set trading date for CSV storage before saving
         # This ensures directory is named by trading date, not collection date
-        if isinstance(self.storage, CSVStorage):
-            trading_date = self._extract_trading_date(prices)
-            if trading_date:
-                self.storage.set_trading_date(self.market, trading_date)
-            else:
-                self.logger.warning(
-                    "Could not extract trading date from prices, "
-                    "using today's date as fallback"
-                )
+        trading_date = self._extract_trading_date(prices)
+        if trading_date and hasattr(self.storage, "set_trading_date"):
+            getattr(self.storage, "set_trading_date")(self.market, trading_date)  # noqa: B009
+        elif not trading_date:
+            self.logger.warning(
+                "Could not extract trading date from prices, "
+                "using today's date as fallback"
+            )
 
         companies = []
         metrics_records = []
@@ -525,9 +524,9 @@ class BaseCollector(ABC):
         saved += result.saved
         failed += len(result.errors)
 
-        # Finalize CSV storage (update symlinks)
-        if isinstance(self.storage, CSVStorage):
-            self.storage.finalize(self.market)
+        # Finalize storage (update symlinks for CSV)
+        if hasattr(self.storage, "finalize"):
+            getattr(self.storage, "finalize")(self.market)  # noqa: B009
 
         return {"saved": saved, "failed": failed}
 
