@@ -41,24 +41,50 @@ from tqdm import tqdm
 from supabase import Client
 
 
+def sanitize_records(records: list[dict]) -> list[dict]:
+    """
+    Sanitize records for JSON serialization.
+
+    Replaces inf/-inf/NaN with None in all record values.
+    This prevents "Out of range float values are not JSON compliant" errors.
+
+    Args:
+        records: List of dictionaries to sanitize
+
+    Returns:
+        Sanitized list with None instead of inf/nan values
+    """
+    sanitized = []
+    for record in records:
+        clean_record = {}
+        for key, value in record.items():
+            if isinstance(value, float):
+                if np.isnan(value) or np.isinf(value):
+                    clean_record[key] = None
+                else:
+                    clean_record[key] = value
+            else:
+                clean_record[key] = value
+        sanitized.append(clean_record)
+    return sanitized
+
+
 def sanitize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
     Sanitize DataFrame for JSON serialization.
 
-    Replaces inf/-inf with None and NaN with None for all numeric columns.
-    This prevents "Out of range float values are not JSON compliant" errors.
+    Replaces inf/-inf with NaN. Note: For proper None handling,
+    use sanitize_records() after converting to dict records.
 
     Args:
         df: DataFrame to sanitize
 
     Returns:
-        Sanitized DataFrame with None instead of inf/nan values
+        Sanitized DataFrame with NaN for inf values
     """
-    # Replace inf/-inf with NaN first, then replace NaN with None
+    df = df.copy()
+    # Replace inf/-inf with NaN
     df = df.replace([np.inf, -np.inf], np.nan)
-    # Convert to object dtype and replace NaN with None for JSON compatibility
-    for col in df.select_dtypes(include=[np.floating]).columns:
-        df[col] = df[col].where(pd.notnull(df[col]), None)
     return df
 
 
@@ -147,14 +173,15 @@ def load_companies(
         # Ensure optional columns exist
         if "sector" not in us_df.columns:
             us_df["sector"] = None
-        else:
-            us_df["sector"] = us_df["sector"].where(pd.notna(us_df["sector"]), None)
         if "industry" not in us_df.columns:
             us_df["industry"] = None
-        else:
-            us_df["industry"] = us_df["industry"].where(pd.notna(us_df["industry"]), None)
 
+        # Filter out rows with missing name (test tickers, etc.)
+        us_df = us_df[us_df["name"].notna()]
+
+        # Convert to records and sanitize for JSON serialization
         us_records = us_df[["ticker", "name", "market", "sector", "industry", "currency", "is_active"]].to_dict("records")
+        us_records = sanitize_records(us_records)
         companies_to_upsert.extend(us_records)
 
     # Read KR companies (vectorized)
@@ -171,20 +198,23 @@ def load_companies(
         kr_df["market"] = kr_df["market"].replace({"KOSDAQ GLOBAL": "KOSDAQ"})
         kr_df = kr_df[kr_df["market"].isin(["KOSPI", "KOSDAQ"])]
 
-        # Ensure required columns exist and replace NaN with None (for JSON serialization)
-        # Also truncate long values to fit varchar(100) constraint
+        # Ensure optional columns exist
         if "sector" not in kr_df.columns:
             kr_df["sector"] = None
-        else:
-            kr_df["sector"] = kr_df["sector"].where(pd.notna(kr_df["sector"]), None)
-            kr_df["sector"] = kr_df["sector"].apply(lambda x: x[:100] if isinstance(x, str) and len(x) > 100 else x)
         if "industry" not in kr_df.columns:
             kr_df["industry"] = None
-        else:
-            kr_df["industry"] = kr_df["industry"].where(pd.notna(kr_df["industry"]), None)
-            kr_df["industry"] = kr_df["industry"].apply(lambda x: x[:100] if isinstance(x, str) and len(x) > 100 else x)
 
+        # Truncate long values to fit varchar(100) constraint
+        for col in ["sector", "industry"]:
+            if col in kr_df.columns:
+                kr_df[col] = kr_df[col].apply(lambda x: x[:100] if isinstance(x, str) and len(x) > 100 else x)
+
+        # Filter out rows with missing name
+        kr_df = kr_df[kr_df["name"].notna()]
+
+        # Convert to records and sanitize for JSON serialization
         kr_records = kr_df[["ticker", "name", "market", "sector", "industry", "currency", "is_active"]].to_dict("records")
+        kr_records = sanitize_records(kr_records)
         companies_to_upsert.extend(kr_records)
 
     # Batch upsert

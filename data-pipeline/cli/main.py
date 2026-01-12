@@ -362,7 +362,16 @@ def _run_collection(
     if tickers is None:
         tickers = collector.get_tickers()
         if test:
-            tickers = tickers[:3]
+            # Use meaningful test tickers instead of alphabetically first ones (SPACs)
+            if market == "us":
+                test_tickers = ["AAPL", "MSFT", "GOOGL"]
+            else:  # kr
+                test_tickers = ["005930", "000660", "035420"]  # Samsung, SK Hynix, Naver
+            # Filter to only include tickers that exist in the universe
+            tickers = [t for t in test_tickers if t in tickers]
+            if not tickers:
+                # Fallback to first 3 if test tickers not found
+                tickers = collector.get_tickers()[:3]
         elif limit:
             tickers = tickers[:limit]
 
