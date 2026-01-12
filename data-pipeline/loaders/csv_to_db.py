@@ -33,12 +33,34 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+from common.utils import get_supabase_client, safe_float, safe_float_series, safe_int
 from tqdm import tqdm
 
 from supabase import Client
 
-from common.utils import get_supabase_client, safe_float, safe_float_series, safe_int
+
+def sanitize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sanitize DataFrame for JSON serialization.
+
+    Replaces inf/-inf with None and NaN with None for all numeric columns.
+    This prevents "Out of range float values are not JSON compliant" errors.
+
+    Args:
+        df: DataFrame to sanitize
+
+    Returns:
+        Sanitized DataFrame with None instead of inf/nan values
+    """
+    # Replace inf/-inf with NaN first, then replace NaN with None
+    df = df.replace([np.inf, -np.inf], np.nan)
+    # Convert to object dtype and replace NaN with None for JSON compatibility
+    for col in df.select_dtypes(include=[np.floating]).columns:
+        df[col] = df[col].where(pd.notnull(df[col]), None)
+    return df
+
 
 # Data directory paths
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -344,6 +366,9 @@ def load_metrics(
         ]
         df["data_source"] = data_source
 
+        # Sanitize DataFrame for JSON serialization (remove inf/nan)
+        df = sanitize_dataframe(df)
+
         # Convert to records, dropping None values per row
         records = []
         for record in df[result_cols + ["data_source"]].to_dict("records"):
@@ -427,6 +452,9 @@ def load_prices(
         for col in ["open", "high", "low", "close", "volume", "market_cap"]:
             if col in df.columns:
                 result_cols.append(col)
+
+        # Sanitize DataFrame for JSON serialization (remove inf/nan)
+        df = sanitize_dataframe(df)
 
         # Convert to records, dropping None values per row
         records = []
