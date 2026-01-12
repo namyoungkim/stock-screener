@@ -24,7 +24,7 @@ METRICS_RETRY_WAIT = 600  # Wait time for metrics retry (yfinance .info is stric
 
 # === Timeouts (seconds) ===
 DEFAULT_REQUEST_TIMEOUT = 30
-FDR_REQUEST_TIMEOUT = 3  # Reduced from 10 to skip unavailable tickers faster
+FDR_REQUEST_TIMEOUT = 10  # 10 seconds for history data (300 days needs more time)
 KIS_REQUEST_TIMEOUT = 10
 
 # === Rate Limit ===
