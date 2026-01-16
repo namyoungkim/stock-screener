@@ -9,16 +9,18 @@ DATA_DIR = _PROJECT_ROOT / "data"
 COMPANIES_DIR = DATA_DIR / "companies"
 
 # === Batch Sizes ===
-DEFAULT_BATCH_SIZE = 20  # For metrics/info fetching (optimized from 10)
-DEFAULT_HISTORY_BATCH_SIZE = 500  # For bulk history download
-DEFAULT_PRICES_BATCH_SIZE = 100  # For price fetching
+# Reduced batch size to avoid Yahoo Finance rate limiting
+DEFAULT_BATCH_SIZE = 10  # For metrics/info fetching (reduced from 20)
+DEFAULT_HISTORY_BATCH_SIZE = 100  # For bulk history download (reduced from 500)
+DEFAULT_PRICES_BATCH_SIZE = 50  # For price fetching (reduced from 100)
 
 # === Concurrency ===
-DEFAULT_MAX_WORKERS = 6  # ThreadPoolExecutor workers (optimized from 4)
+DEFAULT_MAX_WORKERS = 4  # ThreadPoolExecutor workers (reduced from 6)
 
 # === Delays (seconds) ===
-DEFAULT_BASE_DELAY = 1.5  # Base delay between batches (optimized from 2.5)
-DEFAULT_JITTER = 0.5  # Random jitter range (optimized from 1.0)
+# Increased delays to avoid Yahoo Finance rate limiting
+DEFAULT_BASE_DELAY = 3.0  # Base delay between batches (increased from 1.5)
+DEFAULT_JITTER = 1.5  # Random jitter range (increased from 0.5)
 HISTORY_RETRY_WAIT = 120  # Wait time for history retry (yfinance is lenient)
 METRICS_RETRY_WAIT = 600  # Wait time for metrics retry (yfinance .info is strict)
 

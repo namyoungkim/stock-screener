@@ -19,6 +19,15 @@ from .base import BaseDataSource, FetchResult, ProgressCallback, TickerData
 
 logger = logging.getLogger(__name__)
 
+# Timeout settings
+DOWNLOAD_TIMEOUT = 120  # yf.download() timeout in seconds
+INFO_TIMEOUT = 30  # yf.Ticker().info timeout in seconds
+
+# Rate limit backoff settings
+RATE_LIMIT_INITIAL_WAIT = 60  # Initial wait on rate limit (seconds)
+RATE_LIMIT_MAX_WAIT = 600  # Max wait time (10 minutes)
+RATE_LIMIT_BACKOFF_FACTOR = 2  # Exponential backoff factor
+
 
 def _create_browser_session():
     """Create browser-like session.
@@ -47,11 +56,39 @@ class YFinanceSource(BaseDataSource):
     max_workers: int = 4
     _session: Any = field(default=None, init=False, repr=False)
     _executor: ThreadPoolExecutor | None = field(default=None, init=False, repr=False)
+    _rate_limit_wait: float = field(default=RATE_LIMIT_INITIAL_WAIT, init=False)
+    _consecutive_rate_limits: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
         super().__init__(name="yfinance", market="US")
         self._session = _create_browser_session()
         self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
+
+    async def _handle_rate_limit(self) -> None:
+        """Handle rate limit by waiting with exponential backoff."""
+        self._consecutive_rate_limits += 1
+        wait_time = min(
+            self._rate_limit_wait * (RATE_LIMIT_BACKOFF_FACTOR ** (self._consecutive_rate_limits - 1)),
+            RATE_LIMIT_MAX_WAIT,
+        )
+        logger.warning(
+            f"Rate limit detected (#{self._consecutive_rate_limits}). "
+            f"Waiting {wait_time:.0f}s before retry..."
+        )
+        await asyncio.sleep(wait_time)
+
+    def _reset_rate_limit_state(self) -> None:
+        """Reset rate limit state after successful requests."""
+        if self._consecutive_rate_limits > 0:
+            logger.info("Rate limit state reset after successful request")
+        self._consecutive_rate_limits = 0
+        self._rate_limit_wait = RATE_LIMIT_INITIAL_WAIT
+
+    def _is_rate_limit_error(self, error: Exception | str) -> bool:
+        """Check if error indicates rate limiting."""
+        error_str = str(error).lower()
+        rate_limit_indicators = ["429", "rate limit", "too many requests", "throttl"]
+        return any(indicator in error_str for indicator in rate_limit_indicators)
 
     async def fetch_prices(
         self,
@@ -73,23 +110,31 @@ class YFinanceSource(BaseDataSource):
             batch = tickers[i : i + price_batch_size]
 
             try:
-                # Use yf.download for batch price fetching
+                # Use yf.download for batch price fetching with timeout
                 # threads=False to avoid triggering rate limits
-                df = await asyncio.get_event_loop().run_in_executor(
-                    self._executor,
-                    lambda b=batch: yf.download(
-                        b,
-                        period="5d",
-                        progress=False,
-                        threads=False,
-                        session=self._session,
+                df = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        self._executor,
+                        lambda b=batch: yf.download(
+                            b,
+                            period="5d",
+                            progress=False,
+                            threads=False,
+                            session=self._session,
+                        ),
                     ),
+                    timeout=DOWNLOAD_TIMEOUT,
                 )
 
                 if df.empty:
+                    # Check if this might be rate limiting
+                    logger.warning(f"Empty response for batch starting with {batch[0]}")
                     for ticker in batch:
                         result.failed[ticker] = "No price data"
                     continue
+
+                # Reset rate limit state on successful fetch
+                self._reset_rate_limit_state()
 
                 # Extract trading date from the most recent data
                 trading_date = self._extract_trading_date(df)
@@ -112,10 +157,26 @@ class YFinanceSource(BaseDataSource):
                 if on_progress:
                     on_progress(total_processed, len(tickers))
 
-            except Exception as e:
-                logger.error(f"Batch price fetch failed: {e}")
+            except TimeoutError:
+                logger.warning(f"Timeout fetching prices for batch starting with {batch[0]}")
                 for ticker in batch:
-                    result.failed[ticker] = str(e)
+                    result.failed[ticker] = "Timeout"
+                # Possible rate limit - apply backoff
+                await self._handle_rate_limit()
+
+            except Exception as e:
+                error_str = str(e)
+                logger.error(f"Batch price fetch failed: {error_str}")
+
+                # Check for rate limit
+                if self._is_rate_limit_error(e):
+                    await self._handle_rate_limit()
+                    # Mark batch as failed due to rate limit
+                    for ticker in batch:
+                        result.failed[ticker] = "Rate limit"
+                else:
+                    for ticker in batch:
+                        result.failed[ticker] = error_str
 
             # Inter-batch delay
             if i + price_batch_size < len(tickers):
@@ -147,22 +208,29 @@ class YFinanceSource(BaseDataSource):
             batch = tickers[i : i + history_batch]
 
             try:
-                # threads=False to avoid triggering rate limits
-                df = await asyncio.get_event_loop().run_in_executor(
-                    self._executor,
-                    lambda b=batch: yf.download(
-                        b,
-                        period=period,
-                        progress=False,
-                        threads=False,
-                        session=self._session,
+                # threads=False to avoid triggering rate limits, with timeout
+                df = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        self._executor,
+                        lambda b=batch: yf.download(
+                            b,
+                            period=period,
+                            progress=False,
+                            threads=False,
+                            session=self._session,
+                        ),
                     ),
+                    timeout=DOWNLOAD_TIMEOUT,
                 )
 
                 if df.empty:
+                    logger.warning(f"Empty history response for batch starting with {batch[0]}")
                     for ticker in batch:
                         result.failed[ticker] = "No history data"
                     continue
+
+                # Reset rate limit state on successful fetch
+                self._reset_rate_limit_state()
 
                 # Process each ticker
                 for ticker in batch:
@@ -182,10 +250,25 @@ class YFinanceSource(BaseDataSource):
                 if on_progress:
                     on_progress(total_processed, len(tickers))
 
-            except Exception as e:
-                logger.error(f"Batch history fetch failed: {e}")
+            except TimeoutError:
+                logger.warning(f"Timeout fetching history for batch starting with {batch[0]}")
                 for ticker in batch:
-                    result.failed[ticker] = str(e)
+                    result.failed[ticker] = "Timeout"
+                # Possible rate limit - apply backoff
+                await self._handle_rate_limit()
+
+            except Exception as e:
+                error_str = str(e)
+                logger.error(f"Batch history fetch failed: {error_str}")
+
+                # Check for rate limit
+                if self._is_rate_limit_error(e):
+                    await self._handle_rate_limit()
+                    for ticker in batch:
+                        result.failed[ticker] = "Rate limit"
+                else:
+                    for ticker in batch:
+                        result.failed[ticker] = error_str
 
             # Inter-batch delay
             if i + history_batch < len(tickers):
@@ -201,6 +284,7 @@ class YFinanceSource(BaseDataSource):
         """Fetch fundamental metrics using yf.Ticker().info.
 
         Note: This is the most rate-limited operation. Use with caution.
+        Rate limit triggers backoff and marks remaining tickers for retry.
         """
         result = FetchResult()
 
@@ -208,6 +292,8 @@ class YFinanceSource(BaseDataSource):
             return result
 
         total_processed = 0
+        max_rate_limit_retries = 3  # Maximum rate limit retries per session
+
         for i in range(0, len(tickers), self.batch_size):
             batch = tickers[i : i + self.batch_size]
 
@@ -224,10 +310,28 @@ class YFinanceSource(BaseDataSource):
                 except Exception as e:
                     failure_type = classify_failure(e)
                     result.failed[ticker] = str(e)
+
                     if failure_type == FailureType.RATE_LIMIT:
                         logger.warning(f"Rate limit hit at {ticker}")
-                        # Don't continue if rate limited
-                        return result
+
+                        # Check if we should retry or give up
+                        if self._consecutive_rate_limits >= max_rate_limit_retries:
+                            logger.error(
+                                f"Max rate limit retries ({max_rate_limit_retries}) exceeded. "
+                                f"Stopping metrics collection."
+                            )
+                            # Mark remaining tickers as rate limited
+                            remaining = tickers[tickers.index(ticker) + 1:]
+                            for remaining_ticker in remaining:
+                                result.failed[remaining_ticker] = "Rate limit - collection stopped"
+                            return result
+
+                        # Apply backoff and continue
+                        await self._handle_rate_limit()
+
+                    elif failure_type == FailureType.TIMEOUT:
+                        logger.warning(f"Timeout at {ticker}, applying backoff")
+                        await self._handle_rate_limit()
 
             total_processed += len(batch)
             if on_progress:
@@ -240,18 +344,27 @@ class YFinanceSource(BaseDataSource):
         return result
 
     async def _fetch_single_metrics(self, ticker: str) -> dict | None:
-        """Fetch metrics for a single ticker."""
+        """Fetch metrics for a single ticker with timeout."""
         try:
             stock = yf.Ticker(ticker, session=self._session)
-            info = await asyncio.get_event_loop().run_in_executor(
-                self._executor,
-                lambda: stock.info,
+            info = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    self._executor,
+                    lambda: stock.info,
+                ),
+                timeout=INFO_TIMEOUT,
             )
 
             if not info or info.get("regularMarketPrice") is None:
                 return None
 
+            # Reset rate limit state on successful fetch
+            self._reset_rate_limit_state()
             return self._extract_metrics(info)
+
+        except TimeoutError as e:
+            logger.warning(f"Timeout fetching metrics for {ticker}")
+            raise TimeoutError(f"Timeout fetching metrics for {ticker}") from e
 
         except Exception as e:
             logger.debug(f"Failed to fetch metrics for {ticker}: {e}")
