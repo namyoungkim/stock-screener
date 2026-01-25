@@ -307,6 +307,81 @@ def update_tickers(
         console.print("\n[green]Done![/green]")
 
 
+@app.command()
+def enrich(
+    market: Annotated[str, typer.Argument(help="Market to enrich: kr")] = "kr",
+    date_str: Annotated[str | None, typer.Option("--date", "-d", help="Date (YYYY-MM-DD)")] = None,
+    version: Annotated[str | None, typer.Option("--version", "-v", help="Version (v1, v2, ...)")] = None,
+    metrics: Annotated[str | None, typer.Option("--metrics", "-m", help="Metrics to enrich (comma-separated)")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-n", help="Show changes without saving")] = False,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Minimal output")] = False,
+    batch_size: Annotated[int, typer.Option("--batch-size", "-b", help="Batch size for API requests")] = 50,
+) -> None:
+    """Enrich existing metrics with missing data.
+
+    Currently supports KR market enrichment:
+    - EPS: Earnings Per Share (KIS API → Naver fallback)
+    - BPS: Book Value Per Share (KIS API → Naver fallback)
+    - Graham Number: sqrt(22.5 * EPS * BPS)
+
+    Examples:
+        stock-pipeline enrich kr --date 2026-01-23 --version v3
+        stock-pipeline enrich kr --dry-run
+        stock-pipeline enrich kr -d 2026-01-23 -v v3 -m eps,bps,graham_number
+    """
+    setup_logging(quiet=quiet)
+
+    market = market.lower()
+    if market != "kr":
+        console.print(f"[red]Only KR market is currently supported for enrichment.[/red]")
+        raise typer.Exit(code=1)
+
+    if not quiet:
+        console.print(f"\n[bold blue]Enriching {market.upper()} metrics...[/bold blue]")
+        if date_str:
+            console.print(f"  Date: {date_str}")
+        if version:
+            console.print(f"  Version: {version}")
+        if dry_run:
+            console.print("  [dim](dry run mode)[/dim]")
+
+    try:
+        from kr.scripts.enrich_metrics import enrich_kr_metrics
+
+        result = asyncio.run(
+            enrich_kr_metrics(
+                date_str=date_str,
+                version=version,
+                dry_run=dry_run,
+                batch_size=batch_size,
+            )
+        )
+
+        if result.errors:
+            console.print(f"[red]Error: {result.errors[0]}[/red]")
+            raise typer.Exit(code=1)
+
+        # Show results
+        console.print(f"\n[bold]Enrichment Results:[/bold]")
+        console.print(f"  Total tickers: {result.total_tickers}")
+        console.print(f"  [green]EPS enriched: {result.enriched_eps}[/green]")
+        console.print(f"  [green]BPS enriched: {result.enriched_bps}[/green]")
+        console.print(f"  [green]Graham Number calculated: {result.enriched_graham}[/green]")
+        console.print(f"  KIS API success: {result.kis_success}")
+        console.print(f"  Naver fallback success: {result.naver_success}")
+        if result.failed > 0:
+            console.print(f"  [yellow]Failed: {result.failed}[/yellow]")
+
+        if dry_run:
+            console.print("\n  [dim](dry run - no changes saved)[/dim]")
+        else:
+            console.print("\n  [green]Changes saved successfully![/green]")
+
+    except Exception as e:
+        console.print(f"[red]Enrichment failed: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
 # ==================== Helper Functions ====================
 
 
