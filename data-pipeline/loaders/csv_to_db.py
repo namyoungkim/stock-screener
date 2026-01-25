@@ -453,6 +453,10 @@ def load_prices(
         df = df.copy()
         df["ticker"] = df["ticker"].astype(str)
 
+        # Rename latest_price to close if exists
+        if "latest_price" in df.columns and "close" not in df.columns:
+            df = df.rename(columns={"latest_price": "close"})
+
         # Add company_id column
         if is_kr:
             # KR: try KOSPI first, then KOSDAQ
