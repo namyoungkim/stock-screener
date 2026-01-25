@@ -59,7 +59,8 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 `.env` 파일에 필요:
 - `SUPABASE_URL`, `SUPABASE_KEY` - 데이터베이스 (필수)
 - `DISCORD_BOT_TOKEN` - 디스코드 봇 (봇 사용 시)
-- `KIS_APP_KEY`, `KIS_APP_SECRET` - 한국투자증권 API (KR 수집 선택적, Beta 계산)
+- `KIS_APP_KEY`, `KIS_APP_SECRET` - 한국투자증권 API (KR primary 소스)
+- `DART_API_KEY` - DART 전자공시 API (KR supplement, ROA/PS/EV/EBITDA)
 
 ## 현재 상태
 
@@ -68,7 +69,8 @@ PRD.md → ROADMAP.md → TODO.md 순서로 일관성을 유지해야 합니다.
 - Python CLI 데이터 파이프라인 (`data-pipeline/cli/main.py`)
   - 수집 → Google Drive 백업 → Supabase 적재
   - `uv run python -m cli.main collect all` (Shell script 대체)
-- KR 수집기 (FDR + 네이버 금융, yfinance 제거 - Rate Limit 해결)
+- KR 수집기 (FDR + KIS + Naver + DART, yfinance 완전 제거)
+- KR 지표 보충 CLI (`enrich kr` - EPS, BPS, Graham Number)
 - 기술적 지표 수집 (RSI, MFI, MACD, Bollinger Bands, Volume Change)
 - 가치투자 지표 (EPS, BPS, Graham Number)
 - 하이브리드 저장 (Supabase + CSV)

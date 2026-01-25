@@ -35,7 +35,7 @@ uv run python -m cli.main collect all -v           # 상세 출력
 ```
 
 **파이프라인 단계:**
-1. KR 수집 (FDR + Naver)
+1. KR 수집 (FDR + KIS + Naver)
 2. US 수집 (yfinance)
 3. Google Drive 백업 (rclone)
 4. Supabase 적재
@@ -65,6 +65,23 @@ uv run python -m cli.main load --us-only           # US만
 uv run python -m cli.main load --kr-only           # KR만
 uv run python -m cli.main load --date 2026-01-03   # 특정 날짜
 ```
+
+### 지표 보충 (Enrich)
+
+기존 수집 데이터에 누락된 EPS, BPS, Graham Number를 KIS/Naver에서 보충합니다.
+
+```bash
+uv run python -m cli.main enrich kr                        # 최신 날짜 (latest)
+uv run python -m cli.main enrich kr --date 2026-01-23      # 특정 날짜
+uv run python -m cli.main enrich kr --version v3           # 특정 버전
+uv run python -m cli.main enrich kr --dry-run              # 미리보기 (저장 안함)
+uv run python -m cli.main enrich kr -m eps,bps             # 특정 지표만
+```
+
+**보충 소스:**
+- KIS API (primary): EPS, BPS
+- Naver Finance (fallback): EPS, BPS
+- 로컬 계산: Graham Number = √(22.5 × EPS × BPS)
 
 ### 버전 확인
 ```bash

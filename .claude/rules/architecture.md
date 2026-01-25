@@ -16,16 +16,25 @@ stock-screener/
 ├── data-pipeline/        # 데이터 수집 파이프라인
 │   ├── pyproject.toml    # 파이프라인 의존성
 │   ├── cli/              # Typer CLI (Shell script 대체)
-│   │   ├── main.py       # CLI 진입점 (collect, backup, load, update-tickers)
+│   │   ├── main.py       # CLI 진입점 (collect, backup, load, update-tickers, enrich)
 │   │   └── tickers.py    # 티커 유니버스 업데이트
-│   ├── collectors/       # 수집기 (Template Method 패턴)
+│   ├── kr/               # ===== KR 전용 파이프라인 =====
+│   │   ├── pipeline.py   # KR 파이프라인 오케스트레이션
+│   │   ├── config.py     # KR 설정 (KRConfig)
+│   │   ├── sources/      # KR 데이터 소스
+│   │   │   ├── fdr.py    # FinanceDataReader (가격, OHLCV)
+│   │   │   ├── kis.py    # 한국투자증권 API (primary)
+│   │   │   ├── naver.py  # Naver Finance (fallback)
+│   │   │   └── dart.py   # DART 전자공시 (supplement)
+│   │   └── scripts/
+│   │       └── enrich_metrics.py  # EPS/BPS/Graham 보충 스크립트
+│   ├── us/               # ===== US 전용 파이프라인 =====
+│   │   ├── pipeline.py   # US 파이프라인 오케스트레이션
+│   │   └── sources/
+│   │       └── yfinance_source.py  # yfinance 래퍼
+│   ├── collectors/       # 수집기 (레거시, 점진적 마이그레이션)
 │   │   ├── base.py       # BaseCollector 추상 클래스
-│   │   ├── us_collector.py  # US 수집기 (yfinance)
-│   │   └── kr_collector.py  # KR 수집기 (FDR + Naver)
-│   ├── sources/          # 데이터 소스 추상화
-│   │   ├── base.py       # DataSource 프로토콜
-│   │   ├── yfinance_source.py  # yfinance 래퍼 (US)
-│   │   └── fdr_source.py       # FDR + Naver (KR)
+│   │   └── us_collector.py  # US 수집기 (yfinance)
 │   ├── storage/          # 저장소 추상화
 │   │   ├── base.py       # Storage 프로토콜, VersionedPath
 │   │   ├── csv_storage.py      # CSV 저장
@@ -38,9 +47,7 @@ stock-screener/
 │   │   └── constants.py  # 상수 (경로, 배치 크기 등)
 │   ├── common/           # 공통 모듈
 │   │   ├── utils.py      # 유틸리티 (safe_float, get_supabase_client)
-│   │   ├── indicators.py # 기술적 지표 계산 (RSI, MACD, BB, Beta)
-│   │   ├── naver_finance.py # Naver Finance 크롤러 (KR fallback)
-│   │   └── kis_client.py # KIS API 클라이언트 (KR primary)
+│   │   └── indicators.py # 기술적 지표 계산 (RSI, MACD, BB, Beta)
 │   ├── loaders/
 │   │   └── csv_to_db.py  # CSV → Supabase 로딩
 │   └── processors/
@@ -62,9 +69,10 @@ stock-screener/
 **한국 주식** (~2,800개) - **yfinance/pykrx 완전 제거 (2026.01)**:
 - 티커 소스: CSV (`kr_companies.csv`)
 - 가격 + 10개월 OHLCV: FinanceDataReader (네이버 금융)
-- 기초지표 (2단계 소스):
+- 기초지표 (3단계 소스 계층):
   - **KIS API (primary)**: PER, PBR, EPS, BPS, 52주 고/저, 시가총액
   - **Naver Finance (fallback)**: PER, PBR, EPS, BPS, ROE, ROA, 시가총액 (웹 스크래핑)
+  - **DART API (supplement)**: ROA, PS Ratio, EV/EBITDA (공시 재무제표 기반)
 - 기술적 지표: 로컬 계산 (`indicators.py`)
   - RSI, MACD, Bollinger Bands, MFI, Volume Change
   - MA50, MA200 (FDR 히스토리에서 계산)
@@ -73,7 +81,7 @@ stock-screener/
 - 저장: Supabase + CSV
 
 > **Note**: 2026.01부터 yfinance/pykrx Rate Limit 문제로 KR 수집에서 완전 제거.
-> KIS API가 primary 소스, Naver Finance는 fallback으로 사용.
+> KIS API가 primary 소스, Naver Finance는 fallback, DART API는 supplement로 사용.
 
 **데이터 파이프라인** (Python CLI):
 ```bash
@@ -82,7 +90,7 @@ uv run python -m cli.main collect all    # 전체 파이프라인
 ```
 
 파이프라인 단계:
-1. KR 수집 (FDR + Naver)
+1. KR 수집 (FDR + KIS + Naver + DART)
 2. US 수집 (yfinance)
 3. Google Drive 백업 (rclone)
 4. Supabase 적재
@@ -129,10 +137,11 @@ uv run python -m cli.main collect all    # 전체 파이프라인
 | P/E (Trailing) | yfinance | KIS API → Naver (fallback) |
 | P/E (Forward) | yfinance | - |
 | P/B | yfinance | KIS API → Naver (fallback) |
-| P/S | yfinance | - |
-| EV/EBITDA | yfinance | - |
+| P/S | yfinance | DART API (supplement) |
+| EV/EBITDA | yfinance | DART API (supplement) |
 | PEG Ratio | yfinance | - |
-| ROE, ROA | yfinance | Naver (fallback에서만) |
+| ROE | yfinance | Naver (fallback) |
+| ROA | yfinance | DART API (supplement) → Naver (fallback) |
 | Gross Margin | yfinance | - |
 | Net Margin | yfinance | - |
 | Debt/Equity | yfinance | Naver (선택적) |
