@@ -365,16 +365,11 @@ def load_metrics(
 
         # Add company_id column (vectorized lookup)
         if is_kr:
-            # KR: try primary market first, then fallback
-            df["_market"] = df.get("market", pd.Series(["KOSPI"] * len(df)))
-            # Create lookup keys
-            primary_keys = list(zip(df["ticker"], df["_market"]))
-            fallback_market = df["_market"].map(lambda m: "KOSDAQ" if m == "KOSPI" else "KOSPI")
-            fallback_keys = list(zip(df["ticker"], fallback_market))
-            # Vectorized lookup with fallback
+            # KR: try KOSPI first, then KOSDAQ (CSV market column may be "KR" or specific market)
+            # Vectorized lookup: try KOSPI, fallback to KOSDAQ
             df["company_id"] = [
-                ticker_to_id.get(pk) or ticker_to_id.get(fk)
-                for pk, fk in zip(primary_keys, fallback_keys)
+                ticker_to_id.get((t, "KOSPI")) or ticker_to_id.get((t, "KOSDAQ"))
+                for t in df["ticker"]
             ]
         else:
             # US: vectorized lookup using list comprehension (faster than map for dict)
