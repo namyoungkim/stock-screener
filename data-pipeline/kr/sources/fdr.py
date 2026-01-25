@@ -206,7 +206,7 @@ class FDRSource:
                                 ticker=ticker,
                                 error=TimeoutError(
                                     f"Timeout after {self.config.fdr_timeout}s",
-                                    timeout=self.config.fdr_timeout,
+                                    timeout_seconds=self.config.fdr_timeout,
                                     ticker=ticker,
                                 ),
                                 latency_ms=latency,

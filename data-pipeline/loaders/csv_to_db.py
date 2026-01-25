@@ -187,7 +187,8 @@ def load_companies(
     # Read KR companies (vectorized)
     if kr_csv and kr_csv.exists():
         print(f"  Reading {kr_csv.name}...")
-        kr_df = pd.read_csv(kr_csv)
+        # dtype=str to preserve leading zeros in KR tickers (e.g., 005930)
+        kr_df = pd.read_csv(kr_csv, dtype={"ticker": str})
         kr_df["ticker"] = kr_df["ticker"].astype(str)
         kr_df["currency"] = kr_df["currency"].fillna("KRW") if "currency" in kr_df.columns else "KRW"
         kr_df["is_active"] = True
@@ -364,16 +365,11 @@ def load_metrics(
 
         # Add company_id column (vectorized lookup)
         if is_kr:
-            # KR: try primary market first, then fallback
-            df["_market"] = df.get("market", pd.Series(["KOSPI"] * len(df)))
-            # Create lookup keys
-            primary_keys = list(zip(df["ticker"], df["_market"]))
-            fallback_market = df["_market"].map(lambda m: "KOSDAQ" if m == "KOSPI" else "KOSPI")
-            fallback_keys = list(zip(df["ticker"], fallback_market))
-            # Vectorized lookup with fallback
+            # KR: try KOSPI first, then KOSDAQ (CSV market column may be "KR" or specific market)
+            # Vectorized lookup: try KOSPI, fallback to KOSDAQ
             df["company_id"] = [
-                ticker_to_id.get(pk) or ticker_to_id.get(fk)
-                for pk, fk in zip(primary_keys, fallback_keys)
+                ticker_to_id.get((t, "KOSPI")) or ticker_to_id.get((t, "KOSDAQ"))
+                for t in df["ticker"]
             ]
         else:
             # US: vectorized lookup using list comprehension (faster than map for dict)
@@ -419,7 +415,8 @@ def load_metrics(
     # Read KR metrics (vectorized)
     if kr_metrics_csv and kr_metrics_csv.exists():
         print(f"  Reading {kr_metrics_csv.name}...")
-        kr_df = pd.read_csv(kr_metrics_csv)
+        # dtype=str to preserve leading zeros in KR tickers (e.g., 005930)
+        kr_df = pd.read_csv(kr_metrics_csv, dtype={"ticker": str})
         kr_records = process_metrics_df(kr_df, "KOSPI", "yfinance+fdr", is_kr=True, metrics_date=trading_date)
         metrics_to_upsert.extend(kr_records)
 
@@ -452,6 +449,10 @@ def load_prices(
         """Process prices DataFrame to records (vectorized)."""
         df = df.copy()
         df["ticker"] = df["ticker"].astype(str)
+
+        # Rename latest_price to close if exists
+        if "latest_price" in df.columns and "close" not in df.columns:
+            df = df.rename(columns={"latest_price": "close"})
 
         # Add company_id column
         if is_kr:
@@ -508,7 +509,8 @@ def load_prices(
     # Read KR prices (vectorized)
     if kr_prices_csv and kr_prices_csv.exists():
         print(f"  Reading {kr_prices_csv.name}...")
-        kr_df = pd.read_csv(kr_prices_csv)
+        # dtype=str to preserve leading zeros in KR tickers (e.g., 005930)
+        kr_df = pd.read_csv(kr_prices_csv, dtype={"ticker": str})
         kr_records = process_prices_df(kr_df, is_kr=True)
         prices_to_upsert.extend(kr_records)
 

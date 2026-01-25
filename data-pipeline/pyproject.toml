@@ -6,6 +6,7 @@ dependencies = [
     # Data fetching
     "yfinance>=0.2.36",
     "finance-datareader>=0.9.50",
+    "opendartreader>=0.2.1",
     "requests>=2.31.0",
     "aiohttp>=3.9.0",
     "curl-cffi>=0.7.0",
