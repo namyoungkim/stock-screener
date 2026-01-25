@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run:*)",
+      "Bash(npm run:*)",
+      "Bash(ruff:*)",
+      "Bash(pytest:*)",
+      "Bash(cd data-pipeline && uv run python -m cli.main:*)"
+    ],
+    "deny": [
+      "Skill(coding-problem-solver)"
+    ]
+  }
+}

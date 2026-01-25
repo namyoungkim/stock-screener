@@ -146,11 +146,14 @@ out/
 *.sqlite
 
 # Data directory (CSV files stored locally, not in git)
-# New structure: data/YYYY-MM-DD/vN/, data/companies/, data/supabase/
+# New structure: data/{kr,us}/YYYY-MM-DD/vN/
+data/kr/
+data/us/
 data/20*/
 data/companies/
 data/supabase/
 data/latest
+data-pipeline/data/
 
 supabase/.temp/
 
