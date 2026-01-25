@@ -544,14 +544,20 @@ def _run_kr_collection(
     """
     from kr import KRConfig, collect_kr
 
-    # Build config with overrides
-    config_kwargs = {}
-    if batch_size is not None:
-        config_kwargs["history_batch_size"] = batch_size
-    if timeout is not None:
-        config_kwargs["fdr_timeout"] = timeout
+    # Start with environment variable overrides
+    config = KRConfig.from_env()
 
-    config = KRConfig(**config_kwargs) if config_kwargs else None
+    # Apply CLI overrides if provided
+    config_overrides = {}
+    if batch_size is not None:
+        config_overrides["history_batch_size"] = batch_size
+    if timeout is not None:
+        config_overrides["fdr_timeout"] = timeout
+
+    # Create new config with overrides (frozen dataclass, so create new)
+    if config_overrides:
+        from dataclasses import replace
+        config = replace(config, **config_overrides)
 
     # Run async collection (resume not supported for KR)
     return asyncio.run(collect_kr(tickers=tickers, config=config))
