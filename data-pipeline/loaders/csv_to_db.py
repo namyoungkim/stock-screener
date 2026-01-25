@@ -187,7 +187,8 @@ def load_companies(
     # Read KR companies (vectorized)
     if kr_csv and kr_csv.exists():
         print(f"  Reading {kr_csv.name}...")
-        kr_df = pd.read_csv(kr_csv)
+        # dtype=str to preserve leading zeros in KR tickers (e.g., 005930)
+        kr_df = pd.read_csv(kr_csv, dtype={"ticker": str})
         kr_df["ticker"] = kr_df["ticker"].astype(str)
         kr_df["currency"] = kr_df["currency"].fillna("KRW") if "currency" in kr_df.columns else "KRW"
         kr_df["is_active"] = True
@@ -419,7 +420,8 @@ def load_metrics(
     # Read KR metrics (vectorized)
     if kr_metrics_csv and kr_metrics_csv.exists():
         print(f"  Reading {kr_metrics_csv.name}...")
-        kr_df = pd.read_csv(kr_metrics_csv)
+        # dtype=str to preserve leading zeros in KR tickers (e.g., 005930)
+        kr_df = pd.read_csv(kr_metrics_csv, dtype={"ticker": str})
         kr_records = process_metrics_df(kr_df, "KOSPI", "yfinance+fdr", is_kr=True, metrics_date=trading_date)
         metrics_to_upsert.extend(kr_records)
 
@@ -512,7 +514,8 @@ def load_prices(
     # Read KR prices (vectorized)
     if kr_prices_csv and kr_prices_csv.exists():
         print(f"  Reading {kr_prices_csv.name}...")
-        kr_df = pd.read_csv(kr_prices_csv)
+        # dtype=str to preserve leading zeros in KR tickers (e.g., 005930)
+        kr_df = pd.read_csv(kr_prices_csv, dtype={"ticker": str})
         kr_records = process_prices_df(kr_df, is_kr=True)
         prices_to_upsert.extend(kr_records)
 
