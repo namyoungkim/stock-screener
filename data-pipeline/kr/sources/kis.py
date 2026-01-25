@@ -240,7 +240,7 @@ class KISSource:
                 ticker=ticker,
                 error=TimeoutError(
                     f"Timeout after {self.config.kis_timeout}s",
-                    timeout=self.config.kis_timeout,
+                    timeout_seconds=self.config.kis_timeout,
                     ticker=ticker,
                 ),
                 latency_ms=latency,
@@ -426,11 +426,15 @@ class KISSource:
 
     @staticmethod
     def _parse_int(value: str | None) -> int | None:
-        """Parse integer from string."""
+        """Parse integer from string.
+
+        Handles decimal strings like '5621.00' by converting to float first.
+        """
         if not value or value in ("", "-", "0"):
             return None
         try:
-            return int(value.replace(",", ""))
+            # Handle decimal strings (e.g., "5621.00")
+            return int(float(value.replace(",", "")))
         except (ValueError, TypeError):
             return None
 

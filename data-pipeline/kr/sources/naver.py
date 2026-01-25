@@ -227,7 +227,7 @@ class NaverSource:
                     ticker=ticker,
                     error=TimeoutError(
                         f"Timeout after {self.config.naver_timeout}s",
-                        timeout=self.config.naver_timeout,
+                        timeout_seconds=self.config.naver_timeout,
                         ticker=ticker,
                     ),
                     latency_ms=latency,
