@@ -32,12 +32,12 @@ class KRConfig:
     batch_timeout: float = 120.0
 
     # === Batch sizes ===
-    # History fetch: larger batches are fine for FDR
-    history_batch_size: int = 100
+    # History fetch: reduced to prevent Naver rate limiting
+    history_batch_size: int = 50
     # Naver metrics: moderate batches for web scraping
     metrics_batch_size: int = 50
-    # Concurrent workers for FDR history fetch
-    max_workers: int = 8
+    # Concurrent workers for FDR history fetch (reduced from 8 to prevent timeouts)
+    max_workers: int = 4
 
     # === Retry settings (simple) ===
     max_retries: int = 2
@@ -60,10 +60,23 @@ class KRConfig:
         default_factory=lambda: os.environ.get("KIS_APP_SECRET")
     )
 
+    # === DART API (optional) ===
+    dart_api_key: str | None = field(
+        default_factory=lambda: os.environ.get("DART_API_KEY")
+    )
+    # DART API daily limit (default: 10,000)
+    dart_daily_limit: int = 10000
+    dart_timeout: float = 10.0
+
     @property
     def kis_available(self) -> bool:
         """Check if KIS API credentials are available."""
         return bool(self.kis_app_key and self.kis_app_secret)
+
+    @property
+    def dart_available(self) -> bool:
+        """Check if DART API key is available."""
+        return bool(self.dart_api_key)
 
     @classmethod
     def from_env(cls) -> KRConfig:
@@ -72,9 +85,9 @@ class KRConfig:
             fdr_timeout=float(os.environ.get("KR_FDR_TIMEOUT", "10.0")),
             naver_timeout=float(os.environ.get("KR_NAVER_TIMEOUT", "5.0")),
             kis_timeout=float(os.environ.get("KR_KIS_TIMEOUT", "10.0")),
-            history_batch_size=int(os.environ.get("KR_HISTORY_BATCH_SIZE", "100")),
+            history_batch_size=int(os.environ.get("KR_HISTORY_BATCH_SIZE", "50")),
             metrics_batch_size=int(os.environ.get("KR_METRICS_BATCH_SIZE", "50")),
-            max_workers=int(os.environ.get("KR_MAX_WORKERS", "8")),
+            max_workers=int(os.environ.get("KR_MAX_WORKERS", "4")),
             max_retries=int(os.environ.get("KR_MAX_RETRIES", "2")),
         )
 

@@ -13,13 +13,11 @@ Pipeline flow:
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
-
 from common.indicators import (
     calculate_all_technicals,
     calculate_beta,
@@ -30,6 +28,7 @@ from core.types import (
     BatchFetchResult,
     CollectionPhase,
     CollectionResult,
+    FetchResult,
     HistoryData,
     Market,
     MetricsData,
@@ -40,7 +39,7 @@ from observability.logger import get_logger, log_context
 from observability.metrics import MetricsCollector
 
 from .config import KRConfig
-from .sources import FDRSource, KISSource, NaverSource
+from .sources import DARTSource, FDRSource, KISSource, NaverSource
 
 logger = get_logger(__name__)
 
@@ -62,6 +61,7 @@ class KRPipeline:
     _fdr: FDRSource | None = field(default=None, init=False, repr=False)
     _kis: KISSource | None = field(default=None, init=False, repr=False)
     _naver: NaverSource | None = field(default=None, init=False, repr=False)
+    _dart: DARTSource | None = field(default=None, init=False, repr=False)
 
     @property
     def fdr(self) -> FDRSource:
@@ -83,6 +83,13 @@ class KRPipeline:
         if self._naver is None:
             self._naver = NaverSource(config=self.config)
         return self._naver
+
+    @property
+    def dart(self) -> DARTSource:
+        """Get DART source (lazy initialization)."""
+        if self._dart is None:
+            self._dart = DARTSource(config=self.config)
+        return self._dart
 
     async def run(
         self,
@@ -150,6 +157,20 @@ class KRPipeline:
                                 metrics_result = self._merge_metrics_results(
                                     metrics_result, naver_result
                                 )
+
+                            # Supplement missing metrics from Naver for KIS-successful tickers
+                            # KIS API doesn't provide: dividend_yield, roa, current_ratio
+                            kis_success_tickers = [r.ticker for r in metrics_result.succeeded]
+                            if kis_success_tickers:
+                                logger.info(
+                                    f"Supplementing Naver metrics for {len(kis_success_tickers)} tickers"
+                                )
+                                naver_supplement = await self.naver.fetch_metrics(
+                                    kis_success_tickers
+                                )
+                                metrics_result = self._supplement_dividend_yield(
+                                    metrics_result, naver_supplement
+                                )
                         else:
                             logger.info("KIS API not available, using Naver only")
                             metrics_result = await self.naver.fetch_metrics(tickers)
@@ -161,6 +182,46 @@ class KRPipeline:
                             "failed": metrics_result.failed_count,
                         },
                     )
+
+                    # Phase 3.5: Supplement metrics from DART (ROA, PS, EV/EBITDA)
+                    if self.dart.is_available:
+                        # Build market cap lookup from current metrics
+                        market_caps: dict[str, float | None] = {}
+                        for r in metrics_result.succeeded:
+                            if r.data:
+                                market_caps[r.ticker] = r.data.market_cap
+
+                        # Fetch DART metrics for tickers missing ROA, ps_ratio, ev_ebitda
+                        tickers_need_dart = [
+                            r.ticker
+                            for r in metrics_result.succeeded
+                            if r.data and (
+                                r.data.roa is None
+                                or r.data.ps_ratio is None
+                                or r.data.ev_ebitda is None
+                            )
+                        ]
+
+                        if tickers_need_dart:
+                            logger.info(
+                                f"Supplementing DART metrics for {len(tickers_need_dart)} tickers"
+                            )
+                            with self.metrics.phase("dart"):
+                                dart_result = await self.dart.fetch_financial_metrics(
+                                    tickers_need_dart, market_caps
+                                )
+                            metrics_result = self._supplement_dart_metrics(
+                                metrics_result, dart_result
+                            )
+                            logger.info(
+                                "DART supplement completed",
+                                extra={
+                                    "success": dart_result.success_count,
+                                    "failed": dart_result.failed_count,
+                                },
+                            )
+                    else:
+                        logger.debug("DART API not available, skipping ROA/PS/EV calculation")
 
                     # Phase 4: Calculate technical indicators
                     result.phase = CollectionPhase.TECHNICALS
@@ -250,6 +311,100 @@ class KRPipeline:
             results=merged_results,
             total_latency_ms=primary.total_latency_ms + fallback.total_latency_ms,
             source="kis+naver",
+        )
+
+    def _supplement_dividend_yield(
+        self,
+        primary: BatchFetchResult[MetricsData],
+        supplement: BatchFetchResult[MetricsData],
+    ) -> BatchFetchResult[MetricsData]:
+        """Supplement metrics from Naver that KIS doesn't provide.
+
+        KIS API doesn't provide dividend_yield, roa, current_ratio,
+        so we fetch them from Naver and merge into the primary results.
+
+        Args:
+            primary: Primary metrics result (from KIS)
+            supplement: Supplementary metrics result (from Naver)
+
+        Returns:
+            BatchFetchResult with missing metrics supplemented
+        """
+        # Create lookup for Naver metrics
+        naver_data: dict[str, MetricsData] = {}
+        for result in supplement.succeeded:
+            if result.data:
+                naver_data[result.ticker] = result.data
+
+        # Update primary results with missing metrics from Naver
+        updated_results: list[FetchResult[MetricsData]] = []
+        for result in primary.results:
+            if result.is_success and result.data:
+                naver = naver_data.get(result.ticker)
+                if naver:
+                    # Supplement dividend_yield if missing
+                    if result.data.dividend_yield is None and naver.dividend_yield is not None:
+                        result.data.dividend_yield = naver.dividend_yield
+                    # Supplement roa if missing (KIS doesn't provide)
+                    if result.data.roa is None and naver.roa is not None:
+                        result.data.roa = naver.roa
+                    # Supplement current_ratio if missing (KIS doesn't provide)
+                    if result.data.current_ratio is None and naver.current_ratio is not None:
+                        result.data.current_ratio = naver.current_ratio
+            updated_results.append(result)
+
+        return BatchFetchResult(
+            results=updated_results,
+            total_latency_ms=primary.total_latency_ms + supplement.total_latency_ms,
+            source=primary.source,
+        )
+
+    def _supplement_dart_metrics(
+        self,
+        primary: BatchFetchResult[MetricsData],
+        dart_supplement: BatchFetchResult[MetricsData],
+    ) -> BatchFetchResult[MetricsData]:
+        """Supplement metrics from DART (ROA, ps_ratio, ev_ebitda).
+
+        DART provides financial statements from which we calculate:
+        - ROA (Return on Assets)
+        - PS Ratio (Price to Sales)
+        - EV/EBITDA (Enterprise Value to EBITDA)
+
+        Args:
+            primary: Primary metrics result (from KIS/Naver)
+            dart_supplement: Supplementary metrics from DART
+
+        Returns:
+            BatchFetchResult with DART metrics supplemented
+        """
+        # Create lookup for DART metrics
+        dart_data: dict[str, MetricsData] = {}
+        for result in dart_supplement.succeeded:
+            if result.data:
+                dart_data[result.ticker] = result.data
+
+        # Update primary results with DART metrics
+        updated_results: list[FetchResult[MetricsData]] = []
+        for result in primary.results:
+            if result.is_success and result.data:
+                dart = dart_data.get(result.ticker)
+                if dart:
+                    # Supplement ROA if missing or if DART has it
+                    if result.data.roa is None and dart.roa is not None:
+                        result.data.roa = dart.roa
+                    # Supplement PS Ratio if missing
+                    if result.data.ps_ratio is None and dart.ps_ratio is not None:
+                        result.data.ps_ratio = dart.ps_ratio
+                    # Supplement EV/EBITDA if missing
+                    if result.data.ev_ebitda is None and dart.ev_ebitda is not None:
+                        result.data.ev_ebitda = dart.ev_ebitda
+            updated_results.append(result)
+
+        return BatchFetchResult(
+            results=updated_results,
+            total_latency_ms=primary.total_latency_ms + dart_supplement.total_latency_ms,
+            source=primary.source,
         )
 
     def _calculate_technicals(
@@ -386,6 +541,8 @@ class KRPipeline:
                 data.update({
                     "pe_ratio": m.pe_ratio,
                     "pb_ratio": m.pb_ratio,
+                    "ps_ratio": m.ps_ratio,
+                    "ev_ebitda": m.ev_ebitda,
                     "eps": m.eps,
                     "bps": m.bps,
                     "roe": m.roe,
@@ -485,6 +642,8 @@ class KRPipeline:
             await self._kis.close()
         if self._naver:
             await self._naver.close()
+        if self._dart:
+            await self._dart.close()
 
 
 async def collect_kr(
